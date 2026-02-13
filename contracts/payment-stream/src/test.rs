@@ -5,6 +5,8 @@ mod test {
     use soroban_sdk::{token, Address, Env, IntoVal};
     use crate::{PaymentStreamContract, PaymentStreamContractClient, StreamStatus};
 
+
+    
     #[test]
     fn test_create_stream() {
         let env = Env::default();
@@ -1683,5 +1685,149 @@ fn test_stream_resumed_event_emitted() {
         assert_eq!(protocol_metrics.total_streams_created, 3);
     }
 
+    #[test]
+fn test_only_sender_can_pause() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    let token = sac.address();
+
+    let contract_id = env.register(PaymentStreamContract, ());
+    let client = PaymentStreamContractClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0);
+
+    let token_admin = token::StellarAssetClient::new(&env, &token);
+    token_admin.mint(&sender, &1000);
+
+    let stream_id = client.create_stream(
+        &sender,
+        &recipient,
+        &token,
+        &1000,
+        &1000,
+        &0,
+        &100,
+    );
+
+    // Sender can pause (this should work)
+    client.pause_stream(&stream_id);
+
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.status, StreamStatus::Paused);
+}
+
+#[test]
+fn test_only_sender_can_resume() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    let token = sac.address();
+
+    let contract_id = env.register(PaymentStreamContract, ());
+    let client = PaymentStreamContractClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0);
+
+    let token_admin = token::StellarAssetClient::new(&env, &token);
+    token_admin.mint(&sender, &1000);
+
+    let stream_id = client.create_stream(
+        &sender,
+        &recipient,
+        &token,
+        &1000,
+        &1000,
+        &0,
+        &100,
+    );
+
+    // Pause first
+    client.pause_stream(&stream_id);
+
+    // Sender can resume (this should work)
+    client.resume_stream(&stream_id);
+
+    let stream = client.get_stream(&stream_id);
+    assert_eq!(stream.status, StreamStatus::Active);
+}
+
+
+#[test]
+fn test_withdraw_after_pause_and_resume() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    let token = sac.address();
+
+    let contract_id = env.register(PaymentStreamContract, ());
+    let client = PaymentStreamContractClient::new(&env, &contract_id);
+
+    client.initialize(&admin, &fee_collector, &0);
+
+    let token_admin = token::StellarAssetClient::new(&env, &token);
+    token_admin.mint(&sender, &1000);
+
+    let stream_id = client.create_stream(
+        &sender,
+        &recipient,
+        &token,
+        &1000,
+        &1000,
+        &0,
+        &100,
+    );
+
+    // Vest 300 tokens
+    env.ledger().set_timestamp(30);
+    assert_eq!(client.withdrawable_amount(&stream_id), 300);
+
+    // Withdraw 100 tokens
+    client.withdraw(&stream_id, &100);
+    assert_eq!(client.withdrawable_amount(&stream_id), 200);
+
+    // Pause
+    client.pause_stream(&stream_id);
+    assert_eq!(client.withdrawable_amount(&stream_id), 0);
+
+    // Time passes while paused
+    env.ledger().set_timestamp(50);
+    assert_eq!(client.withdrawable_amount(&stream_id), 0);
+
+    // Resume
+    client.resume_stream(&stream_id);
+    assert_eq!(client.withdrawable_amount(&stream_id), 200);
+
+    // Vest another 300
+    env.ledger().set_timestamp(80);
+    assert_eq!(client.withdrawable_amount(&stream_id), 500);
+
+    // Withdraw the rest
+    client.withdraw(&stream_id, &500);
+
+    // Verify recipient received tokens
+    let token_client = token::Client::new(&env, &token);
+    let recipient_balance = token_client.balance(&recipient);
+    assert!(recipient_balance > 0);
+    assert_eq!(recipient_balance, 600); // 100 + 500
+}
     
 }

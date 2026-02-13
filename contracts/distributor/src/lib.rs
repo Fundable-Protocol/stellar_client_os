@@ -669,9 +669,96 @@ mod test {
 
 
 
+#[test]
+    fn test_zero_protocol_fee() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(DistributorContract, ());
+        let client = DistributorContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let fee_address = Address::generate(&env);
+
+        // Initialize with 0% fee
+        client.initialize(&admin, &0, &fee_address);
+
+        let sender = Address::generate(&env);
+        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
+        token_admin.mint(&sender, &10000);
+
+        let mut recipients = Vec::new(&env);
+        recipients.push_back(Address::generate(&env));
+
+        client.distribute_equal(&sender, &token_address, &1000, &recipients);
+
+        // Fee address should have 0 balance
+        assert_eq!(token_client.balance(&fee_address), 0);
+    }
 
 
+    #[test]
+    #[should_panic(expected = "All amounts must be positive")]
+    fn test_distribute_weighted_zero_amount() {
+        let env = Env::default();
+        env.mock_all_auths();
 
+        let admin = Address::generate(&env);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
+        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
+
+        let sender = Address::generate(&env);
+        token_admin.mint(&sender, &10000);
+
+        let mut recipients = Vec::new(&env);
+        recipients.push_back(Address::generate(&env));
+        recipients.push_back(Address::generate(&env));
+
+        let mut amounts = Vec::new(&env);
+        amounts.push_back(100);
+        amounts.push_back(0); // Invalid: zero amount
+
+        distributor_client.distribute_weighted(&sender, &token_address, &recipients, &amounts);
+    }
+
+     #[test]
+    #[should_panic(expected = "Amount too small to distribute")]
+    fn test_distribute_equal_amount_too_small() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
+        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
+
+        let sender = Address::generate(&env);
+        token_admin.mint(&sender, &10000);
+
+        // Create many recipients so amount per recipient becomes 0
+        let mut recipients = Vec::new(&env);
+        for _ in 0..1000 {
+            recipients.push_back(Address::generate(&env));
+        }
+
+        distributor_client.distribute_equal(&sender, &token_address, &10, &recipients);
+    }
+
+    #[test]
+    #[should_panic(expected = "No recipients provided")]
+    fn test_distribute_equal_empty_recipients() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
+        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
+
+        let sender = Address::generate(&env);
+        token_admin.mint(&sender, &10000);
+
+        let recipients = Vec::new(&env);
+        distributor_client.distribute_equal(&sender, &token_address, &1000, &recipients);
+    }
 
 }
 

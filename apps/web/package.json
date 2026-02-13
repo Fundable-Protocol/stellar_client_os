@@ -12,6 +12,7 @@
     },
     "dependencies": {
         "@allbridge/bridge-core-sdk": "^3.29.1",
+        "@fundable/sdk": "workspace:*",
         "@creit.tech/stellar-wallets-kit": "^1.9.5",
         "@fundable/sdk": "workspace:*",
         "@hookform/resolvers": "^5.2.2",
