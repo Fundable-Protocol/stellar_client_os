@@ -45,9 +45,10 @@ export default function OfframpSuccessModal({
 
     if (!isOpen) return null;
 
-    const isCompleted = payoutStatus?.status === "completed" || payoutStatus?.status === "confirmed";
-    const isFailed = payoutStatus?.status === "failed";
-    const isProcessing = !isCompleted && !isFailed;
+    const status = payoutStatus?.status;
+    const isCompleted = status === "completed" || status === "confirmed";
+    const isFailed = status === "failed" || status === "expired";
+    const isProcessing = status === "pending" || status === "processing" || !status;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
