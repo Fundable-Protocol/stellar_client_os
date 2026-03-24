@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { CheckCircle2, Copy, ExternalLink, X, Loader2, XCircle, Clock } from "lucide-react";
+import { CheckCircle2, Copy, ExternalLink, X, Loader2, XCircle, Clock, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import toast from "react-hot-toast";
 import type { QuoteStatusData, BridgeFeeBreakdown } from "@/types/offramp";
@@ -47,6 +47,7 @@ export default function OfframpSuccessModal({
 
     const isCompleted = payoutStatus?.status === "completed" || payoutStatus?.status === "confirmed";
     const isFailed = payoutStatus?.status === "failed";
+    const isProcessing = !isCompleted && !isFailed;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -57,7 +58,7 @@ export default function OfframpSuccessModal({
             />
 
             {/* Modal */}
-            <div className="relative w-full max-w-md rounded-3xl bg-fundable-mid-dark border border-gray-800 p-8 space-y-8 animate-in fade-in zoom-in-95 duration-300">
+            <div className="relative w-full max-w-md rounded-3xl bg-fundable-mid-dark border border-gray-800 p-8 space-y-6 animate-in fade-in zoom-in-95 duration-300">
                 {/* Close Button */}
                 <button
                     onClick={onClose}
@@ -66,34 +67,45 @@ export default function OfframpSuccessModal({
                     <X className="h-5 w-5" />
                 </button>
 
-                {/* Success Icon */}
+                {/* Status Icon */}
                 <div className="flex justify-center">
-                    <div className={`w-20 h-20 rounded-full flex items-center justify-center ${isCompleted ? "bg-green-500/10" : isFailed ? "bg-red-500/10" : "bg-blue-500/10"}`}>
+                    <div className={`w-20 h-20 rounded-full flex items-center justify-center ${isCompleted ? "bg-green-500/10" : isFailed ? "bg-red-500/10" : "bg-fundable-purple/10"}`}>
                         {isCompleted ? (
                             <CheckCircle2 className="h-10 w-10 text-green-500" />
                         ) : isFailed ? (
                             <XCircle className="h-10 w-10 text-red-500" />
                         ) : (
-                            <Loader2 className="h-10 w-10 text-blue-500 animate-spin" />
+                            <Loader2 className="h-10 w-10 text-fundable-purple animate-spin" />
                         )}
                     </div>
                 </div>
 
-                {/* Title */}
+                {/* Title & Processing Time Banner */}
                 <div className="text-center space-y-2">
                     <h2 className="text-2xl font-syne font-bold text-white">
-                        {isCompleted ? "Offramp Complete! 🎉" : isFailed ? "Offramp Failed" : "Offramp Processing"}
+                        {isCompleted ? "Offramp Complete! 🎉" : isFailed ? "Offramp Failed" : "Processing Transfer"}
                     </h2>
-                    <p className="text-fundable-light-grey text-sm">
+                    
+                    {/* Added: Processing Time Banner for Task #62 */}
+                    {isProcessing && (
+                        <div className="inline-flex items-center gap-2 px-3 py-1 bg-fundable-purple/10 border border-fundable-purple/20 rounded-full">
+                            <Clock size={12} className="text-fundable-purple" />
+                            <span className="text-[10px] font-bold text-fundable-purple uppercase tracking-wider">
+                                Estimated: 2-5 Minutes
+                            </span>
+                        </div>
+                    )}
+
+                    <p className="text-fundable-light-grey text-sm px-4">
                         {isCompleted
                             ? "Your funds have been successfully sent to your bank account."
                             : isFailed
-                                ? payoutStatus?.providerMessage || "There was an issue with your transfer. Please contact support."
-                                : "Your transaction is being processed. You can close this window and check back later."}
+                                ? payoutStatus?.providerMessage || "There was an issue with your transfer."
+                                : "Your transaction is on the way. You can safely close this window."}
                     </p>
                 </div>
 
-                {/* Summary Card */}
+                {/* Summary Card with Exchange Rate */}
                 {feeBreakdown && (
                     <div className="space-y-4 p-5 rounded-2xl bg-fundable-dark border border-gray-800">
                         <div className="flex justify-between items-center text-sm">
@@ -102,33 +114,46 @@ export default function OfframpSuccessModal({
                                 {parseFloat(feeBreakdown.sendAmount).toFixed(4)} USDC
                             </span>
                         </div>
+
+                        {/* Added: Exchange Rate for Transparency */}
+                        <div className="flex justify-between items-center text-[11px]">
+                            <span className="text-gray-500 flex items-center gap-1">
+                                Exchange Rate <Info size={10} />
+                            </span>
+                            <span className="text-gray-400 font-mono">
+                                1 USDC = ₦{(parseFloat(feeBreakdown.fiatPayout) / (parseFloat(feeBreakdown.sendAmount) - parseFloat(feeBreakdown.bridgeFee))).toLocaleString()}
+                            </span>
+                        </div>
+
                         <div className="flex justify-between items-center text-sm">
                             <span className="text-fundable-light-grey">Bridge Fee</span>
-                            <span className="text-red-400">
+                            <span className="text-red-400 font-medium">
                                 -{parseFloat(feeBreakdown.bridgeFee).toFixed(4)} USDC
                             </span>
                         </div>
+                        
                         <div className="h-px bg-gray-800" />
+                        
                         <div className="flex justify-between items-center">
-                            <span className="text-sm font-medium text-white">Total Received</span>
-                            <span className="text-xl font-bold text-green-500">
+                            <span className="text-sm font-medium text-white">Total Payout</span>
+                            <span className="text-2xl font-black text-green-500 tracking-tight">
                                 ₦{parseFloat(feeBreakdown.fiatPayout).toLocaleString()}
                             </span>
                         </div>
                     </div>
                 )}
 
-                {/* Transaction Info */}
-                <div className="space-y-4">
+                {/* Transaction Reference & Explorer */}
+                <div className="space-y-3">
                     {payoutStatus?.transactionReference && (
-                        <div className="bg-fundable-dark p-4 rounded-xl border border-gray-800">
-                            <p className="text-[10px] text-fundable-light-grey uppercase tracking-wider mb-2">Reference ID</p>
-                            <div className="flex items-center justify-between">
-                                <code className="text-xs text-white font-mono">{payoutStatus.transactionReference}</code>
-                                <button onClick={handleCopy} className="text-fundable-purple hover:text-white transition-colors">
-                                    {copied ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                                </button>
+                        <div className="bg-fundable-dark/50 p-3 rounded-xl border border-gray-800 flex items-center justify-between">
+                            <div className="overflow-hidden">
+                                <p className="text-[9px] text-gray-500 uppercase font-bold tracking-widest mb-1">Ref ID</p>
+                                <code className="text-[10px] text-white font-mono block truncate pr-4">{payoutStatus.transactionReference}</code>
                             </div>
+                            <button onClick={handleCopy} className="p-2 bg-gray-800 rounded-lg text-fundable-purple hover:text-white transition-colors">
+                                {copied ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                            </button>
                         </div>
                     )}
 
@@ -137,7 +162,7 @@ export default function OfframpSuccessModal({
                             href={`https://stellar.expert/explorer/public/tx/${bridgeTxHash}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex items-center justify-center gap-2 w-full py-3 text-xs text-fundable-purple hover:text-fundable-violet transition-colors font-medium"
+                            className="flex items-center justify-center gap-2 w-full py-2 text-xs text-fundable-purple hover:underline font-medium"
                         >
                             View Stellar Explorer <ExternalLink className="h-3 w-3" />
                         </a>
@@ -147,7 +172,7 @@ export default function OfframpSuccessModal({
                 {/* Action Button */}
                 <Button
                     onClick={onClose}
-                    className="w-full h-14 rounded-2xl font-bold text-fundable-dark bg-gradient-to-r from-fundable-purple-2 to-purple-500 hover:opacity-90 active:scale-[0.98] transition-all"
+                    className="w-full h-14 rounded-2xl font-bold text-fundable-dark bg-gradient-to-r from-fundable-purple-2 to-purple-500 hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-purple-500/20"
                 >
                     {isCompleted ? "Done" : "Close"}
                 </Button>
