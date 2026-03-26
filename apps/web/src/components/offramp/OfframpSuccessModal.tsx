@@ -53,22 +53,31 @@ export default function OfframpSuccessModal({
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             {/* Backdrop */}
             <div
+                aria-hidden="true"
                 className="absolute inset-0 bg-fundable-dark/80 backdrop-blur-sm"
                 onClick={onClose}
             />
 
             {/* Modal */}
-            <div className="relative w-full max-w-md rounded-3xl bg-fundable-mid-dark border border-gray-800 p-8 space-y-8 animate-in fade-in zoom-in-95 duration-300">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="offramp-success-title"
+                aria-describedby="offramp-success-desc"
+                aria-live="polite"
+                className="relative w-full max-w-md rounded-3xl bg-fundable-mid-dark border border-gray-800 p-8 space-y-8 animate-in fade-in zoom-in-95 duration-300"
+            >
                 {/* Close Button */}
                 <button
                     onClick={onClose}
+                    aria-label="Close offramp status"
                     className="absolute top-6 right-6 text-gray-500 hover:text-white transition-colors"
                 >
-                    <X className="h-5 w-5" />
+                    <X className="h-5 w-5" aria-hidden="true" />
                 </button>
 
                 {/* Success Icon */}
-                <div className="flex justify-center">
+                <div className="flex justify-center" aria-hidden="true">
                     <div className={`w-20 h-20 rounded-full flex items-center justify-center ${isCompleted ? "bg-green-500/10" : isFailed ? "bg-red-500/10" : "bg-blue-500/10"}`}>
                         {isCompleted ? (
                             <CheckCircle2 className="h-10 w-10 text-green-500" />
@@ -82,10 +91,10 @@ export default function OfframpSuccessModal({
 
                 {/* Title */}
                 <div className="text-center space-y-2">
-                    <h2 className="text-2xl font-syne font-bold text-white">
+                    <h2 id="offramp-success-title" className="text-2xl font-syne font-bold text-white">
                         {isCompleted ? "Offramp Complete! 🎉" : isFailed ? "Offramp Failed" : "Offramp Processing"}
                     </h2>
-                    <p className="text-fundable-light-grey text-sm">
+                    <p id="offramp-success-desc" className="text-fundable-light-grey text-sm">
                         {isCompleted
                             ? "Your funds have been successfully sent to your bank account."
                             : isFailed
@@ -144,7 +153,7 @@ export default function OfframpSuccessModal({
                             <p className="text-[10px] text-fundable-light-grey uppercase tracking-wider mb-2">Reference ID</p>
                             <div className="flex items-center justify-between">
                                 <code className="text-xs text-white font-mono">{payoutStatus.transactionReference}</code>
-                                <button onClick={handleCopy} className="text-fundable-purple hover:text-white transition-colors">
+                                <button onClick={handleCopy} aria-label={copied ? "Reference copied" : "Copy reference ID"} className="text-fundable-purple hover:text-white transition-colors">
                                     {copied ? <CheckCircle2 className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
                                 </button>
                             </div>

@@ -53,22 +53,33 @@ export default function OfframpQuoteModal({
 
     return (
         <div
+            role="presentation"
             className="fixed inset-0 bg-fundable-dark/80 backdrop-blur-sm flex justify-center items-center z-50"
             onClick={handleBackdropClick}
         >
-            <div className="bg-fundable-mid-dark border border-fundable-purple rounded-2xl p-6 w-full max-w-md mx-4 relative">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="offramp-quote-title"
+                aria-describedby="offramp-quote-desc"
+                className="bg-fundable-mid-dark border border-fundable-purple rounded-2xl p-6 w-full max-w-md mx-4 relative"
+            >
                 {/* Close Button */}
                 <button
                     onClick={onClose}
                     disabled={isLoading}
+                    aria-label="Close offramp confirmation"
                     className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
                 >
-                    <X className="h-5 w-5" />
+                    <X className="h-5 w-5" aria-hidden="true" />
                 </button>
 
-                <h3 className="text-xl font-syne font-semibold text-white mb-6">
+                <h3 id="offramp-quote-title" className="text-xl font-syne font-semibold text-white mb-6">
                     Confirm Offramp
                 </h3>
+                <p id="offramp-quote-desc" className="sr-only">
+                    Review the transaction breakdown and confirm your offramp request.
+                </p>
 
                 <div className="space-y-4">
                     <div className="bg-fundable-dark p-4 rounded-lg">

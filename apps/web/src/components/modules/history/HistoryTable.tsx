@@ -77,14 +77,16 @@ const HistoryTable = ({
                         value={limit.toString()}
                         setValue={(v) => onLimitChange(parseInt(v))}
                         placeholder="Limit"
+                        title="Rows per page"
                     />
                 </div>
                 <Button
                     variant="outline"
                     className="border-zinc-800 bg-zinc-900 text-white hover:bg-zinc-800"
                     onClick={onExport}
+                    aria-label="Export transaction history as CSV"
                 >
-                    <Download className="mr-2 h-4 w-4" />
+                    <Download className="mr-2 h-4 w-4" aria-hidden="true" />
                     Export CSV
                 </Button>
             </div>
@@ -143,7 +145,7 @@ const HistoryTable = ({
             </div>
 
             <div className="flex items-center justify-between">
-                <p className="text-sm text-zinc-500">
+                <p className="text-sm text-zinc-500" aria-live="polite" aria-atomic="true">
                     Showing {data.length} of {totalCount} transactions
                 </p>
                 <Pagination>

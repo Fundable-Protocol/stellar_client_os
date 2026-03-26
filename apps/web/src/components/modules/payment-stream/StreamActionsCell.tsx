@@ -98,9 +98,8 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
         <>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="h-8 w-8 p-0 hover:bg-zinc-700" disabled={isLoading}>
-                        <span className="sr-only">Open menu</span>
-                        <MoreHorizontal className="h-4 w-4 text-white" />
+                    <Button variant="ghost" className="h-8 w-8 p-0 hover:bg-zinc-700" disabled={isLoading} aria-label={`Stream actions for stream ${stream.id}`}>
+                        <MoreHorizontal className="h-4 w-4 text-white" aria-hidden="true" />
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">

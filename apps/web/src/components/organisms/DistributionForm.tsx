@@ -84,11 +84,12 @@ export const DistributionForm = memo(function DistributionForm({
             onChange={handleTotalAmountChange}
             disabled={isLoading}
             aria-invalid={state.errors.some(e => e.field === 'totalAmount')}
+            aria-describedby={state.errors.some(e => e.field === 'totalAmount') ? 'totalAmount-error' : undefined}
           />
           {state.errors
             .filter(e => e.field === 'totalAmount')
             .map((error, index) => (
-              <p key={index} className="text-sm text-red-400">
+              <p key={index} id={index === 0 ? 'totalAmount-error' : undefined} role="alert" className="text-sm text-red-400">
                 {error.message}
               </p>
             ))}
@@ -122,7 +123,7 @@ export const DistributionForm = memo(function DistributionForm({
 
       {/* Form Errors */}
       {state.errors.length > 0 && (
-        <div className="bg-red-900/20 border border-red-700 rounded-lg p-4">
+        <div role="alert" aria-live="assertive" className="bg-red-900/20 border border-red-700 rounded-lg p-4">
           <h4 className="text-sm font-medium text-red-400 mb-2">
             Please fix the following errors:
           </h4>

@@ -27,10 +27,6 @@ const getHeaders = (walletId?: string) => ({
     ...(walletId ? { "x-wallet-id": walletId } : {}),
 });
 
-const realOfframpService = {
-    /**
-     * Sync wallet address with backend
-     */
 async function fetchWithRetry(input: string, init?: RequestInit): Promise<Response> {
     return withRetry(async () => {
         const res = await fetch(input, init);
@@ -39,7 +35,7 @@ async function fetchWithRetry(input: string, init?: RequestInit): Promise<Respon
     });
 }
 
-export const offrampService = {
+const realOfframpService = {
     async syncWallet(walletId: string): Promise<{ success: boolean; message: string }> {
         try {
             const res = await fetchWithRetry(`${OFFRAMP_API_BASE}/sync`, {

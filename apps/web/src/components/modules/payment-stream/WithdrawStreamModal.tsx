@@ -171,6 +171,7 @@ export function WithdrawStreamModal({
                 size="sm"
                 onClick={() => setValue("useMax", true)}
                 disabled={isSubmitting || isLoadingAmount}
+                aria-pressed={useMax}
               >
                 Max
               </Button>
@@ -180,6 +181,7 @@ export function WithdrawStreamModal({
                 size="sm"
                 onClick={() => setValue("useMax", false)}
                 disabled={isSubmitting}
+                aria-pressed={!useMax}
               >
                 Custom
               </Button>
@@ -196,13 +198,16 @@ export function WithdrawStreamModal({
                   type="number"
                   step="0.0000001"
                   placeholder="0.00"
+                  aria-label={`Withdrawal amount in ${stream.tokenSymbol}`}
+                  aria-describedby={errors.amount ? "withdraw-amount-error" : undefined}
+                  aria-invalid={!!errors.amount}
                   {...register("amount")}
                   disabled={isSubmitting}
                 />
               </div>
             )}
             {errors.amount && (
-              <p className="text-sm text-red-400">{errors.amount.message}</p>
+              <p id="withdraw-amount-error" role="alert" className="text-sm text-red-400">{errors.amount.message}</p>
             )}
           </div>
 
@@ -217,6 +222,7 @@ export function WithdrawStreamModal({
                 size="sm"
                 onClick={() => setValue("useSelf", true)}
                 disabled={isSubmitting}
+                aria-pressed={useSelf}
               >
                 Self
               </Button>
@@ -226,6 +232,7 @@ export function WithdrawStreamModal({
                 size="sm"
                 onClick={() => setValue("useSelf", false)}
                 disabled={isSubmitting}
+                aria-pressed={!useSelf}
               >
                 Other Address
               </Button>
@@ -235,11 +242,14 @@ export function WithdrawStreamModal({
               <div className="space-y-1">
                 <Input
                   placeholder="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+                  aria-label="Withdrawal destination address"
+                  aria-describedby={errors.withdrawTo ? "withdraw-to-error" : undefined}
+                  aria-invalid={!!errors.withdrawTo}
                   {...register("withdrawTo")}
                   disabled={isSubmitting}
                 />
                 {errors.withdrawTo && (
-                  <p className="text-sm text-red-400">{errors.withdrawTo.message}</p>
+                  <p id="withdraw-to-error" role="alert" className="text-sm text-red-400">{errors.withdrawTo.message}</p>
                 )}
               </div>
             )}

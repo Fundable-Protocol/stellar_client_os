@@ -2,7 +2,7 @@
 
 import React, { memo, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RecipientRow } from '@/components/molecules/RecipientRow';
 import { FileUploadArea } from '@/components/molecules/FileUploadArea';
 import { Plus, Upload } from 'lucide-react';

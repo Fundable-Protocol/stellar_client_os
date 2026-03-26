@@ -17,7 +17,7 @@ const StatsOverview = () => {
 
     const { data: streams, isLoading: isLoadingStreams } = useQuery({
         queryKey: ["payment-streams-stats", address],
-        queryFn: () => service.getPaymentStreams(address!),
+        queryFn: () => service.getStreams(address!),
         enabled: !!address,
     });
 

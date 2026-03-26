@@ -215,11 +215,12 @@ function StreamsTable({
                                     : pageSize[0].label
                             }
                             setValue={handlePageSizeChange}
+                            title="Rows per page"
                         />
                     </PaginationContent>
 
                     <PaginationContent className="hidden lg:flex flex-col sm:flex-row sm:space-y-0 sm:space-x-6 lg:space-x-8">
-                        <div className="flex w-[100px] items-center justify-center text-sm font-medium text-zinc-300">
+                        <div className="flex w-[100px] items-center justify-center text-sm font-medium text-zinc-300" aria-live="polite" aria-atomic="true">
                             Page {page} of {pageCount}
                         </div>
                     </PaginationContent>

@@ -101,10 +101,12 @@ export function RecipientRow({
               addressError && 'border-red-500 focus:border-red-500 focus:ring-red-500/20'
             )}
             aria-label={`Recipient ${index + 1} address`}
+            aria-invalid={!!addressError}
+            aria-describedby={addressError ? `recipient-${index}-address-error` : undefined}
           />
           {addressError && (
-            <div className="flex items-center gap-1 text-xs text-red-400">
-              <AlertCircle className="h-3 w-3" />
+            <div id={`recipient-${index}-address-error`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+              <AlertCircle className="h-3 w-3" aria-hidden="true" />
               <span>{addressError}</span>
             </div>
           )}
@@ -126,10 +128,12 @@ export function RecipientRow({
                 amountError && 'border-red-500 focus:border-red-500 focus:ring-red-500/20'
               )}
               aria-label={`Recipient ${index + 1} amount`}
+              aria-invalid={!!amountError}
+              aria-describedby={amountError ? `recipient-${index}-amount-error` : undefined}
             />
             {amountError && (
-              <div className="flex items-center gap-1 text-xs text-red-400">
-                <AlertCircle className="h-3 w-3" />
+              <div id={`recipient-${index}-amount-error`} role="alert" className="flex items-center gap-1 text-xs text-red-400">
+                <AlertCircle className="h-3 w-3" aria-hidden="true" />
                 <span>{amountError}</span>
               </div>
             )}

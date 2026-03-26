@@ -37,9 +37,9 @@ const ActionsCell = ({ distribution }: ActionsCellProps) => {
                     <Button
                         variant="ghost"
                         className="h-8 w-8 p-0 hover:bg-zinc-800"
+                        aria-label={`Actions for distribution ${distribution.transaction_hash ?? ""}`}
                     >
-                        <span className="sr-only">Open menu</span>
-                        <MoreHorizontal className="h-4 w-4 text-white" />
+                        <MoreHorizontal className="h-4 w-4 text-white" aria-hidden="true" />
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent

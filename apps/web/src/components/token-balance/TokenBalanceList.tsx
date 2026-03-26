@@ -196,7 +196,7 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
   // Render: Loading state
   if (loading) {
     return (
-      <div className={`space-y-3 ${className}`}>
+      <div className={`space-y-3 ${className}`} aria-busy="true" aria-label="Loading token balances">
         {/* Skeleton loading placeholders matching token balance layout */}
         {/* Requirements 4.1, 4.2, 4.3: Use Skeleton component from UI library */}
         {[1, 2, 3].map((i) => (
@@ -292,7 +292,7 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
       >
         <div className="mb-4 flex justify-center">
             <div className="w-12 h-12 rounded-full bg-zinc-800 flex items-center justify-center">
-                <WalletIcon className="w-6 h-6 text-zinc-500" />
+                <Wallet className="w-6 h-6 text-zinc-500" />
             </div>
         </div>
         <h3 className="text-zinc-50 font-medium mb-1">No tokens found</h3>
@@ -319,7 +319,7 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
 
   // Render: Success state with token list
   return (
-    <div className={`space-y-3 ${className}`}>
+    <div className={`space-y-3 ${className}`} aria-live="polite" aria-label="Token balances">
       {balances?.map((balance) => (
         <TokenBalance
           key={`${balance.assetCode}-${balance.assetIssuer || "native"}`}

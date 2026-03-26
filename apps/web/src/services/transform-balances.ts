@@ -64,9 +64,5 @@ export function extractBalances(accountInfo: AccountInfo): TokenBalanceData[] {
         iconUrl,
       };
     })
-    .filter((balance): balance is TokenBalanceData => {
-      // Filter out entries with undefined assetCode
-      // This removes liquidity_pool_shares and other non-displayable types
-      return balance.assetCode !== undefined;
-    });
+    .filter((balance) => balance.assetCode !== undefined) as TokenBalanceData[];
 }
