@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { createTestnetService } from "@/services";
 import { DISTRIBUTOR_CONTRACT_ID, PAYMENT_STREAM_CONTRACT_ID } from "@/lib/constants";
 import { useMemo } from "react";
+import { withAbortSignal } from "@/utils/retry";
 
 const StatsOverview = () => {
     const { address } = useWallet();
@@ -17,7 +18,10 @@ const StatsOverview = () => {
 
     const { data: streams, isLoading: isLoadingStreams } = useQuery({
         queryKey: ["payment-streams-stats", address],
-        queryFn: () => service.getStreams(address!),
+        queryFn: ({ signal }) =>
+            address
+                ? withAbortSignal(service.getStreams(address), signal)
+                : Promise.resolve([]),
         enabled: !!address,
     });
 

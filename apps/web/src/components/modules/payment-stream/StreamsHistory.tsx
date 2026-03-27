@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { streamColumns } from "./streamColumns";
 import StreamActionsCell from "./StreamActionsCell";
 import type { StreamRecord } from "@/lib/validations";
+import { withAbortSignal } from "@/utils/retry";
 
 // Mock API function - replace with real API call when backend is ready
 async function fetchStreams(
@@ -127,13 +128,16 @@ export const StreamsHistory = () => {
 
     const { data: streamsData, isPending } = useQuery({
         queryKey: ["payment-streams-table", statusFilter, page, limit, activeTab, address],
-        queryFn: () =>
-            fetchStreams(address ?? "", {
-                page,
-                limit,
-                type: activeTab,
-                status: statusFilter !== "all" ? statusFilter : undefined,
-            }),
+        queryFn: ({ signal }) =>
+            withAbortSignal(
+                fetchStreams(address ?? "", {
+                    page,
+                    limit,
+                    type: activeTab,
+                    status: statusFilter !== "all" ? statusFilter : undefined,
+                }),
+                signal
+            ),
         enabled: !!address && isConnected,
     });
 

@@ -52,7 +52,7 @@ import {
   ValidationError,
   parseError,
 } from './errors';
-import { withRetry } from '@/utils/retry';
+import { isAbortError, withAbortSignal, withRetry } from '@/utils/retry';
 
 // Default configuration values
 const DEFAULT_TIMEOUT = 30; // seconds
@@ -95,10 +95,10 @@ export class StellarService {
    * @param address - Stellar account address
    * @returns Account information including balances
    */
-  async getAccount(address: string): Promise<AccountInfo> {
+  async getAccount(address: string, signal?: AbortSignal): Promise<AccountInfo> {
     return withRetry(async () => {
       try {
-        const account = await this.horizonServer.loadAccount(address);
+        const account = await withAbortSignal(this.horizonServer.loadAccount(address), signal);
 
         const balances: AccountBalance[] = account.balances.map((bal: any) => ({
           balance: bal.balance,
@@ -113,13 +113,16 @@ export class StellarService {
           balances,
         };
       } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
         const err = error as Error & { response?: { status?: number } };
         if (err?.response?.status === 404) {
           throw new AccountNotFoundError(address, err); // 404 — not retried
         }
         throw parseError(error);
       }
-    }, { maxRetries: this.maxRetries });
+    }, { maxRetries: this.maxRetries, signal });
   }
 
   /**

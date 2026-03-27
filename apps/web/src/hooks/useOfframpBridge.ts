@@ -10,6 +10,7 @@ import {
     getMockDelay,
     isOfframpMockEnabled,
 } from "@/services/offramp.mock";
+import { isAbortError } from "@/utils/retry";
 import type {
     OfframpStep,
     OfframpFormState,
@@ -134,13 +135,22 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
     // ---------- Effects: Bank Loading ----------
 
     useEffect(() => {
+        const controller = new AbortController();
+
         const fetchBanks = async () => {
             setIsLoadingBanks(true);
             setBanks([]);
             setFormState(prev => ({ ...prev, bankCode: "", accountNumber: "", accountName: "" }));
 
             try {
-                const result = await offrampService.getBankList(formState.country, address || undefined);
+                const result = await offrampService.getBankList(
+                    formState.country,
+                    address || undefined,
+                    controller.signal
+                );
+                if (controller.signal.aborted) {
+                    return;
+                }
                 if (result.success && result.data) {
                     // Deduplicate banks
                     const uniqueBanks = result.data.filter(
@@ -150,13 +160,19 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
                     setBanks(uniqueBanks);
                 }
             } catch (error) {
+                if (isAbortError(error)) {
+                    return;
+                }
                 console.error("Failed to load banks:", error);
             } finally {
-                setIsLoadingBanks(false);
+                if (!controller.signal.aborted) {
+                    setIsLoadingBanks(false);
+                }
             }
         };
 
         fetchBanks();
+        return () => controller.abort();
     }, [formState.country, address]);
 
     // ---------- Effects: Account Verification ----------
@@ -167,6 +183,7 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
             return;
         }
 
+        const controller = new AbortController();
         const timer = setTimeout(async () => {
             setIsVerifyingAccount(true);
             try {
@@ -174,22 +191,34 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
                     formState.bankCode,
                     formState.accountNumber,
                     formState.country,
-                    address || undefined
+                    address || undefined,
+                    controller.signal
                 );
+                if (controller.signal.aborted) {
+                    return;
+                }
 
                 if (result.success && result.data) {
                     setFormState(prev => ({ ...prev, accountName: result.data!.accountName }));
                 } else {
                     setFormState(prev => ({ ...prev, accountName: "" }));
                 }
-            } catch {
+            } catch (error) {
+                if (isAbortError(error)) {
+                    return;
+                }
                 setFormState(prev => ({ ...prev, accountName: "" }));
             } finally {
-                setIsVerifyingAccount(false);
+                if (!controller.signal.aborted) {
+                    setIsVerifyingAccount(false);
+                }
             }
         }, 500);
 
-        return () => clearTimeout(timer);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
     }, [formState.bankCode, formState.accountNumber, formState.country, address]);
 
     // ---------- Effects: Real-time Quote ----------
@@ -202,6 +231,7 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
             return;
         }
 
+        const controller = new AbortController();
         const fetchQuote = async () => {
             setIsLoadingQuote(true);
             try {
@@ -210,7 +240,10 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
                     amount: amount,
                     country: formState.country,
                     currency: formState.country === "NG" ? "NGN" : formState.country === "GH" ? "GHS" : "KES",
-                });
+                }, controller.signal);
+                if (controller.signal.aborted) {
+                    return;
+                }
 
                 if (result.success && result.data?.best) {
                     setQuote(result.data.best);
@@ -220,15 +253,23 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
                     setQuoteError(result.error || "No rates available");
                 }
             } catch (error) {
+                if (isAbortError(error)) {
+                    return;
+                }
                 setQuote(null);
                 setQuoteError("Failed to fetch rates");
             } finally {
-                setIsLoadingQuote(false);
+                if (!controller.signal.aborted) {
+                    setIsLoadingQuote(false);
+                }
             }
         };
 
         const timer = setTimeout(fetchQuote, 500);
-        return () => clearTimeout(timer);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
     }, [formState.amount, formState.token, formState.country]);
 
     // ---------- Payout Logic ----------

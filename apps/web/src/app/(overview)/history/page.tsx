@@ -12,6 +12,7 @@ import { HistoryRecord } from "@/services/types";
 import AppSelect from "@/components/molecules/AppSelect";
 import { createTestnetService } from "@/services";
 import { DISTRIBUTOR_CONTRACT_ID, PAYMENT_STREAM_CONTRACT_ID } from "@/lib/constants";
+import { withAbortSignal } from "@/utils/retry";
 
 const HistoryPage = () => {
     const { address } = useWallet();
@@ -26,7 +27,10 @@ const HistoryPage = () => {
 
     const { data: history, isLoading } = useQuery<HistoryRecord[]>({
         queryKey: ["transaction-history", address],
-        queryFn: () => service.getTransactionHistory(address!),
+        queryFn: ({ signal }) =>
+            address
+                ? withAbortSignal(service.getTransactionHistory(address), signal)
+                : Promise.resolve([]),
         enabled: !!address,
     });
 

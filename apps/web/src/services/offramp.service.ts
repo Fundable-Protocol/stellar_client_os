@@ -10,7 +10,7 @@ import type {
     CreateOfframpResponse,
     QuoteStatusResponse,
 } from "@/types/offramp";
-import { withRetry, RetryableError } from "@/utils/retry";
+import { withRetry, RetryableError, isAbortError } from "@/utils/retry";
 import {
     isOfframpMockEnabled,
     mockOfframpService,
@@ -27,21 +27,26 @@ const getHeaders = (walletId?: string) => ({
     ...(walletId ? { "x-wallet-id": walletId } : {}),
 });
 
-async function fetchWithRetry(input: string, init?: RequestInit): Promise<Response> {
+async function fetchWithRetry(input: string, init?: RequestInit, signal?: AbortSignal): Promise<Response> {
+    const requestInit: RequestInit = signal ? { ...init, signal } : { ...init };
+
     return withRetry(async () => {
-        const res = await fetch(input, init);
+        const res = await fetch(input, requestInit);
         if (res.status >= 500) throw new RetryableError(res.statusText, res.status);
         return res;
-    });
+    }, { signal });
 }
 
 const realOfframpService = {
-    async syncWallet(walletId: string): Promise<{ success: boolean; message: string }> {
+    async syncWallet(
+        walletId: string,
+        signal?: AbortSignal
+    ): Promise<{ success: boolean; message: string }> {
         try {
             const res = await fetchWithRetry(`${OFFRAMP_API_BASE}/sync`, {
                 method: "GET",
                 headers: getHeaders(walletId),
-            });
+            }, signal);
 
             const data = await res.json();
             if (!res.ok) {
@@ -51,6 +56,9 @@ const realOfframpService = {
 
             return { success: true, message: data.message || "Wallet synced" };
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
             console.error("Wallet sync failed:", error);
             return {
                 success: false,
@@ -59,12 +67,15 @@ const realOfframpService = {
         }
     },
 
-    async getAggregatedRates(params: {
-        token: string;
-        amount: number;
-        country: string;
-        currency: string;
-    }): Promise<AggregatedRatesResponse> {
+    async getAggregatedRates(
+        params: {
+            token: string;
+            amount: number;
+            country: string;
+            currency: string;
+        },
+        signal?: AbortSignal
+    ): Promise<AggregatedRatesResponse> {
         try {
             const queryParams = new URLSearchParams({
                 token: params.token,
@@ -77,7 +88,7 @@ const realOfframpService = {
             const res = await fetchWithRetry(`${OFFRAMP_API_BASE}/rates?${queryParams}`, {
                 method: "GET",
                 headers: getHeaders(),
-            });
+            }, signal);
 
             const data = await res.json();
 
@@ -90,6 +101,9 @@ const realOfframpService = {
 
             return { success: true, data: data.data || data };
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Failed to get rates",
@@ -99,14 +113,15 @@ const realOfframpService = {
 
     async createOfframp(
         request: Omit<CreateOfframpRequest, "network">,
-        walletId: string
+        walletId: string,
+        signal?: AbortSignal
     ): Promise<CreateOfframpResponse> {
         try {
             const res = await fetchWithRetry(`${OFFRAMP_API_BASE}/create`, {
                 method: "POST",
                 headers: getHeaders(walletId),
                 body: JSON.stringify({ ...request, network: "polygon" }),
-            });
+            }, signal);
 
             const data = await res.json();
 
@@ -117,6 +132,9 @@ const realOfframpService = {
 
             return { success: true, data: data.data || data };
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Failed to create offramp",
@@ -124,12 +142,16 @@ const realOfframpService = {
         }
     },
 
-    async getBankList(country: OfframpCountry, walletId?: string): Promise<BankListResponse> {
+    async getBankList(
+        country: OfframpCountry,
+        walletId?: string,
+        signal?: AbortSignal
+    ): Promise<BankListResponse> {
         try {
             const res = await fetchWithRetry(`${OFFRAMP_API_BASE}/banks?country=${country}`, {
                 method: "GET",
                 headers: getHeaders(walletId),
-            });
+            }, signal);
 
             const data = await res.json();
 
@@ -140,6 +162,9 @@ const realOfframpService = {
 
             return { success: true, data: data.data || data };
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Failed to fetch bank list",
@@ -151,14 +176,15 @@ const realOfframpService = {
         bankCode: string,
         accountNumber: string,
         country: string,
-        walletId?: string
+        walletId?: string,
+        signal?: AbortSignal
     ): Promise<VerifyBankAccountResponse> {
         try {
             const res = await fetchWithRetry(`${OFFRAMP_API_BASE}/verify-account`, {
                 method: "POST",
                 headers: getHeaders(walletId),
                 body: JSON.stringify({ bankCode, accountNumber, country }),
-            });
+            }, signal);
 
             const data = await res.json();
 
@@ -171,6 +197,9 @@ const realOfframpService = {
 
             return { success: true, data: data.data || data };
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Failed to verify bank account",
@@ -195,14 +224,15 @@ const realOfframpService = {
             amountUsd?: number;
             amountLocal?: number;
         },
-        walletId?: string
+        walletId?: string,
+        signal?: AbortSignal
     ): Promise<{ success: boolean; data?: unknown; error?: string }> {
         try {
             const res = await fetchWithRetry(`${OFFRAMP_API_BASE}/quote/save`, {
                 method: "POST",
                 headers: getHeaders(walletId),
                 body: JSON.stringify(params),
-            });
+            }, signal);
 
             const data = await res.json();
 
@@ -212,6 +242,9 @@ const realOfframpService = {
 
             return { success: true, data: data.data || data };
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Failed to save quote",
@@ -222,14 +255,15 @@ const realOfframpService = {
     async updateQuoteTxHash(
         transactionReference: string,
         txHash: string,
-        walletId?: string
+        walletId?: string,
+        signal?: AbortSignal
     ): Promise<{ success: boolean; data?: unknown; error?: string }> {
         try {
             const res = await fetchWithRetry(`${OFFRAMP_API_BASE}/quote/update-tx`, {
                 method: "POST",
                 headers: getHeaders(walletId),
                 body: JSON.stringify({ transactionReference, txHash }),
-            });
+            }, signal);
 
             const data = await res.json();
 
@@ -239,6 +273,9 @@ const realOfframpService = {
 
             return { success: true, data: data.data || data };
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Failed to update tx hash",
@@ -248,7 +285,8 @@ const realOfframpService = {
 
     async getQuoteStatus(
         transactionReference: string,
-        walletId?: string
+        walletId?: string,
+        signal?: AbortSignal
     ): Promise<QuoteStatusResponse> {
         try {
             const res = await fetchWithRetry(
@@ -256,7 +294,8 @@ const realOfframpService = {
                 {
                     method: "GET",
                     headers: getHeaders(walletId),
-                }
+                },
+                signal
             );
 
             const data = await res.json();
@@ -270,6 +309,9 @@ const realOfframpService = {
 
             return { success: true, data: data.data || data };
         } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Failed to get quote status",

@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { withdrawStreamSchema, type WithdrawStreamFormData, type StreamRecord } from "@/lib/validations"
 import { StellarService } from "@/lib/stellar"
+import { isAbortError } from "@/utils/retry"
 
 interface WithdrawStreamModalProps {
   open: boolean
@@ -59,25 +60,25 @@ export function WithdrawStreamModal({
   useEffect(() => {
     if (!open || !stream.id) return
 
-    let cancelled = false
+    const controller = new AbortController()
     setIsLoadingAmount(true)
 
-    StellarService.getWithdrawableAmount(stream.id)
+    StellarService.getWithdrawableAmount(stream.id, controller.signal)
       .then(amount => {
-        if (cancelled) return
+        if (controller.signal.aborted) return
         setWithdrawableAmount(amount)
       })
       .catch(error => {
-        if (cancelled) return
+        if (isAbortError(error)) return
         console.error("Failed to fetch withdrawable amount:", error)
         onError?.("Failed to fetch withdrawable amount")
       })
       .finally(() => {
-        if (!cancelled) setIsLoadingAmount(false)
+        if (!controller.signal.aborted) setIsLoadingAmount(false)
       })
 
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [open, stream.id, onError])
 

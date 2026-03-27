@@ -1,8 +1,9 @@
-import { server } from './stellar';
-import { PAYMENT_STREAM_CONTRACT_ID } from './constants';
 import { Stream, StreamStatus } from '../types';
+import { throwIfAborted } from '@/utils/retry';
 
-export async function fetchStream(streamId: number): Promise<Stream | null> {
+export async function fetchStream(streamId: number, signal?: AbortSignal): Promise<Stream | null> {
+    throwIfAborted(signal);
+
     // Construct the simulation transaction to call get_stream(streamId)
     // This is pseudo-code for the exact XDR building using stellar-sdk
     // In a real app we'd use 'soroban-client' or generated bindings.
@@ -16,7 +17,7 @@ export async function fetchStream(streamId: number): Promise<Stream | null> {
     // const res = await server.simulateTransaction(tx);
 
     // Returning mock data for demonstration
-    return {
+    const stream = {
         id: streamId,
         sender: 'G...',
         recipient: 'G...',
@@ -27,16 +28,22 @@ export async function fetchStream(streamId: number): Promise<Stream | null> {
         end_time: Date.now() + 100000,
         status: StreamStatus.Active,
     };
+
+    throwIfAborted(signal);
+    return stream;
 }
 
-export async function fetchUserStreams(address: string): Promise<Stream[]> {
+export async function fetchUserStreams(address: string, signal?: AbortSignal): Promise<Stream[]> {
+    throwIfAborted(signal);
+
     // In a real implementation without an indexer, we would iterate known stream IDs
     // or query a backend.
 
     const streams: Stream[] = [];
     // Mock fetching 5 streams
     for (let i = 1; i <= 5; i++) {
-        const stream = await fetchStream(i);
+        throwIfAborted(signal);
+        const stream = await fetchStream(i, signal);
         if (stream && (stream.sender === address || stream.recipient === address)) {
             streams.push(stream);
         }
@@ -44,6 +51,7 @@ export async function fetchUserStreams(address: string): Promise<Stream[]> {
         if (stream) streams.push(stream);
     }
 
+    throwIfAborted(signal);
     return streams;
 }
 

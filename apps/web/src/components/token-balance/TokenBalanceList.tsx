@@ -18,6 +18,7 @@ import {
 import { WalletNetwork } from "@creit.tech/stellar-wallets-kit";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Wallet } from "lucide-react";
+import { isAbortError } from "@/utils/retry";
 
 /**
  * TokenBalanceList Component
@@ -97,9 +98,7 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
       return;
     }
 
-    // Cancellation flag - set to true when effect cleanup runs
-    // This prevents race conditions where stale responses overwrite newer state
-    let cancelled = false;
+    const controller = new AbortController();
 
     // Fetch balances
     const fetchBalances = async () => {
@@ -130,7 +129,11 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
         });
 
         // Fetch account data from Horizon API
-        const accountInfo = await stellarService.getAccount(address);
+        const accountInfo = await stellarService.getAccount(
+          address,
+          controller.signal
+        );
+        if (controller.signal.aborted) return;
 
         // Transform Horizon response to TokenBalanceData format
         const extractedBalances = extractBalances(accountInfo);
@@ -138,11 +141,12 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
         // Sort balances with XLM first, then alphabetically
         const sortedBalances = sortTokenBalances(extractedBalances);
 
-        // Only update state if this request hasn't been cancelled (Requirement 2.3)
-        if (!cancelled) {
-          setBalances(sortedBalances);
-        }
+        setBalances(sortedBalances);
       } catch (err) {
+        if (isAbortError(err)) {
+          return;
+        }
+
         // Log detailed error information for debugging (Requirement 9.4)
         console.error("Failed to fetch token balances:", {
           address,
@@ -159,13 +163,11 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
             ? err
             : new Error(String(err || "Unknown error"));
 
-        // Only update error state if this request hasn't been cancelled (Requirement 2.3)
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setError(error);
         }
       } finally {
-        // Only update loading state if this request hasn't been cancelled (Requirement 2.3)
-        if (!cancelled) {
+        if (!controller.signal.aborted) {
           setLoading(false);
         }
       }
@@ -173,10 +175,8 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
 
     fetchBalances();
 
-    // Cleanup function - mark this request as cancelled (Requirement 2.5)
-    // This runs when dependencies change or component unmounts
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [address, isConnected, network]);
 

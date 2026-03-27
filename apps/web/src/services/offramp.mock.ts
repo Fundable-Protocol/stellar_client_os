@@ -9,6 +9,7 @@ import type {
   VerifyBankAccountResponse,
 } from "@/types/offramp";
 import type { BridgeQuote } from "@/services/allbridge.service";
+import { createAbortError } from "@/utils/retry";
 
 const DEFAULT_DELAYS = {
   sync: 250,
@@ -62,7 +63,26 @@ const shouldFail = (step: string) => {
 export const getMockDelay = (key: DelayKey) =>
   delayOverrides[key] ?? DEFAULT_DELAYS[key];
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(createAbortError());
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      reject(createAbortError());
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
 const currencyRates: Record<OfframpCountry, number> = {
   NG: 1550,
@@ -162,18 +182,24 @@ export const createMockTxHash = () =>
   `mock-tx-${Math.random().toString(36).slice(2, 12)}`;
 
 export const mockOfframpService = {
-  async syncWallet(): Promise<{ success: boolean; message: string }> {
-    await sleep(getMockDelay("sync"));
+  async syncWallet(
+    _walletId?: string,
+    signal?: AbortSignal,
+  ): Promise<{ success: boolean; message: string }> {
+    await sleep(getMockDelay("sync"), signal);
     return { success: true, message: "Wallet synced (mock)" };
   },
 
-  async getAggregatedRates(params: {
-    token: string;
-    amount: number;
-    country: string;
-    currency: string;
-  }): Promise<AggregatedRatesResponse> {
-    await sleep(getMockDelay("rates"));
+  async getAggregatedRates(
+    params: {
+      token: string;
+      amount: number;
+      country: string;
+      currency: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<AggregatedRatesResponse> {
+    await sleep(getMockDelay("rates"), signal);
     if (shouldFail("rates")) {
       return { success: false, error: "Mock rate provider error" };
     }
@@ -198,8 +224,10 @@ export const mockOfframpService = {
 
   async createOfframp(
     request: Omit<CreateOfframpRequest, "network">,
+    _walletId?: string,
+    signal?: AbortSignal,
   ): Promise<CreateOfframpResponse> {
-    await sleep(getMockDelay("create"));
+    await sleep(getMockDelay("create"), signal);
 
     if (shouldFail("create")) {
       return { success: false, error: "Mock offramp creation failed" };
@@ -235,8 +263,12 @@ export const mockOfframpService = {
     };
   },
 
-  async getBankList(country: OfframpCountry): Promise<BankListResponse> {
-    await sleep(getMockDelay("banks"));
+  async getBankList(
+    country: OfframpCountry,
+    _walletId?: string,
+    signal?: AbortSignal,
+  ): Promise<BankListResponse> {
+    await sleep(getMockDelay("banks"), signal);
     if (shouldFail("banks")) {
       return { success: false, error: "Mock bank list unavailable" };
     }
@@ -247,8 +279,10 @@ export const mockOfframpService = {
     bankCode: string,
     accountNumber: string,
     country: string,
+    _walletId?: string,
+    signal?: AbortSignal,
   ): Promise<VerifyBankAccountResponse> {
-    await sleep(getMockDelay("verify"));
+    await sleep(getMockDelay("verify"), signal);
 
     if (shouldFail("verify")) {
       return { success: false, error: "Mock verification failed" };
@@ -266,22 +300,35 @@ export const mockOfframpService = {
     };
   },
 
-  async saveQuote(): Promise<{ success: boolean; data?: unknown; error?: string }> {
-    await sleep(getMockDelay("saveQuote"));
+  async saveQuote(
+    _params?: unknown,
+    _walletId?: string,
+    signal?: AbortSignal,
+  ): Promise<{ success: boolean; data?: unknown; error?: string }> {
+    await sleep(getMockDelay("saveQuote"), signal);
     return { success: true, data: { saved: true } };
   },
 
-  async updateQuoteTxHash(): Promise<{
+  async updateQuoteTxHash(
+    _transactionReference?: string,
+    _txHash?: string,
+    _walletId?: string,
+    signal?: AbortSignal,
+  ): Promise<{
     success: boolean;
     data?: unknown;
     error?: string;
   }> {
-    await sleep(getMockDelay("updateTx"));
+    await sleep(getMockDelay("updateTx"), signal);
     return { success: true, data: { updated: true } };
   },
 
-  async getQuoteStatus(transactionReference: string): Promise<QuoteStatusResponse> {
-    await sleep(getMockDelay("status"));
+  async getQuoteStatus(
+    transactionReference: string,
+    _walletId?: string,
+    signal?: AbortSignal,
+  ): Promise<QuoteStatusResponse> {
+    await sleep(getMockDelay("status"), signal);
 
     const record = mockQuotes.get(transactionReference);
     if (!record) {
