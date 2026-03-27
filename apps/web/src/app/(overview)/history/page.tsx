@@ -7,7 +7,6 @@ import { useWallet } from "@/providers/StellarWalletProvider";
 import DashboardLayout from "@/components/layouts/DashboardLayout";
 import { ConnectWalletPrompt } from "@/components/layouts/ProtectedRoute";
 import HistoryTable from "@/components/modules/history/HistoryTable";
-import HistoryTableSkeleton from "@/components/modules/history/HistoryTableSkeleton";
 import { columns } from "@/components/modules/history/columns";
 import { HistoryRecord } from "@/services/types";
 import AppSelect from "@/components/molecules/AppSelect";
@@ -250,8 +249,10 @@ const HistoryPage = () => {
                             page={page}
                             limit={limit}
                             totalCount={filteredData.length}
-                            onPageChange={setPage}
-                            onLimitChange={setLimit}
+                            onPageChange={(nextPage) => updateHistoryParams({ page: nextPage })}
+                            onLimitChange={(nextLimit) =>
+                                updateHistoryParams({ page: 1, limit: nextLimit })
+                            }
                             onExport={handleExportCSV}
                             isLoading={isLoading}
                         />

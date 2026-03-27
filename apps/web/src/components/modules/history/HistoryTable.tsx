@@ -19,20 +19,12 @@ import {
     TableHeader,
 } from "@/components/ui/table";
 
-import {
-    Pagination,
-    PaginationContent,
-    PaginationItem,
-    PaginationLink,
-    PaginationNext,
-    PaginationPrevious,
-} from "@/components/ui/pagination";
-
 import { HistoryRecord } from "@/services/types";
 import AppSelect from "@/components/molecules/AppSelect";
 import { validPageLimits } from "@/lib/constants";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import SlidingPagination from "@/components/molecules/SlidingPagination";
 import ActionsCell from "./ActionsCell";
 import { format } from "date-fns";
 
@@ -335,44 +327,12 @@ const HistoryTable = ({
                 <p className="text-sm text-zinc-500" aria-live="polite" aria-atomic="true">
                     Showing {data.length} of {totalCount} transactions
                 </p>
-                <Pagination>
-                    <PaginationContent>
-                        <PaginationItem>
-                            <PaginationPrevious
-                                href="#"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    if (page > 1) onPageChange(page - 1);
-                                }}
-                                className={page <= 1 ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                            />
-                        </PaginationItem>
-                        {Array.from({ length: Math.min(5, pageCount) }).map((_, i) => (
-                            <PaginationItem key={i}>
-                                <PaginationLink
-                                    href="#"
-                                    onClick={(e) => {
-                                        e.preventDefault();
-                                        onPageChange(i + 1);
-                                    }}
-                                    isActive={page === i + 1}
-                                >
-                                    {i + 1}
-                                </PaginationLink>
-                            </PaginationItem>
-                        ))}
-                        <PaginationItem>
-                            <PaginationNext
-                                href="#"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    if (page < pageCount) onPageChange(page + 1);
-                                }}
-                                className={page >= pageCount ? "pointer-events-none opacity-50" : "cursor-pointer"}
-                            />
-                        </PaginationItem>
-                    </PaginationContent>
-                </Pagination>
+                <SlidingPagination
+                    page={page}
+                    pageCount={pageCount}
+                    onPageChange={onPageChange}
+                    className="mx-0 w-auto justify-end"
+                />
             </div>
         </div>
     );

@@ -23,19 +23,11 @@ import {
     TableHeader,
 } from "@/components/ui/table";
 
-import {
-    Pagination,
-    PaginationNext,
-    PaginationLink,
-    PaginationContent,
-    PaginationPrevious,
-    PaginationEllipsis,
-} from "@/components/ui/pagination";
-
 import { streamColumns } from "./streamColumns";
 import { StreamRecord } from "@/lib/validations";
 import { validPageLimits } from "@/lib/constants";
 import AppSelect from "@/components/molecules/AppSelect";
+import SlidingPagination from "@/components/molecules/SlidingPagination";
 
 interface StreamsTableProps {
     data: StreamRecord[];
@@ -85,9 +77,6 @@ function StreamsTable({
         params.set("page", newPage.toString());
         router.push(`?${params.toString()}`);
     };
-
-    const canPreviousPage = page > 1;
-    const canNextPage = page < pageCount;
 
     const pageSize = validPageLimits.map((limit) => ({
         label: `${limit} per page`,
@@ -204,8 +193,8 @@ function StreamsTable({
 
             {/* Pagination */}
             {totalCount > 0 && (
-                <Pagination>
-                    <PaginationContent className="hidden lg:flex items-center space-x-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="hidden lg:flex items-center space-x-4">
                         <p className="text-sm font-medium text-zinc-300">Showing</p>
                         <AppSelect
                             options={pageSize}
@@ -217,50 +206,21 @@ function StreamsTable({
                             setValue={handlePageSizeChange}
                             title="Rows per page"
                         />
-                    </PaginationContent>
+                    </div>
 
                     <PaginationContent className="hidden lg:flex flex-col sm:flex-row sm:space-y-0 sm:space-x-6 lg:space-x-8">
                         <div className="flex w-[100px] items-center justify-center text-sm font-medium text-zinc-300" aria-live="polite" aria-atomic="true">
                             Page {page} of {pageCount}
                         </div>
-                    </PaginationContent>
+                    </div>
 
-                    <PaginationContent className="gap-2">
-                        <PaginationPrevious
-                            onClick={() => updatePage(page - 1)}
-                            disabled={!canPreviousPage}
-                        />
-                        {Array.from(
-                            { length: pageCount > 3 ? 3 : pageCount },
-                            (_, index) => (
-                                <PaginationLink
-                                    key={`streams-pagination-${index}`}
-                                    onClick={() => updatePage(index + 1)}
-                                    isActive={page === index + 1}
-                                >
-                                    {index + 1}
-                                </PaginationLink>
-                            )
-                        )}
-
-                        {pageCount > 3 ? (
-                            <PaginationContent className="flex items-center space-x-4">
-                                <PaginationEllipsis />
-                                <PaginationLink
-                                    onClick={() => updatePage(pageCount)}
-                                    isActive={page === pageCount}
-                                >
-                                    {pageCount}
-                                </PaginationLink>
-                            </PaginationContent>
-                        ) : null}
-
-                        <PaginationNext
-                            onClick={() => updatePage(page + 1)}
-                            disabled={!canNextPage}
-                        />
-                    </PaginationContent>
-                </Pagination>
+                    <SlidingPagination
+                        page={page}
+                        pageCount={pageCount}
+                        onPageChange={updatePage}
+                        className="mx-0 w-auto justify-end"
+                    />
+                </div>
             )}
         </div>
     );
