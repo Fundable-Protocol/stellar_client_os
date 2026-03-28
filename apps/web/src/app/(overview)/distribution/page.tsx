@@ -15,6 +15,7 @@ import { SUPPORTED_TOKENS } from '@/lib/validations';
 import ProtectedRoute from '@/components/layouts/ProtectedRoute';
 import { CSVErrorDisplay } from '@/components/molecules/CSVErrorDisplay';
 import { CSVError, CSVWarning } from '@/types/distribution';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 export default function DistributionPage() {
   const {
@@ -42,6 +43,10 @@ export default function DistributionPage() {
   const pageRef = React.useRef<HTMLDivElement>(null);
 
   const { execute, isSubmitting } = useDistributionTransaction();
+
+  // Virtualization constants
+  const VIRTUALIZE_THRESHOLD = 50;
+  const ESTIMATED_ROW_HEIGHT = 72; // Based on existing row padding and content height
 
   const tokenAddress = React.useMemo(() => {
     return SUPPORTED_TOKENS.find((t) => t.value === selectedToken)?.address ?? 'native';
@@ -198,6 +203,183 @@ export default function DistributionPage() {
       }
     }
   };
+
+  // Virtualized recipient table component
+  const VirtualizedRecipientTable = React.useMemo(() => {
+    return function VirtualizedRecipientTable() {
+      const parentRef = React.useRef<HTMLDivElement>(null);
+      
+      const virtualizer = useVirtualizer({
+        count: state.recipients.length,
+        getScrollElement: () => parentRef.current,
+        estimateSize: () => ESTIMATED_ROW_HEIGHT,
+        overscan: 5,
+      });
+
+      const virtualItems = virtualizer.getVirtualItems();
+      const totalSize = virtualizer.getTotalSize();
+
+      return (
+        <div className="border border-zinc-800 rounded-lg mb-6 bg-zinc-900/30">
+          {/* Sticky Header */}
+          <Table>
+            <TableHeader className="sticky top-0 bg-zinc-900/90 backdrop-blur-sm z-10">
+              <TableRow className="border-zinc-800">
+                <TableHead className="w-12 text-zinc-400">#</TableHead>
+                <TableHead className="text-zinc-400">Address</TableHead>
+                <TableHead className="w-24 text-right text-zinc-400">
+                  {state.type === 'weighted' ? 'Amount' : '0'}
+                </TableHead>
+                <TableHead className="w-12"></TableHead>
+              </TableRow>
+            </TableHeader>
+          </Table>
+          
+          {/* Virtual Scroll Container */}
+          <div
+            ref={parentRef}
+            style={{ height: '500px', overflow: 'auto' }}
+            className="relative"
+          >
+            <Table style={{ width: '100%' }}>
+              <TableBody>
+                {/* Top spacer */}
+                <tr>
+                  <td
+                    style={{ height: virtualItems[0]?.start ?? 0 }}
+                    colSpan={4}
+                  />
+                </tr>
+
+                {/* Virtual rows */}
+                {virtualItems.map((virtualRow) => {
+                  const recipient = state.recipients[virtualRow.index];
+                  return (
+                    <TableRow
+                      key={recipient.id}
+                      data-index={virtualRow.index}
+                      ref={virtualizer.measureElement}
+                      className="border-zinc-800"
+                      style={{ height: ESTIMATED_ROW_HEIGHT }}
+                    >
+                      <TableCell className="text-zinc-500">{virtualRow.index + 1}</TableCell>
+                      <TableCell>
+                        <Input
+                          type="text"
+                          placeholder="Address"
+                          value={recipient.address}
+                          onChange={(e) => handleRecipientChange(recipient.id, 'address', e.target.value)}
+                          className="border-0 bg-transparent p-0 focus-visible:ring-0 text-zinc-300 placeholder:text-zinc-600"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {state.type === 'weighted' ? (
+                          <Input
+                            type="text"
+                            placeholder="0"
+                            value={recipient.amount || ''}
+                            onChange={(e) => handleRecipientChange(recipient.id, 'amount', e.target.value)}
+                            className="border-0 bg-transparent p-0 text-right focus-visible:ring-0 text-zinc-300 placeholder:text-zinc-600"
+                          />
+                        ) : (
+                          <span className="text-zinc-500">0</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeRecipient(recipient.id)}
+                          className="h-8 w-8 text-zinc-500 hover:text-red-400 hover:bg-red-900/20"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+
+                {/* Bottom spacer */}
+                <tr>
+                  <td
+                    style={{
+                      height: totalSize - (virtualItems[virtualItems.length - 1]?.end ?? 0)
+                    }}
+                    colSpan={4}
+                  />
+                </tr>
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      );
+    };
+  }, [state.recipients, state.type, ESTIMATED_ROW_HEIGHT, handleRecipientChange, removeRecipient]);
+
+  // Standard recipient table component (existing implementation)
+  const StandardRecipientTable = React.useMemo(() => {
+    return function StandardRecipientTable() {
+      return (
+        <div className="border border-zinc-800 rounded-lg mb-6 bg-zinc-900/30">
+          <Table>
+            <TableHeader className="sticky top-0 bg-zinc-900/90 backdrop-blur-sm z-10">
+              <TableRow className="border-zinc-800">
+                <TableHead className="w-12 text-zinc-400">#</TableHead>
+                <TableHead className="text-zinc-400">Address</TableHead>
+                <TableHead className="w-24 text-right text-zinc-400">
+                  {state.type === 'weighted' ? 'Amount' : '0'}
+                </TableHead>
+                <TableHead className="w-12"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {state.recipients.map((recipient, index) => (
+                <TableRow key={recipient.id} className="border-zinc-800">
+                  <TableCell className="text-zinc-500">{index + 1}</TableCell>
+                  <TableCell>
+                    <Input
+                      type="text"
+                      placeholder="Address"
+                      value={recipient.address}
+                      onChange={(e) => handleRecipientChange(recipient.id, 'address', e.target.value)}
+                      className="border-0 bg-transparent p-0 focus-visible:ring-0 text-zinc-300 placeholder:text-zinc-600"
+                      autoFocus={index === state.recipients.length - 1}
+                    />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {state.type === 'weighted' ? (
+                      <Input
+                        type="text"
+                        placeholder="0"
+                        value={recipient.amount || ''}
+                        onChange={(e) => handleRecipientChange(recipient.id, 'amount', e.target.value)}
+                        className="border-0 bg-transparent p-0 text-right focus-visible:ring-0 text-zinc-300 placeholder:text-zinc-600"
+                      />
+                    ) : (
+                      <span className="text-zinc-500">0</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeRecipient(recipient.id)}
+                      className="h-8 w-8 text-zinc-500 hover:text-red-400 hover:bg-red-900/20"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      );
+    };
+  }, [state.recipients, state.type, handleRecipientChange, removeRecipient]);
+
+  const shouldVirtualize = state.recipients.length >= VIRTUALIZE_THRESHOLD;
+  const RecipientTableComponent = shouldVirtualize ? VirtualizedRecipientTable : StandardRecipientTable;
 
   return (
     <ProtectedRoute description="Connect your Stellar wallet to create token distributions.">
@@ -372,64 +554,7 @@ export default function DistributionPage() {
 
         {/* Recipients Table */}
         <div className="relative">
-          <div 
-            className="border border-zinc-800 rounded-lg mb-6 bg-zinc-900/30"
-          >
-          <Table>
-            <TableHeader className="sticky top-0 bg-zinc-900/90 backdrop-blur-sm z-10">
-              <TableRow className="border-zinc-800">
-                <TableHead className="w-12 text-zinc-400">#</TableHead>
-                <TableHead className="text-zinc-400">Address</TableHead>
-                <TableHead className="w-24 text-right text-zinc-400">
-                  {state.type === 'weighted' ? 'Amount' : '0'}
-                </TableHead>
-                <TableHead className="w-12"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {state.recipients.map((recipient, index) => (
-                <TableRow key={recipient.id} className="border-zinc-800">
-                  <TableCell className="text-zinc-500">{index + 1}</TableCell>
-                  <TableCell>
-                    <Input
-                      type="text"
-                      placeholder="Address"
-                      value={recipient.address}
-                      onChange={(e) => handleRecipientChange(recipient.id, 'address', e.target.value)}
-                      className="border-0 bg-transparent p-0 focus-visible:ring-0 text-zinc-300 placeholder:text-zinc-600"
-                      autoFocus={index === state.recipients.length - 1}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {state.type === 'weighted' ? (
-                      <Input
-                        type="text"
-                        placeholder="0"
-                        value={recipient.amount || ''}
-                        onChange={(e) => handleRecipientChange(recipient.id, 'amount', e.target.value)}
-                        className="border-0 bg-transparent p-0 text-right focus-visible:ring-0 text-zinc-300 placeholder:text-zinc-600"
-                      />
-                    ) : (
-                      <span className="text-zinc-500">0</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeRecipient(recipient.id)}
-                      className="h-8 w-8 text-zinc-500 hover:text-red-400 hover:bg-red-900/20"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          
-          {/* Scroll fade indicator for bottom - Removed as table is now full height */}
-        </div>
+          <RecipientTableComponent />
         </div>
         
         {/* Scroll indicator for large lists - Removed as table is full height */}
