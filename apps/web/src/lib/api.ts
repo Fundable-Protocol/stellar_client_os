@@ -1,57 +1,104 @@
-import { Stream, StreamStatus } from '../types';
+import type { AssembledTransaction } from '@stellar/stellar-sdk/contract';
+import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID, SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
+import { env } from '@/lib/env';
 import { throwIfAborted } from '@/utils/retry';
+import { StellarService, type Stream as ServiceStream } from '@/services';
+import { PaymentStreamClient } from '../../../../packages/sdk/src/PaymentStreamClient';
+import { DistributorClient } from '../../../../packages/sdk/src/DistributorClient';
+import { Stream, StreamStatus } from '../types';
+
+type WalletSigner = (xdr: string) => Promise<string>;
+
+const HORIZON_URL = env.NEXT_PUBLIC_STELLAR_HORIZON_URL ||
+    (env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet'
+        ? 'https://horizon.stellar.org'
+        : 'https://horizon-testnet.stellar.org');
+
+const stellarService = new StellarService({
+    network: {
+        networkPassphrase: NETWORK_PASSPHRASE,
+        rpcUrl: SOROBAN_RPC_URL,
+        horizonUrl: HORIZON_URL,
+    },
+    contracts: {
+        paymentStream: PAYMENT_STREAM_CONTRACT_ID,
+        distributor: DISTRIBUTOR_CONTRACT_ID,
+    },
+});
+
+function toStreamStatus(status: string): StreamStatus {
+    if (status === 'Paused') return StreamStatus.Paused;
+    if (status === 'Canceled') return StreamStatus.Canceled;
+    if (status === 'Completed') return StreamStatus.Completed;
+    return StreamStatus.Active;
+}
+
+function mapServiceStream(stream: ServiceStream): Stream {
+    return {
+        id: Number(stream.id),
+        sender: stream.sender,
+        recipient: stream.recipient,
+        token: stream.token,
+        total_amount: stream.totalAmount,
+        withdrawn_amount: stream.withdrawnAmount,
+        start_time: Number(stream.startTime),
+        end_time: Number(stream.endTime),
+        status: toStreamStatus(stream.status),
+    };
+}
+
+function ensureSafeNumber(value: bigint): number {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error('Returned stream id exceeds JavaScript safe integer range');
+    }
+    return Number(value);
+}
+
+async function signAndSendTx(
+    tx: AssembledTransaction<unknown>,
+    signTransaction?: WalletSigner
+): Promise<void> {
+    if (!signTransaction) {
+        throw new Error('Wallet signer is required for contract write operations');
+    }
+
+    await tx.signAndSend({
+        signTransaction: async (xdr: string) => ({
+            signedTxXdr: await signTransaction(xdr),
+        }),
+    });
+}
+
+function createPaymentStreamClient(publicKey: string): PaymentStreamClient {
+    return new PaymentStreamClient({
+        contractId: PAYMENT_STREAM_CONTRACT_ID,
+        networkPassphrase: NETWORK_PASSPHRASE,
+        rpcUrl: SOROBAN_RPC_URL,
+        publicKey,
+    });
+}
+
+function createDistributorClient(publicKey: string): DistributorClient {
+    return new DistributorClient({
+        contractId: DISTRIBUTOR_CONTRACT_ID,
+        networkPassphrase: NETWORK_PASSPHRASE,
+        rpcUrl: SOROBAN_RPC_URL,
+        publicKey,
+    });
+}
 
 export async function fetchStream(streamId: number, signal?: AbortSignal): Promise<Stream | null> {
     throwIfAborted(signal);
-
-    // Construct the simulation transaction to call get_stream(streamId)
-    // This is pseudo-code for the exact XDR building using stellar-sdk
-    // In a real app we'd use 'soroban-client' or generated bindings.
-
-    // Mock implementation for the assignment
-
-    // FIXME: Replace with actual RPC call
-    // const contract = new Contract(PAYMENT_STREAM_CONTRACT_ID);
-    // const tx = ...
-    // const res = await server.simulateTransaction(tx);
-
-    // Returning mock data for demonstration
-    const stream = {
-        id: streamId,
-        sender: 'G...',
-        recipient: 'G...',
-        token: 'C...',
-        total_amount: BigInt(1000),
-        withdrawn_amount: BigInt(0),
-        start_time: Date.now(),
-        end_time: Date.now() + 100000,
-        status: StreamStatus.Active,
-    };
-
+    const stream = await stellarService.getStream(BigInt(streamId));
     throwIfAborted(signal);
-    return stream;
+    return stream ? mapServiceStream(stream) : null;
 }
 
 export async function fetchUserStreams(address: string, signal?: AbortSignal): Promise<Stream[]> {
     throwIfAborted(signal);
-
-    // In a real implementation without an indexer, we would iterate known stream IDs
-    // or query a backend.
-
-    const streams: Stream[] = [];
-    // Mock fetching 5 streams
-    for (let i = 1; i <= 5; i++) {
-        throwIfAborted(signal);
-        const stream = await fetchStream(i, signal);
-        if (stream && (stream.sender === address || stream.recipient === address)) {
-            streams.push(stream);
-        }
-        // Returning all for mock purposes
-        if (stream) streams.push(stream);
-    }
-
+    const streams = await stellarService.getStreams(address);
     throwIfAborted(signal);
-    return streams;
+    return streams.map(mapServiceStream);
 }
 
 export async function createStream(params: {
@@ -61,18 +108,78 @@ export async function createStream(params: {
     amount: bigint;
     startTime: number;
     endTime: number;
+    signTransaction?: WalletSigner;
 }): Promise<number> {
-    // Mock transaction
-    return Math.floor(Math.random() * 1000);
+    const client = createPaymentStreamClient(params.sender);
+    const tx = await client.createStream({
+        sender: params.sender,
+        recipient: params.recipient,
+        token: params.token,
+        total_amount: params.amount,
+        initial_amount: 0n,
+        start_time: BigInt(params.startTime),
+        end_time: BigInt(params.endTime),
+    });
+
+    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+
+    const streamId = tx.result;
+    if (typeof streamId !== 'bigint') {
+        throw new Error('Contract did not return a stream id');
+    }
+    return ensureSafeNumber(streamId);
 }
 
-export async function withdraw(params: { streamId: number; amount: bigint }): Promise<void> {
+export async function withdraw(params: {
+    streamId: number;
+    amount: bigint;
+    sender?: string;
+    signTransaction?: WalletSigner;
+}): Promise<void> {
+    let sender = params.sender;
+    if (!sender) {
+        const stream = await stellarService.getStream(BigInt(params.streamId));
+        sender = stream?.recipient;
+    }
+
+    if (!sender) {
+        throw new Error('Unable to resolve sender address for withdrawal');
+    }
+
+    const client = createPaymentStreamClient(sender);
+    const tx = await client.withdraw(BigInt(params.streamId), params.amount);
+    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
 }
 
 export async function distribute(params: {
     sender: string;
     token: string;
     recipients: string[];
-    amounts: bigint[] | bigint; // Equal or Weighted
+    amounts: bigint[] | bigint;
+    signTransaction?: WalletSigner;
 }): Promise<void> {
+    const client = createDistributorClient(params.sender);
+
+    if (typeof params.amounts === 'bigint') {
+        const tx = await client.distributeEqual({
+            sender: params.sender,
+            token: params.token,
+            total_amount: params.amounts,
+            recipients: params.recipients,
+        });
+        await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+        return;
+    }
+
+    if (params.amounts.length !== params.recipients.length) {
+        throw new Error('Recipients and amounts length mismatch');
+    }
+
+    const tx = await client.distributeWeighted({
+        sender: params.sender,
+        token: params.token,
+        recipients: params.recipients,
+        amounts: params.amounts,
+    });
+    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
 }

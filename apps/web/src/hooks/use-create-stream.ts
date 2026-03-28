@@ -1,6 +1,9 @@
 import { QueryClient, QueryKey, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { createStream } from '@/lib/api';
+import { useWallet } from '@/providers/StellarWalletProvider';
+
+type CreateStreamInput = Parameters<typeof createStream>[0];
 
 interface CreateStreamMutationContext {
     previousStreams: Array<[QueryKey, unknown]>;
@@ -23,9 +26,21 @@ function restorePreviousStreams(
 
 export function useCreateStream() {
     const queryClient = useQueryClient();
+    const { address, signTransaction } = useWallet();
 
     return useMutation({
-        mutationFn: createStream,
+        mutationFn: (params: CreateStreamInput) => {
+            const sender = params.sender || address;
+            if (!sender) {
+                throw new Error('Wallet not connected');
+            }
+
+            return createStream({
+                ...params,
+                sender,
+                signTransaction,
+            });
+        },
         onMutate: async (newStream): Promise<CreateStreamMutationContext> => {
             const previousStreams = queryClient.getQueriesData({
                 queryKey: ['streams'],

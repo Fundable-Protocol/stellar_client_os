@@ -1,6 +1,9 @@
 import { QueryClient, QueryKey, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { withdraw } from '@/lib/api';
+import { useWallet } from '@/providers/StellarWalletProvider';
+
+type WithdrawInput = Parameters<typeof withdraw>[0];
 
 interface WithdrawMutationContext {
     previousStreams: Array<[QueryKey, unknown]>;
@@ -25,9 +28,16 @@ function restorePreviousStreams(
 
 export function useWithdraw() {
     const queryClient = useQueryClient();
+    const { address, signTransaction } = useWallet();
 
     return useMutation({
-        mutationFn: withdraw,
+        mutationFn: (params: WithdrawInput) => {
+            return withdraw({
+                ...params,
+                sender: params.sender || address || undefined,
+                signTransaction,
+            });
+        },
         onMutate: async (variables): Promise<WithdrawMutationContext> => {
             const previousStreams = queryClient.getQueriesData({
                 queryKey: ['streams'],
