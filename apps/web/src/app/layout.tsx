@@ -7,6 +7,8 @@ import { WalletModal } from "@/components/organisms/wallet-modal";
 import AppProvider from "@/providers/app-provider";
 import { ToastProvider } from "@/providers/ToastProvider";
 import ReactQueryProvider from "@/providers/ReactQueryProvider";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { ErrorFallback } from "@/components/ui/error-fallback";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,11 +43,24 @@ export default function RootLayout({
       >
         <ReactQueryProvider>
           <StellarWalletProvider>
-            <Navbar />
-            <AppProvider>
-              {children}
-            </AppProvider>
-            <WalletModal />
+            <ErrorBoundary
+              boundaryName="root-layout"
+              fallback={({ error, reset }) => (
+                <ErrorFallback
+                  title="Application Error"
+                  description="Something unexpected happened in the app shell."
+                  error={error}
+                  onRetry={reset}
+                  className="m-4"
+                />
+              )}
+            >
+              <Navbar />
+              <AppProvider>
+                {children}
+              </AppProvider>
+              <WalletModal />
+            </ErrorBoundary>
           </StellarWalletProvider>
         </ReactQueryProvider>
         <ToastProvider />

@@ -314,6 +314,70 @@ export class StellarService {
   }
 
   /**
+   * Estimate the fee for creating a payment stream without submitting
+   * @param params - Stream creation parameters
+   * @param senderAddress - The address creating the stream
+   * @returns Estimated fee in XLM
+   */
+  async getStreamCreationFeeEstimate(
+    params: CreateStreamParams,
+    senderAddress: string
+  ): Promise<string> {
+    try {
+      this.validateCreateStreamParams(params);
+
+      const args = [
+        new Address(senderAddress).toScVal(),
+        new Address(params.recipient).toScVal(),
+        new Address(params.token).toScVal(),
+        nativeToScVal(params.totalAmount, { type: 'i128' }),
+        nativeToScVal(params.startTime, { type: 'u64' }),
+        nativeToScVal(params.endTime, { type: 'u64' }),
+      ];
+
+      // Create a simulation request
+      let accountForSim: Account;
+      try {
+        const account = await this.rpcServer.getAccount(senderAddress);
+        accountForSim = account;
+      } catch {
+        accountForSim = new Account(senderAddress, "0");
+      }
+
+      const tx = new TransactionBuilder(accountForSim, {
+        fee: DEFAULT_BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          Operation.invokeHostFunction({
+            func: xdr.HostFunction.hostFunctionTypeInvokeContract(
+              new xdr.InvokeContractArgs({
+                contractAddress: new Address(this.paymentStreamContractId).toScAddress(),
+                functionName: 'create_stream',
+                args,
+              })
+            ),
+            auth: [],
+          })
+        )
+        .setTimeout(this.defaultTimeout)
+        .build();
+
+      const simulation = await this.rpcServer.simulateTransaction(tx);
+
+      if (Api.isSimulationSuccess(simulation)) {
+        const feeInStroops = BigInt(simulation.minResourceFee);
+        const feeInXLM = Number(feeInStroops) / 10000000;
+        // round up slightly for safety and format to 4 decimals
+        return `~${(feeInXLM + 0.0001).toFixed(4)} XLM`;
+      }
+      return "~0.0001 XLM";
+    } catch {
+      return "~0.0001 XLM";
+    }
+  }
+
+  /**
    * Withdraw from a payment stream
    * @param streamId - Stream ID to withdraw from
    * @param amount - Amount to withdraw

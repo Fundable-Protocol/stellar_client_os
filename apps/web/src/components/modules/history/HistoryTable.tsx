@@ -31,9 +31,11 @@ import { validPageLimits } from "@/lib/constants";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+import { ColumnDef } from "@tanstack/react-table";
+
 interface HistoryTableProps {
     data: HistoryRecord[];
-    columns: any[];
+    columns: ColumnDef<HistoryRecord, unknown>[];
     page: number;
     limit: number;
     totalCount: number;

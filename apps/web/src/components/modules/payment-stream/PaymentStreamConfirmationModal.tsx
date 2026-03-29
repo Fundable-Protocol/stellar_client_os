@@ -17,6 +17,8 @@ interface PaymentStreamConfirmationModalProps {
   data: PaymentStreamFormData
   onConfirm: (data: PaymentStreamFormData) => Promise<void>
   isSubmitting: boolean
+  estimatedFee?: string | null
+  isEstimatingFee?: boolean
 }
 
 export function PaymentStreamConfirmationModal({
@@ -25,6 +27,8 @@ export function PaymentStreamConfirmationModal({
   data,
   onConfirm,
   isSubmitting,
+  estimatedFee,
+  isEstimatingFee = false
 }: PaymentStreamConfirmationModalProps) {
   const handleConfirm = () => {
     onConfirm(data)
@@ -43,7 +47,11 @@ export function PaymentStreamConfirmationModal({
         
         <div className="space-y-4">
           
-          <PaymentStreamSummary data={data} />
+          <PaymentStreamSummary 
+            data={data} 
+            estimatedFee={estimatedFee}
+            isEstimatingFee={isEstimatingFee}
+          />
           
           <div className="p-4 bg-yellow-900/20 border border-yellow-800 rounded-lg">
             <h4 className="font-medium text-yellow-400 mb-2">Important Notes:</h4>

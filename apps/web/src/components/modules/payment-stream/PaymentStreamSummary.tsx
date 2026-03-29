@@ -1,6 +1,6 @@
 "use client";
 
-import { SUPPORTED_TOKENS } from "@/lib/validations";
+import { SUPPORTED_TOKENS, PaymentStreamFormData } from "@/lib/validations";
 
 interface StreamFormData {
   name: string;
@@ -15,11 +15,19 @@ interface StreamFormData {
 
 interface PaymentStreamSummaryProps {
   streamData?: StreamFormData;
-  data?: any; // To support old PaymentStreamFormData pattern in ConfirmationModal
+  data?: PaymentStreamFormData; // To support old PaymentStreamFormData pattern in ConfirmationModal
   showTitle?: boolean;
+  estimatedFee?: string | null;
+  isEstimatingFee?: boolean;
 }
 
-export function PaymentStreamSummary({ streamData, data, showTitle = true }: PaymentStreamSummaryProps) {
+export function PaymentStreamSummary({ 
+  streamData, 
+  data, 
+  showTitle = true,
+  estimatedFee,
+  isEstimatingFee = false
+}: PaymentStreamSummaryProps) {
   // Normalize data
   const name = streamData?.name || "";
   const recipient = streamData?.recipient || data?.recipientAddress || "";
@@ -133,6 +141,23 @@ export function PaymentStreamSummary({ streamData, data, showTitle = true }: Pay
             </div>
           </>
         )}
+
+        {/* Estimated Fee Section */}
+        <div className="pt-2 border-t border-zinc-700/50">
+          <span className="text-zinc-400 block mb-1">Estimated Network Fee:</span>
+          <div className="flex items-center">
+            {isEstimatingFee ? (
+              <div className="flex items-center gap-2">
+                <div className="h-4 w-4 rounded-full border-2 border-zinc-500 border-t-zinc-200 animate-spin" />
+                <span className="text-zinc-400 text-sm">Estimating...</span>
+              </div>
+            ) : (
+              <p className="font-medium text-zinc-50">
+                {estimatedFee || "~0.0001 XLM"}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="flex gap-4 text-sm pt-2 border-t border-zinc-700">

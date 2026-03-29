@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Upload, Plus, Trash2 } from 'lucide-react';
 import { useDistributionState } from '@/hooks/use-distribution-state';
 import { useDistributionTransaction } from '@/hooks/use-distribution-transaction';
+import { useBalanceValidation } from '@/hooks/use-balance-validation';
 import { downloadCSVTemplate, processCSVFile } from '@/utils/csv-processing';
 import { SUPPORTED_TOKENS } from '@/lib/validations';
 import ProtectedRoute from '@/components/layouts/ProtectedRoute';
@@ -18,6 +19,8 @@ import { CSVErrorDisplay } from '@/components/molecules/CSVErrorDisplay';
 import { CSVError, CSVWarning } from '@/types/distribution';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { notify } from '@/utils/notification';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { ErrorFallback } from '@/components/ui/error-fallback';
 
 export default function DistributionPage() {
   const {
@@ -53,6 +56,20 @@ export default function DistributionPage() {
   const tokenAddress = React.useMemo(() => {
     return SUPPORTED_TOKENS.find((t) => t.value === selectedToken)?.address ?? 'native';
   }, [selectedToken]);
+
+  // Compute total amount for balance validation
+  const distributionTotal = React.useMemo(() => {
+    if (state.type === 'equal') return state.totalAmount;
+    // weighted: sum all recipient amounts
+    const sum = state.recipients.reduce((acc, r) => {
+      const n = parseFloat(r.amount || '0');
+      return acc + (isNaN(n) ? 0 : n);
+    }, 0);
+    return sum > 0 ? sum.toString() : '';
+  }, [state.type, state.totalAmount, state.recipients]);
+
+  const { balanceError: distBalanceError, insufficientBalance: distInsufficientBalance } =
+    useBalanceValidation(distributionTotal, selectedToken);
 
   const handleDistribute = async () => {
     await execute(state, tokenAddress);
@@ -450,23 +467,33 @@ export default function DistributionPage() {
 
             {/* Amount Configuration */}
             {state.type === 'equal' && (
-              <div className="flex items-center gap-2">
-                <Label className="text-sm whitespace-nowrap">
-                  Equal Amount per address
-                </Label>
-                <Input
-                  type="text"
-                  placeholder="Amount"
-                  value={state.totalAmount}
-                  onChange={(e) => setTotalAmount(e.target.value)}
-                  className="w-32"
-                />
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm whitespace-nowrap">
+                    Equal Amount per address
+                  </Label>
+                  <Input
+                    type="text"
+                    placeholder="Amount"
+                    value={state.totalAmount}
+                    onChange={(e) => setTotalAmount(e.target.value)}
+                    className={`w-32 ${distBalanceError ? 'border-red-500' : ''}`}
+                  />
+                </div>
+                {distBalanceError && (
+                  <p className="text-xs text-red-400">{distBalanceError}</p>
+                )}
               </div>
             )}
 
             {state.type === 'weighted' && (
-              <div className="flex items-center gap-2">
-                <Label className="text-sm">Amount</Label>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Label className="text-sm">Amount</Label>
+                </div>
+                {distBalanceError && (
+                  <p className="text-xs text-red-400">{distBalanceError}</p>
+                )}
               </div>
             )}
           </div>
@@ -477,7 +504,7 @@ export default function DistributionPage() {
           <div className="flex gap-2">
             <Input
               type="text"
-              placeholder="Enter an X post URL (https://x.com/username/status/1234567890) to extract Starknet addresses from replies."
+              placeholder="Enter an X post URL (https://x.com/username/status/1234567890) to extract Stellar addresses from replies."
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               className="flex-1"
@@ -575,12 +602,13 @@ export default function DistributionPage() {
 
           <Button
             className="bg-purple-600 hover:bg-purple-700"
-            disabled={state.recipients.length === 0 || isSubmitting}
+            disabled={state.recipients.length === 0 || isSubmitting || distInsufficientBalance}
             onClick={handleDistribute}
           >
             {isSubmitting ? 'Distributing...' : 'Distribute Token'}
           </Button>
         </div>
+          </div>
         </div>
       </div>
     </WalletConnectionGuard>

@@ -7,6 +7,8 @@ import WalletConnectionGuard from "@/components/modules/wallet/WalletConnectionG
 import CreatePaymentStream from "@/components/modules/payment-stream/CreatePaymentStream";
 import StreamsHistory from "@/components/modules/payment-stream/StreamsHistory";
 import StreamsTableSkeleton from "@/components/modules/payment-stream/StreamsTableSkeleton";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { ErrorFallback } from "@/components/ui/error-fallback";
 
 const PaymentStreamPage = () => {
     return (

@@ -160,30 +160,33 @@ export default function OfframpPage() {
                                 </button>
                             </div>
                         )}
+                        </div>
                     </div>
                 </div>
             </WalletConnectionGuard>
 
-            {/* Modals outside scroll area */}
-            <OfframpQuoteModal
-                isOpen={showQuoteModal}
-                offrampData={offrampData}
-                feeBreakdown={feeBreakdown}
-                formState={formState}
-                onClose={handleCloseQuoteModal}
-                onConfirm={confirmAndBridge}
-                isLoading={isLoading}
-            />
+                    {/* Modals outside scroll area */}
+                    <OfframpQuoteModal
+                        isOpen={showQuoteModal}
+                        offrampData={offrampData}
+                        feeBreakdown={feeBreakdown}
+                        formState={formState}
+                        onClose={handleCloseQuoteModal}
+                        onConfirm={confirmAndBridge}
+                        isLoading={isLoading}
+                    />
 
-            <OfframpSuccessModal
-                isOpen={showSuccessModal}
-                feeBreakdown={feeBreakdown}
-                payoutStatus={payoutStatus}
-                bridgeTxHash={bridgeTxHash}
-                onClose={() => {
-                    setShowSuccessModal(false);
-                }}
-            />
+                    <OfframpSuccessModal
+                        isOpen={showSuccessModal}
+                        feeBreakdown={feeBreakdown}
+                        payoutStatus={payoutStatus}
+                        bridgeTxHash={bridgeTxHash}
+                        onClose={() => {
+                            setShowSuccessModal(false);
+                        }}
+                    />
+                </ErrorBoundary>
+            </ProtectedRoute>
         </DashboardLayout>
     );
 }

@@ -12,6 +12,10 @@ import { capitalizeWord } from "@/lib/utils";
 import { SUPPORTED_TOKENS, PaymentStreamFormData } from "@/lib/validations";
 import { StellarService } from "@/lib/stellar";
 import { validateEndTime } from "@/lib/stream-validation";
+import { useDebouncedCallback } from "@/hooks/use-debounce-callback";
+import { useBalanceValidation } from "@/hooks/use-balance-validation";
+import { createTestnetService } from "@/services/stellar.service";
+import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID } from "@/lib/constants";
 
 // Stream form state type
 interface StreamFormData {
@@ -54,10 +58,70 @@ const CreatePaymentStream = () => {
     const [formKey, setFormKey] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+    
+    // Fee estimation state
+    const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
+    const [isEstimatingFee, setIsEstimatingFee] = useState<boolean>(false);
+
+    const realStellarService = useMemo(() => createTestnetService({
+        paymentStream: PAYMENT_STREAM_CONTRACT_ID,
+        distributor: DISTRIBUTOR_CONTRACT_ID
+    }), []);
 
     const selectedToken = useMemo(() => {
         return SUPPORTED_TOKENS.find((t) => t.value === streamData.token);
     }, [streamData.token]);
+
+    const { balanceError, insufficientBalance } = useBalanceValidation(
+        streamData.amount,
+        streamData.token
+    );
+
+    const estimateFee = useDebouncedCallback(async (data: StreamFormData, userAddress: string) => {
+        if (!data.recipient || !data.amount || !data.durationValue || !StellarService.validateStellarAddress(data.recipient)) {
+            setEstimatedFee(null);
+            return;
+        }
+        setIsEstimatingFee(true);
+        try {
+            const amount = BigInt(Math.floor(parseFloat(data.amount) * 10000000));
+            const durationMultiplier = data.duration === 'hour' ? 3600 : 
+                                      data.duration === 'day' ? 86400 :
+                                      data.duration === 'week' ? 604800 :
+                                      data.duration === 'month' ? 2592000 : 31536000;
+            const durationInSeconds = Math.floor(parseFloat(data.durationValue) * durationMultiplier);
+            const startTime = BigInt(Math.floor(Date.now() / 1000));
+            
+            const fee = await realStellarService.getStreamCreationFeeEstimate({
+                recipient: data.recipient,
+                token: data.token,
+                totalAmount: amount,
+                startTime,
+                endTime: startTime + BigInt(durationInSeconds)
+            }, userAddress);
+            setEstimatedFee(fee);
+        } catch {
+            setEstimatedFee("~0.0001 XLM");
+        } finally {
+            setIsEstimatingFee(false);
+        }
+    }, 500);
+
+    // Trigger fee estimation when relevant fields change
+    import { useEffect } from "react";
+    useEffect(() => {
+        if (isConnected && address) {
+            estimateFee(streamData, address);
+        }
+    }, [
+        streamData.recipient, 
+        streamData.amount, 
+        streamData.token, 
+        streamData.duration, 
+        streamData.durationValue,
+        isConnected,
+        address
+    ]);
 
     const handleFormSubmit = () => {
         if (!isConnected || !address) {
@@ -180,6 +244,8 @@ const CreatePaymentStream = () => {
                             durationOptions={durationOptions}
                             onSubmit={handleFormSubmit}
                             isSubmitting={isSubmitting}
+                            balanceError={balanceError}
+                            insufficientBalance={insufficientBalance}
                         />
                     </div>
                 </div>
@@ -193,12 +259,12 @@ const CreatePaymentStream = () => {
                                 </span>
                             </summary>
                             <div className="mt-3">
-                                <PaymentStreamSummary streamData={streamData} showTitle={false} />
+                                <PaymentStreamSummary streamData={streamData} showTitle={false} estimatedFee={estimatedFee} isEstimatingFee={isEstimatingFee} />
                             </div>
                         </details>
                     </div>
                     <div className="hidden lg:block">
-                        <PaymentStreamSummary streamData={streamData} />
+                        <PaymentStreamSummary streamData={streamData} estimatedFee={estimatedFee} isEstimatingFee={isEstimatingFee} />
                     </div>
                 </div>
             </main>
@@ -217,6 +283,8 @@ const CreatePaymentStream = () => {
                 }}
                 onConfirm={handleConfirmStream}
                 isSubmitting={isSubmitting}
+                estimatedFee={estimatedFee}
+                isEstimatingFee={isEstimatingFee}
             />
         </>
     );

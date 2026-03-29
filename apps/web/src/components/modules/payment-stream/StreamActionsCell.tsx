@@ -8,7 +8,8 @@ import {
     Wallet,
     Pause,
     Play,
-    XCircle
+    XCircle,
+    Shield
 } from "lucide-react";
 import {
     DropdownMenu,
@@ -21,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import type { StreamRecord } from "@/lib/validations";
 import { STELLAR_EXPERT_URL } from "@/lib/constants";
 import { WithdrawStreamModal } from "./WithdrawStreamModal";
+import { ManageDelegateModal } from "./ManageDelegateModal";
 import { toast } from "react-hot-toast";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { pauseStream, resumeStream, cancelStream } from "@/lib/api";
@@ -32,6 +34,7 @@ type StreamActionsCellProps = {
 export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
     const { address, signTransaction } = useWallet();
     const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+    const [isDelegateModalOpen, setIsDelegateModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
     const isSender = address?.toLowerCase() === stream.sender.toLowerCase();
@@ -158,6 +161,16 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
                         </DropdownMenuItem>
                     )}
 
+                    {isSender && (
+                        <DropdownMenuItem
+                            className="cursor-pointer"
+                            onClick={() => setIsDelegateModalOpen(true)}
+                        >
+                            <Shield className="mr-2 h-4 w-4" />
+                            Manage Delegate
+                        </DropdownMenuItem>
+                    )}
+
                     {(isSender || isRecipient) && <DropdownMenuSeparator />}
 
                     <DropdownMenuItem
@@ -181,6 +194,13 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
                 open={isWithdrawOpen}
                 onOpenChange={setIsWithdrawOpen}
                 stream={stream}
+            />
+
+            <ManageDelegateModal
+                isOpen={isDelegateModalOpen}
+                onClose={() => setIsDelegateModalOpen(false)}
+                streamId={stream.id}
+                currentDelegate={stream.delegateAddress}
             />
         </>
     );

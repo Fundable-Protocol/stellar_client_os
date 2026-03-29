@@ -1,6 +1,8 @@
 "use client";
 
 import { TokenBalanceList } from "@/components/token-balance";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { ErrorFallback } from "@/components/ui/error-fallback";
 
 export default function BalancesPage() {
   return (
@@ -16,8 +18,20 @@ export default function BalancesPage() {
           </p>
         </div>
 
-        {/* Token Balance List Component */}
-        <TokenBalanceList className="max-w-2xl" />
+        <ErrorBoundary
+          boundaryName="token-balances-module"
+          fallback={({ error, reset }) => (
+            <ErrorFallback
+              title="Token Balances Unavailable"
+              description="We couldn't render the balances section."
+              error={error}
+              onRetry={reset}
+              className="max-w-2xl"
+            />
+          )}
+        >
+          <TokenBalanceList className="max-w-2xl" />
+        </ErrorBoundary>
       </div>
     </div>
   );

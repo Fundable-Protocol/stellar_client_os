@@ -32,6 +32,8 @@ interface StreamFormProps {
   durationOptions: { label: string; value: string }[];
   onSubmit: () => void;
   isSubmitting: boolean;
+  balanceError?: string | null;
+  insufficientBalance?: boolean;
 }
 
 export function PaymentStreamForm({
@@ -41,6 +43,8 @@ export function PaymentStreamForm({
   durationOptions,
   onSubmit,
   isSubmitting,
+  balanceError,
+  insufficientBalance,
 }: StreamFormProps) {
   const booleanOptions = [
     { label: "Yes", value: "true" },
@@ -75,6 +79,7 @@ export function PaymentStreamForm({
 
   const isFormValid =
     !isSubmitting &&
+    !insufficientBalance &&
     streamData.name &&
     streamData.durationValue &&
     streamData.recipient &&
@@ -100,6 +105,7 @@ export function PaymentStreamForm({
             placeholder="Enter total amount to stream"
             value={streamData.amount}
             onChange={(e) => handleStreamDataChange("amount", e.target.value)}
+            errorMessage={balanceError ?? undefined}
           />
         </div>
 
