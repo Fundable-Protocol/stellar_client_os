@@ -16,9 +16,9 @@ export function WalletConnectionGuard({
   children,
   contextLabel,
 }: WalletConnectionGuardProps) {
-  const { address, openModal } = useWallet();
+  const { isConnected, openModal } = useWallet();
 
-  if (!address) {
+  if (!isConnected) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
         <div className="relative w-full max-w-xl overflow-hidden rounded-3xl border border-white/10 bg-fundable-mid-dark p-10 text-center shadow-[0_0_40px_rgba(130,86,255,0.12)]">
