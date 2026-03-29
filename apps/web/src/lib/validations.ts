@@ -15,6 +15,7 @@ export interface StreamRecord {
   status: "Active" | "Paused" | "Canceled" | "Completed"
   cancelable: boolean
   transferable: boolean
+  delegateAddress?: string | null
 }
 
 export const paymentStreamSchema = z.object({

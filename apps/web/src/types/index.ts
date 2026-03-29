@@ -15,4 +15,5 @@ export interface Stream {
   start_time: number; // u64
   end_time: number; // u64
   status: StreamStatus;
+  delegateAddress?: string | null; // Delegate address for withdrawal rights
 }
