@@ -102,6 +102,7 @@ export default function OfframpPage() {
                                         onChange={handleFormChange}
                                         maxBalance={isLoadingBalance ? "Loading..." : currentTokenBalance}
                                         onMaxClick={handleMaxClick}
+                                        isLoadingBalance={isLoadingBalance}
                                     />
                                 </div>
 

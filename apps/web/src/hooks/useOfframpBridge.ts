@@ -7,6 +7,7 @@ import { fetchAccountInfo } from "@/lib/api";
 import { type AccountBalance } from "@/services";
 import { allbridgeService, type BridgeQuote } from "@/services/allbridge.service";
 import { offrampService } from "@/services/offramp.service";
+import { useTokenBalance } from "./useTokenBalance";
 import {
     createMockTxHash,
     getMockBridgeQuote,
@@ -106,21 +107,19 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
     const payoutPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // ---------- Balance Fetching ----------
-    const { data: accountInfo, isLoading: isLoadingBalance } = useQuery({
-        queryKey: ["token-balances", address, network],
-        queryFn: async ({ signal }: { signal: AbortSignal }) => address ? fetchAccountInfo(address, signal) : null,
-        enabled: isConnected && !!address,
-        staleTime: 30000,
+    // Use the dedicated useTokenBalance hook for better separation of concerns
+    const { balance: currentTokenBalance, isLoading: isLoadingBalance, error: balanceError } = useTokenBalance({
+        token: formState.token,
+        enabled: isConnected,
     });
 
-    const currentTokenBalance = useMemo(() => {
-        if (!accountInfo) return "0";
-        // Find balance for selected token (USDC, USDT, or XLM)
-        const balance = accountInfo.balances.find((b: AccountBalance) => 
-            b.assetCode === formState.token || (formState.token === "XLM" && b.assetType === "native")
-        );
-        return balance?.balance || "0";
-    }, [accountInfo, formState.token]);
+    // Fallback to the original implementation for backward compatibility
+    const { data: accountInfo } = useQuery({
+        queryKey: ["token-balances", address, network],
+        queryFn: async ({ signal }: { signal: AbortSignal }) => address ? fetchAccountInfo(address, signal) : null,
+        enabled: false, // Disabled since we're using useTokenBalance hook
+        staleTime: 30000,
+    });
 
     // Cleanup polling on unmount
     useEffect(() => {
@@ -151,8 +150,12 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
     }, []);
 
     const handleMaxClick = useCallback(() => {
+        // Ensure we have a valid balance and it's not "0"
+        if (!currentTokenBalance || currentTokenBalance === "0" || isLoadingBalance) {
+            return;
+        }
         setFormState((prev: OfframpFormState) => ({ ...prev, amount: currentTokenBalance }));
-    }, [currentTokenBalance]);
+    }, [currentTokenBalance, isLoadingBalance]);
 
     // ---------- Effects: Bank Loading ----------
 

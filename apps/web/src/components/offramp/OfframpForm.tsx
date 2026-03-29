@@ -18,9 +18,10 @@ interface OfframpFormProps {
     onChange: (field: keyof OfframpFormState, value: string) => void;
     maxBalance?: string;
     onMaxClick?: () => void;
+    isLoadingBalance?: boolean;
 }
 
-export function OfframpForm({ formState, onChange, maxBalance, onMaxClick }: OfframpFormProps) {
+export function OfframpForm({ formState, onChange, maxBalance, onMaxClick, isLoadingBalance }: OfframpFormProps) {
     return (
         <div className="bg-fundable-mid-dark rounded-2xl p-6 border border-gray-800">
             <h2 className="text-xl font-syne font-semibold text-white mb-6">
@@ -76,10 +77,17 @@ export function OfframpForm({ formState, onChange, maxBalance, onMaxClick }: Off
                         <button
                             type="button"
                             onClick={onMaxClick}
-                            disabled={!maxBalance || !onMaxClick}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-fundable-purple text-sm font-medium hover:text-fundable-violet disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={!maxBalance || !onMaxClick || isLoadingBalance}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-fundable-purple text-sm font-medium hover:text-fundable-violet disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                         >
-                            Max
+                            {isLoadingBalance ? (
+                                <>
+                                    <div className="w-3 h-3 border border-fundable-purple border-t-transparent rounded-full animate-spin" />
+                                    <span>Loading...</span>
+                                </>
+                            ) : (
+                                "Max"
+                            )}
                         </button>
                     </div>
                 </div>
