@@ -9,7 +9,7 @@ import OfframpQuoteModal from "@/components/offramp/OfframpQuoteModal";
 import { BridgeStatusTracker } from "@/components/offramp/BridgeStatusTracker";
 import OfframpSuccessModal from "@/components/offramp/OfframpSuccessModal";
 import DashboardLayout from "@/components/layouts/DashboardLayout";
-import ProtectedRoute from "@/components/layouts/ProtectedRoute";
+import WalletConnectionGuard from "@/components/modules/wallet/WalletConnectionGuard";
 
 export default function OfframpPage() {
     const {
@@ -75,9 +75,7 @@ export default function OfframpPage() {
                 showOnNetwork: "testnet"
             }}
         >
-            <ProtectedRoute
-                description="Connect your Stellar wallet to convert USDC to local currency."
-            >
+            <WalletConnectionGuard contextLabel="Connect your Stellar wallet to convert USDC to local currency.">
                 <div className="space-y-8 pb-10">
                     {/* Intro text */}
                     <p className="text-fundable-light-grey max-w-2xl px-2">
@@ -163,7 +161,7 @@ export default function OfframpPage() {
                         )}
                     </div>
                 </div>
-            </ProtectedRoute>
+            </WalletConnectionGuard>
 
             {/* Modals outside scroll area */}
             <OfframpQuoteModal

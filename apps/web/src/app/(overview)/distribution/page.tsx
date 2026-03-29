@@ -13,6 +13,7 @@ import { useDistributionTransaction } from '@/hooks/use-distribution-transaction
 import { downloadCSVTemplate, processCSVFile } from '@/utils/csv-processing';
 import { SUPPORTED_TOKENS } from '@/lib/validations';
 import ProtectedRoute from '@/components/layouts/ProtectedRoute';
+import WalletConnectionGuard from '@/components/modules/wallet/WalletConnectionGuard';
 import { CSVErrorDisplay } from '@/components/molecules/CSVErrorDisplay';
 import { CSVError, CSVWarning } from '@/types/distribution';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -384,10 +385,11 @@ export default function DistributionPage() {
 
   return (
     <ProtectedRoute description="Connect your Stellar wallet to create token distributions.">
-      <div 
-        ref={pageRef}
-        className="h-screen mt-10 bg-black text-white overflow-y-auto scroll-smooth distribution-scrollbar"
-      >
+      <WalletConnectionGuard contextLabel="Connect your Stellar wallet to create token distributions.">
+        <div 
+          ref={pageRef}
+          className="h-screen mt-10 bg-black text-white overflow-y-auto scroll-smooth distribution-scrollbar"
+        >
         <div className="max-w-6xl mx-auto p-6 pb-12">
         {/* Header */}
         <h1 className="text-xl font-semibold mb-8 text-zinc-100">Create Distribution</h1>
@@ -581,6 +583,7 @@ export default function DistributionPage() {
         </div>
         </div>
       </div>
+    </WalletConnectionGuard>
     </ProtectedRoute>
   );
 }

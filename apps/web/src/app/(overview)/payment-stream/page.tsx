@@ -3,6 +3,7 @@
 import { Suspense } from "react";
 import DashboardLayout from "@/components/layouts/DashboardLayout";
 import ProtectedRoute from "@/components/layouts/ProtectedRoute";
+import WalletConnectionGuard from "@/components/modules/wallet/WalletConnectionGuard";
 import CreatePaymentStream from "@/components/modules/payment-stream/CreatePaymentStream";
 import StreamsHistory from "@/components/modules/payment-stream/StreamsHistory";
 import StreamsTableSkeleton from "@/components/modules/payment-stream/StreamsTableSkeleton";
@@ -23,7 +24,9 @@ const PaymentStreamPage = () => {
             <ProtectedRoute
                 description="Connect your Stellar wallet to create and manage payment streams."
             >
-                <CreatePaymentStream />
+                <WalletConnectionGuard contextLabel="Connect your Stellar wallet to create and manage payment streams.">
+                    <CreatePaymentStream />
+                </WalletConnectionGuard>
                 <Suspense fallback={<StreamsTableSkeleton />}>
                     <StreamsHistory />
                 </Suspense>
