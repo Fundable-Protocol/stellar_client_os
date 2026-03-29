@@ -12,7 +12,6 @@
  */
 
 import {
-  NativeBalance,
   Transaction,
   FeeBumpTransaction,
   Keypair,
@@ -103,11 +102,11 @@ export class StellarService {
       try {
         const account = await withAbortSignal(this.horizonServer.loadAccount(address), signal);
 
-        const balances: AccountBalance[] = account.balances.map((bal: Horizon.BalanceLine) => ({
+        const balances: AccountBalance[] = account.balances.map((bal: any) => ({
           balance: bal.balance,
           assetType: bal.asset_type,
-          assetCode: 'asset_code' in bal ? (bal as Horizon.BalanceLineAsset).asset_code : undefined,
-          assetIssuer: 'asset_issuer' in bal ? (bal as Horizon.BalanceLineAsset).asset_issuer : undefined,
+          assetCode: 'asset_code' in bal ? bal.asset_code : undefined,
+          assetIssuer: 'asset_issuer' in bal ? bal.asset_issuer : undefined,
         }));
 
         return {
@@ -593,7 +592,7 @@ export class StellarService {
       let sourceAddress: string;
       try {
         const accountResponse = await this.rpcServer.getAccount(contractId);
-        sourceAddress = accountResponse.id;
+        sourceAddress = accountResponse.accountId();
       } catch {
         // Fallback for contract IDs or if getAccount fails
         sourceAddress = contractId;

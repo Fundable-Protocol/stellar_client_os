@@ -29,7 +29,7 @@ export const SUPPORTED_COUNTRIES: CountryInfo[] = [
 ];
 
 // Supported crypto tokens
-export type OfframpToken = "USDC" | "USDT";
+export type OfframpToken = "USDC" | "USDT" | "XLM";
 
 export interface TokenInfo {
     symbol: OfframpToken;
