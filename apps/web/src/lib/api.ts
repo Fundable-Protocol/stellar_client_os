@@ -1,6 +1,11 @@
 import type { AssembledTransaction } from '@stellar/stellar-sdk/contract';
-import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID, SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
-import { env } from '@/lib/env';
+import {
+    PAYMENT_STREAM_CONTRACT_ID,
+    DISTRIBUTOR_CONTRACT_ID,
+    STELLAR_RPC_URL,
+    STELLAR_HORIZON_URL,
+    NETWORK_PASSPHRASE,
+} from '@/lib/constants';
 import { throwIfAborted } from '@/utils/retry';
 import { StellarService, type Stream as ServiceStream, type AccountInfo } from '@/services';
 import { PaymentStreamClient } from '../../../../packages/sdk/src/PaymentStreamClient';
@@ -9,16 +14,11 @@ import { Stream, StreamStatus } from '../types';
 
 type WalletSigner = (xdr: string) => Promise<string>;
 
-const HORIZON_URL = env.NEXT_PUBLIC_STELLAR_HORIZON_URL ||
-    (env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet'
-        ? 'https://horizon.stellar.org'
-        : 'https://horizon-testnet.stellar.org');
-
 const stellarService = new StellarService({
     network: {
         networkPassphrase: NETWORK_PASSPHRASE,
-        rpcUrl: SOROBAN_RPC_URL,
-        horizonUrl: HORIZON_URL,
+        rpcUrl: STELLAR_RPC_URL,
+        horizonUrl: STELLAR_HORIZON_URL,
     },
     contracts: {
         paymentStream: PAYMENT_STREAM_CONTRACT_ID,
@@ -73,7 +73,7 @@ function createPaymentStreamClient(publicKey: string): PaymentStreamClient {
     return new PaymentStreamClient({
         contractId: PAYMENT_STREAM_CONTRACT_ID,
         networkPassphrase: NETWORK_PASSPHRASE,
-        rpcUrl: SOROBAN_RPC_URL,
+        rpcUrl: STELLAR_RPC_URL,
         publicKey,
     });
 }
@@ -82,7 +82,7 @@ function createDistributorClient(publicKey: string): DistributorClient {
     return new DistributorClient({
         contractId: DISTRIBUTOR_CONTRACT_ID,
         networkPassphrase: NETWORK_PASSPHRASE,
-        rpcUrl: SOROBAN_RPC_URL,
+        rpcUrl: STELLAR_RPC_URL,
         publicKey,
     });
 }
@@ -188,14 +188,14 @@ export async function fetchAccountInfo(address: string, signal?: AbortSignal): P
     throwIfAborted(signal);
     try {
         return await stellarService.getAccount(address, signal);
-    } catch (e) {
+    } catch {
         return null;
     }
 }
 export async function pauseStream(params: { id: string; signTransaction: (xdr: string) => Promise<string> }) {
     const client = new PaymentStreamClient({
         networkPassphrase: NETWORK_PASSPHRASE,
-        rpcUrl: SOROBAN_RPC_URL,
+        rpcUrl: STELLAR_RPC_URL,
         contractId: PAYMENT_STREAM_CONTRACT_ID,
     });
 
@@ -207,7 +207,7 @@ export async function pauseStream(params: { id: string; signTransaction: (xdr: s
 export async function resumeStream(params: { id: string; signTransaction: (xdr: string) => Promise<string> }) {
     const client = new PaymentStreamClient({
         networkPassphrase: NETWORK_PASSPHRASE,
-        rpcUrl: SOROBAN_RPC_URL,
+        rpcUrl: STELLAR_RPC_URL,
         contractId: PAYMENT_STREAM_CONTRACT_ID,
     });
 
@@ -219,7 +219,7 @@ export async function resumeStream(params: { id: string; signTransaction: (xdr: 
 export async function cancelStream(params: { id: string; signTransaction: (xdr: string) => Promise<string> }) {
     const client = new PaymentStreamClient({
         networkPassphrase: NETWORK_PASSPHRASE,
-        rpcUrl: SOROBAN_RPC_URL,
+        rpcUrl: STELLAR_RPC_URL,
         contractId: PAYMENT_STREAM_CONTRACT_ID,
     });
 

@@ -8,6 +8,7 @@ import {
     type NodeRpcUrls,
     type TokenWithChainDetails,
 } from "@allbridge/bridge-core-sdk";
+import { env } from "@/lib/env";
 
 // RawSorobanTransaction is the XDR string type used for Stellar/Soroban
 type RawSorobanTransaction = string;
@@ -34,15 +35,10 @@ export interface BridgeTransactionResult {
 
 // Singleton config — set once at app initialization
 const DEFAULT_CONFIG: AllbridgeConfig = {
-    sorobanRpcUrl:
-        process.env.NEXT_PUBLIC_STELLAR_RPC_URL ||
-        "https://soroban-rpc.mainnet.stellar.gateway.fm",
-    horizonUrl:
-        process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ||
-        "https://horizon.stellar.org",
+    sorobanRpcUrl: env.NEXT_PUBLIC_STELLAR_RPC_URL,
+    horizonUrl: env.NEXT_PUBLIC_STELLAR_HORIZON_URL,
     polygonRpcUrl:
-        process.env.NEXT_PUBLIC_POLYGON_RPC_URL ||
-        "https://polygon-rpc.com",
+        env.NEXT_PUBLIC_POLYGON_RPC_URL || "https://polygon-rpc.com",
 };
 
 let _sdk: AllbridgeCoreSdk | null = null;
@@ -196,7 +192,7 @@ export const allbridgeService = {
             if (gasFees.stablecoin) {
                 gasFeeStablecoin = gasFees.stablecoin;
             }
-        } catch (e) {
+        } catch {
             // Silently fail gas fee options - will fallback to defaults
         }
 

@@ -1,65 +1,87 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, expect, it } from "vitest";
+import {
+  EnvValidationError,
+  getEnvValidationResult,
+  validateEnv,
+} from "../env-validation";
 
-describe("Environment Variable Validation", () => {
-  const originalEnv = process.env;
+const VALID_CONTRACT_ID = `C${"A".repeat(55)}`;
 
-  beforeEach(() => {
-    // Reset modules to clear cached env validation
-    process.env = { ...originalEnv };
+function createEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
+  return {
+    NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID: VALID_CONTRACT_ID,
+    NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID: VALID_CONTRACT_ID,
+    NEXT_PUBLIC_STELLAR_RPC_URL: "https://soroban-testnet.stellar.org",
+    NEXT_PUBLIC_STELLAR_HORIZON_URL: "https://horizon-testnet.stellar.org",
+    NEXT_PUBLIC_NETWORK_PASSPHRASE: "Test SDF Network ; September 2015",
+    NEXT_PUBLIC_STELLAR_NETWORK: "testnet",
+    ...overrides,
+  };
+}
+
+describe("environment validation", () => {
+  it("throws a clear error when a required contract ID is missing", () => {
+    expect(() =>
+      validateEnv(
+        createEnv({
+          NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID: undefined,
+        })
+      )
+    ).toThrowError(EnvValidationError);
   });
 
-  afterEach(() => {
-    process.env = originalEnv;
+  it("reports invalid contract ID format", () => {
+    const result = getEnvValidationResult(
+      createEnv({
+        NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID: "INVALID123",
+      })
+    );
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+
+    expect(result.error.issues).toContainEqual({
+      key: "NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID",
+      message: "Must be a valid Stellar contract ID: 56 characters, starting with C",
+    });
   });
 
-  it("should throw error when required contract IDs are missing", () => {
-    delete process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID;
-    delete process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID;
+  it("requires both Stellar RPC and Horizon URLs", () => {
+    const result = getEnvValidationResult(
+      createEnv({
+        NEXT_PUBLIC_STELLAR_RPC_URL: undefined,
+        NEXT_PUBLIC_STELLAR_HORIZON_URL: "",
+      })
+    );
 
-    expect(() => {
-      // Dynamic import to trigger validation
-      require("../env");
-    }).toThrow(/Environment variable validation failed/);
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+
+    expect(result.error.issues).toEqual(
+      expect.arrayContaining([
+        {
+          key: "NEXT_PUBLIC_STELLAR_RPC_URL",
+          message: "NEXT_PUBLIC_STELLAR_RPC_URL is required",
+        },
+        {
+          key: "NEXT_PUBLIC_STELLAR_HORIZON_URL",
+          message: "NEXT_PUBLIC_STELLAR_HORIZON_URL is required",
+        },
+      ])
+    );
   });
 
-  it("should throw error when contract IDs don't start with C", () => {
-    process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID = "INVALID123";
-    process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID123";
-
-    expect(() => {
-      require("../env");
-    }).toThrow(/Contract ID must start with 'C'/);
-  });
-
-  it("should throw error when network is invalid", () => {
-    process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID = "CVALID123";
-    process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID456";
-    process.env.NEXT_PUBLIC_STELLAR_NETWORK = "invalid";
-
-    expect(() => {
-      require("../env");
-    }).toThrow(/Network must be either 'testnet' or 'mainnet'/);
-  });
-
-  it("should accept valid environment variables", () => {
-    process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID = "CVALID123";
-    process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID456";
-    process.env.NEXT_PUBLIC_STELLAR_NETWORK = "testnet";
-    process.env.NEXT_PUBLIC_SOROBAN_RPC_URL = "https://soroban-testnet.stellar.org";
-    process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
-
-    expect(() => {
-      require("../env");
-    }).not.toThrow();
-  });
-
-  it("should use default values for optional variables", () => {
-    process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID = "CVALID123";
-    process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID456";
-    // Don't set optional variables
-
-    expect(() => {
-      require("../env");
-    }).not.toThrow();
+  it("accepts a valid environment configuration", () => {
+    expect(validateEnv(createEnv())).toMatchObject({
+      NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID: VALID_CONTRACT_ID,
+      NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID: VALID_CONTRACT_ID,
+      NEXT_PUBLIC_STELLAR_RPC_URL: "https://soroban-testnet.stellar.org",
+      NEXT_PUBLIC_STELLAR_HORIZON_URL: "https://horizon-testnet.stellar.org",
+      NEXT_PUBLIC_STELLAR_NETWORK: "testnet",
+    });
   });
 });

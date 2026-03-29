@@ -5,21 +5,21 @@ import { Horizon } from '@stellar/stellar-sdk';
 import { DistributorClient } from '../../../../packages/sdk/src/DistributorClient';
 import { useWallet } from '@/providers/StellarWalletProvider';
 import { notify } from '@/utils/notification';
-import { DISTRIBUTOR_CONTRACT_ID, SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
+import {
+  DISTRIBUTOR_CONTRACT_ID,
+  STELLAR_RPC_URL,
+  STELLAR_HORIZON_URL,
+  NETWORK_PASSPHRASE,
+} from '@/lib/constants';
 import { amountToStroops } from '@/utils/amount-validation';
 import type { DistributionState } from '@/types/distribution';
-
-const IS_MAINNET = process.env.NEXT_PUBLIC_STELLAR_NETWORK === 'public';
-const HORIZON_URL = IS_MAINNET
-  ? 'https://horizon.stellar.org'
-  : 'https://horizon-testnet.stellar.org';
 
 /**
  * Checks if an account exists on the Stellar network.
  */
 async function accountExists(address: string): Promise<boolean> {
   try {
-    const horizon = new Horizon.Server(HORIZON_URL, { allowHttp: true });
+    const horizon = new Horizon.Server(STELLAR_HORIZON_URL, { allowHttp: true });
     await horizon.loadAccount(address);
     return true;
   } catch {
@@ -37,7 +37,7 @@ async function checkSenderBalance(
   requiredAmount: bigint
 ): Promise<{ ok: boolean; reason?: string }> {
   try {
-    const horizon = new Horizon.Server(HORIZON_URL, { allowHttp: true });
+    const horizon = new Horizon.Server(STELLAR_HORIZON_URL, { allowHttp: true });
     const account = await horizon.loadAccount(senderAddress);
 
     if (tokenAddress === 'native') {
@@ -135,7 +135,7 @@ export function useDistributionTransaction() {
         const client = new DistributorClient({
           contractId: DISTRIBUTOR_CONTRACT_ID,
           networkPassphrase: NETWORK_PASSPHRASE,
-          rpcUrl: SOROBAN_RPC_URL,
+          rpcUrl: STELLAR_RPC_URL,
           publicKey: address,
         });
 

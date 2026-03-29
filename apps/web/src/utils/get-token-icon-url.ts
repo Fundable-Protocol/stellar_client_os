@@ -1,3 +1,5 @@
+import { STELLAR_NETWORK } from "@/lib/constants";
+
 /**
  * Constructs a token icon URL from Stellar Expert or local assets
  *
@@ -24,10 +26,7 @@ export function getTokenIconUrl(
     return "/stellar-xlm-logo.svg";
   }
 
-  // Determine network from environment
-  // Matches the pattern used in notification.tsx
-  const stellarNetwork = process.env.NEXT_PUBLIC_STELLAR_NETWORK || "public";
-  const network = stellarNetwork === "public" ? "public" : "testnet";
+  const network = STELLAR_NETWORK === "mainnet" ? "public" : "testnet";
 
   // Handle custom tokens with issuer - use Stellar Expert
   const baseUrl = `https://stellar.expert/explorer/${network}/asset`;

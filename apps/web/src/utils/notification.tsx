@@ -1,9 +1,9 @@
 import toast from "react-hot-toast";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
+import { STELLAR_NETWORK } from "@/lib/constants";
 
-const IS_MAINNET = process.env.NEXT_PUBLIC_STELLAR_NETWORK === "public";
-const EXPLORER_URL = IS_MAINNET
+const EXPLORER_URL = STELLAR_NETWORK === "mainnet"
   ? "https://stellar.expert/explorer/public/tx/"
   : "https://stellar.expert/explorer/testnet/tx/";
 

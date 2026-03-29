@@ -7,6 +7,8 @@ import { WalletModal } from "@/components/organisms/wallet-modal";
 import AppProvider from "@/providers/app-provider";
 import { ToastProvider } from "@/providers/ToastProvider";
 import ReactQueryProvider from "@/providers/ReactQueryProvider";
+import { ConfigurationErrorScreen } from "@/components/system/configuration-error-screen";
+import { getEnvValidationResult, formatEnvValidationError } from "@/lib/env-validation";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,6 +36,27 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const envValidation = getEnvValidationResult();
+
+  if (!envValidation.success) {
+    if (process.env.NODE_ENV === "production") {
+      console.error(formatEnvValidationError(envValidation.error.issues));
+    }
+
+    return (
+      <html lang="en" suppressHydrationWarning>
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} ${bricolageGrotesque.variable} antialiased`}
+        >
+          <ConfigurationErrorScreen
+            issues={envValidation.error.issues}
+            isDevelopment={process.env.NODE_ENV !== "production"}
+          />
+        </body>
+      </html>
+    );
+  }
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
