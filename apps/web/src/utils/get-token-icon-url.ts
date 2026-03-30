@@ -6,9 +6,9 @@
  * @returns The full URL to the token icon
  *
  * @example
- * // Native XLM - uses local logo
+ * // Native XLM - uses Stellar Expert
  * getTokenIconUrl("XLM")
- * // => "/stellar-xlm-logo.svg"
+ * // => "https://stellar.expert/explorer/public/asset/XLM"
  *
  * @example
  * // Custom token - uses Stellar Expert

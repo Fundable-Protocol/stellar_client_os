@@ -1,5 +1,5 @@
 import { Recipient, DistributionType, CSVError, CSVWarning, CSVValidationResult } from '@/types/distribution';
-import { validateStellarAddress } from './stellar-validation';
+import { isValidStellarAddress, validateStellarAddress } from './stellar-validation';
 import { validateAmount } from './amount-validation';
 
 /**
@@ -167,7 +167,7 @@ function parseLine(
     id: `csv-${lineNumber}-${Date.now()}`,
     address,
     amount,
-    isValid: true,
+    isValid: isValidStellarAddress(address),
   };
 }
 

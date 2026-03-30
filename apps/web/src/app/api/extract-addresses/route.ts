@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
 
       const data = await res.json();
       for (const tweet of data.data ?? []) {
-        for (const match of tweet.text.matchAll(STELLAR_ADDRESS_RE)) {
+        for (const match of (tweet.text ?? '').matchAll(STELLAR_ADDRESS_RE)) {
           addresses.add(match[1]);
         }
       }
