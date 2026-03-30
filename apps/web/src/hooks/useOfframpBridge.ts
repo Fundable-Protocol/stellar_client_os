@@ -68,6 +68,12 @@ interface UseOfframpBridgeReturn {
     goBack: () => void;
 }
 
+/**
+ * Manages the full offramp bridge flow: bank selection, quote fetching,
+ * bridging via Allbridge, and polling for offramp completion.
+ *
+ * @returns State and control functions for each step of the offramp process
+ */
 export function useOfframpBridge(): UseOfframpBridgeReturn {
     const { address, isConnected, signTransaction, network } = useWallet();
 

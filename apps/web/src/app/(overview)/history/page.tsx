@@ -249,10 +249,11 @@ const HistoryPage = () => {
                             page={page}
                             limit={limit}
                             totalCount={filteredData.length}
-                            onPageChange={(nextPage) => updateHistoryParams({ page: nextPage })}
-                            onLimitChange={(nextLimit) =>
-                                updateHistoryParams({ page: 1, limit: nextLimit })
-                            }
+                            onPageChange={(nextPage) => setPage(nextPage)}
+                            onLimitChange={(nextLimit) => {
+                                setPage(1);
+                                setLimit(nextLimit);
+                            }}
                             onExport={handleExportCSV}
                             isLoading={isLoading}
                         />

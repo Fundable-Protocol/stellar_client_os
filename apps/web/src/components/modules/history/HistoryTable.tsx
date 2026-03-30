@@ -126,11 +126,11 @@ const HistoryTable = ({
                             const isExpanded = expandedRows.has(rec.id);
                             return (
                                 <div key={rec.id} className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-                                    <button
+                                    <div
                                         onClick={() => toggleRow(rec.id)}
                                         aria-expanded={isExpanded}
                                         aria-controls={`history-row-${rec.id}`}
-                                        className="w-full text-left"
+                                        className="w-full text-left cursor-pointer"
                                     >
                                         <div className="flex items-center justify-between">
                                                     <div className="flex items-center gap-3">

@@ -22,6 +22,11 @@ import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { ErrorFallback } from '@/components/ui/error-fallback';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 
+/**
+ * Distribution page – lets users configure and execute equal or weighted token
+ * distributions to multiple Stellar recipients, with CSV import and address
+ * extraction from X (Twitter) post replies.
+ */
 export default function DistributionPage() {
   const {
     state,

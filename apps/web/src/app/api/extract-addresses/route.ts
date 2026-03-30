@@ -13,6 +13,14 @@ function parseTweetId(url: string): string | null {
   }
 }
 
+/**
+ * GET /api/extract-addresses
+ *
+ * Fetches replies to an X (Twitter) post and extracts Stellar addresses from the text.
+ *
+ * @param req - Incoming request with a `url` query param pointing to an X post
+ * @returns JSON `{ addresses: string[] }` or an error response
+ */
 export async function GET(req: NextRequest) {
   const tweetUrl = req.nextUrl.searchParams.get("url");
   if (!tweetUrl) {

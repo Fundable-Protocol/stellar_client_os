@@ -212,7 +212,7 @@ function StreamsTable({
                         <div className="flex w-[100px] items-center justify-center text-sm font-medium text-zinc-300" aria-live="polite" aria-atomic="true">
                             Page {page} of {pageCount}
                         </div>
-                    </div>
+                    </PaginationContent>
 
                     <SlidingPagination
                         page={page}

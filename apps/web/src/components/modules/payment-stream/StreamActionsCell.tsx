@@ -200,7 +200,7 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
                 isOpen={isDelegateModalOpen}
                 onClose={() => setIsDelegateModalOpen(false)}
                 streamId={stream.id}
-                currentDelegate={stream.delegateAddress}
+                currentDelegate={stream.delegateAddress ?? undefined}
             />
         </>
     );
