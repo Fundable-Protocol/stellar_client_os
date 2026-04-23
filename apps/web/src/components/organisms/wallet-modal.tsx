@@ -33,11 +33,7 @@ export function WalletModal() {
 
   const handleConnectClick = async () => {
     if (activeSelection) {
-      try {
-        await connect(activeSelection);
-      } catch (error) {
-        // Error is handled by StellarWalletProvider
-      }
+      await connect(activeSelection);
     }
   };
 

@@ -244,7 +244,7 @@ export const StellarWalletProvider = ({
         errorMessage.toLowerCase().includes("user rejected") ||
         errorMessage.toLowerCase().includes("permission denied")
       ) {
-        // Silently handle user rejection
+        notify.error("Connection rejected by user");
       } else {
         // Show a generic but helpful error for other errors
         notify.error(`Failed to connect to ${walletId}: ${errorMessage}`);
