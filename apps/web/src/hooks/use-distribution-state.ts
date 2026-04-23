@@ -3,6 +3,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { useDebouncedCallback } from './use-debounce-callback';
 import type { 
   DistributionState, 
   DistributionType, 
@@ -149,6 +150,11 @@ export function useDistributionState() {
     return errors;
   }, []);
 
+  const debouncedValidate = useDebouncedCallback((currentState: DistributionState) => {
+    const errors = validateState(currentState);
+    setState(prev => ({ ...prev, errors, isValid: errors.length === 0 }));
+  }, 150);
+
   /**
    * Update distribution type
    */
@@ -223,14 +229,10 @@ export function useDistributionState() {
         }),
       };
 
-      const errors = validateState(newState);
-      return {
-        ...newState,
-        errors,
-        isValid: errors.length === 0,
-      };
+      debouncedValidate(newState);
+      return newState;
     });
-  }, [validateState]);
+  }, [debouncedValidate]);
 
   /**
    * Remove a recipient
