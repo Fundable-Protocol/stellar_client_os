@@ -128,6 +128,13 @@ export function useDistributionTransaction() {
         return false;
       }
 
+      // Check XLM balance for transaction fees
+      const xlmCheck = await checkSenderBalance(address, 'native', 100000n); // 0.01 XLM for fees
+      if (!xlmCheck.ok) {
+        notify.error('Insufficient XLM balance for transaction fees');
+        return false;
+      }
+
       setIsSubmitting(true);
       notify.loading('Building transaction...');
 
