@@ -14,15 +14,33 @@ const HORIZON_URL = IS_MAINNET
   ? 'https://horizon.stellar.org'
   : 'https://horizon-testnet.stellar.org';
 
+const ACCOUNT_CHECK_TIMEOUT_MS = 10_000;
+
+/**
+ * Rejects after a given number of milliseconds with a timeout error.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout checking account: ${label}`)), ms)
+    ),
+  ]);
+}
+
 /**
  * Checks if an account exists on the Stellar network.
+ * Rejects with a timeout error if the account does not respond within ACCOUNT_CHECK_TIMEOUT_MS.
  */
 async function accountExists(address: string): Promise<boolean> {
   try {
     const horizon = new Horizon.Server(HORIZON_URL, { allowHttp: true });
-    await horizon.loadAccount(address);
+    await withTimeout(horizon.loadAccount(address), ACCOUNT_CHECK_TIMEOUT_MS, address);
     return true;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Timeout checking account:')) {
+      throw err;
+    }
     return false;
   }
 }
@@ -101,7 +119,14 @@ export function useDistributionTransaction() {
 
       // Pre-flight: check all recipient accounts exist
       notify.loading('Validating recipients...');
-      const existenceChecks = await Promise.all(recipients.map(accountExists));
+      let existenceChecks: boolean[];
+      try {
+        existenceChecks = await Promise.all(recipients.map(accountExists));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Account validation timed out';
+        notify.error(msg);
+        return false;
+      }
       const missingIndex = existenceChecks.findIndex((exists) => !exists);
       if (missingIndex !== -1) {
         notify.error(
