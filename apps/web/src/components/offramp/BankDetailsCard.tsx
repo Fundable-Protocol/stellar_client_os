@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2, ChevronDown, Search } from "lucide-react";
 
 import type { OfframpFormState, Bank } from "@/types/offramp";
+import { getAccountNumberRules } from "@/types/offramp";
 
 interface BankDetailsCardProps {
     formState: OfframpFormState;
@@ -141,6 +142,7 @@ export default function BankDetailsCard({
     isVerifyingAccount,
     onChange,
 }: BankDetailsCardProps) {
+    const { max: maxLen } = getAccountNumberRules(formState.country);
     return (
         <div className="bg-fundable-mid-dark rounded-2xl p-6 border border-gray-800">
             <h2 className="text-xl font-syne font-semibold text-white mb-6">
@@ -170,11 +172,11 @@ export default function BankDetailsCard({
                             placeholder="Enter account number"
                             value={formState.accountNumber}
                             onChange={(e) => {
-                                const value = e.target.value.replace(/\D/g, "").slice(0, 10);
+                                const value = e.target.value.replace(/\D/g, "").slice(0, maxLen);
                                 onChange("accountNumber", value);
                             }}
                             className="bg-fundable-dark border-gray-700 text-white h-12"
-                            maxLength={10}
+                            maxLength={maxLen}
                         />
                         {isVerifyingAccount && (
                             <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-fundable-purple" />

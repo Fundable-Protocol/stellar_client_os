@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { OfframpFormState, ProviderRate } from "@/types/offramp";
-import { SUPPORTED_COUNTRIES, getCurrencySymbol } from "@/types/offramp";
+import { SUPPORTED_COUNTRIES, getCurrencySymbol, getAccountNumberRules } from "@/types/offramp";
 
 interface OfframpSummaryProps {
     formState: OfframpFormState;
@@ -29,7 +29,7 @@ export default function OfframpSummary({
         formState.amount &&
         parseFloat(formState.amount) > 0 &&
         formState.bankCode &&
-        formState.accountNumber.length >= 10 &&
+        formState.accountNumber.length >= getAccountNumberRules(formState.country).min &&
         formState.accountName;
 
     const canProceed = isFormValid && quote && !isLoading;
