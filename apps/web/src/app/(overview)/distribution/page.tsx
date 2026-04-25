@@ -52,6 +52,7 @@ export default function DistributionPage() {
   const [csvWarnings, setCsvWarnings] = React.useState<CSVWarning[]>([]);
 
   const [isProcessing, setIsProcessing] = React.useState(false);
+  const [csvProgress, setCsvProgress] = React.useState(0);
   const [isExtracting, setIsExtracting] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const pageRef = React.useRef<HTMLDivElement>(null);
@@ -212,114 +213,118 @@ export default function DistributionPage() {
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setIsProcessing(true);
-      // Clear previous errors/warnings
-      setCsvErrors([]);
-      setCsvWarnings([]);
-      
-      try {
-        const result = await processCSVFile(file, state.type);
-        
-        if (result.errors.length > 0) {
-          // Surface errors to user via UI
-          setCsvErrors(result.errors);
-          setCsvWarnings(result.warnings);
-          showMessage('error', `CSV processing failed with ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
-          return;
-        }
+     const file = event.target.files?.[0];
+     if (file) {
+       setIsProcessing(true);
+       setCsvProgress(0);
+       // Clear previous errors/warnings
+       setCsvErrors([]);
+       setCsvWarnings([]);
+       
+       try {
+         const result = await processCSVFile(file, state.type, (p) => setCsvProgress(p));
+         
+         if (result.errors.length > 0) {
+           // Surface errors to user via UI
+           setCsvErrors(result.errors);
+           setCsvWarnings(result.warnings);
+           showMessage('error', `CSV processing failed with ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
+           return;
+         }
 
-        // Show warnings if any (but still process)
-        if (result.warnings.length > 0) {
-          setCsvWarnings(result.warnings);
-        }
+         // Show warnings if any (but still process)
+         if (result.warnings.length > 0) {
+           setCsvWarnings(result.warnings);
+         }
 
-        // Add recipients from CSV using bulk add
-        bulkAddRecipients(result.recipients);
+         // Add recipients from CSV using bulk add
+         bulkAddRecipients(result.recipients);
 
-        // Show success message
-        const warningText = result.warnings.length > 0 
-          ? ` (${result.warnings.length} warning${result.warnings.length !== 1 ? 's' : ''})` 
-          : '';
-        showMessage('success', `Successfully imported ${result.recipients.length} recipient${result.recipients.length !== 1 ? 's' : ''} from CSV${warningText}`);
-        
-        // Auto-scroll to show the newly added recipients
-        setTimeout(() => {
-          if (pageRef.current) {
-            pageRef.current.scrollTop = pageRef.current.scrollHeight;
-          }
-        }, 100);
-        
-        // Reset file input
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-        } catch (error) {
-        notify.error('Failed to process CSV file. Please check the format and try again.');
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        setCsvErrors([{ line: 0, message: errorMessage }]);
-        showMessage('error', 'Failed to process CSV file. Please check the format and try again.');
-      } finally {
-        setIsProcessing(false);
-      }
-    }
-  };
+         // Show success message
+         const warningText = result.warnings.length > 0 
+           ? ` (${result.warnings.length} warning${result.warnings.length !== 1 ? 's' : ''})` 
+           : '';
+         showMessage('success', `Successfully imported ${result.recipients.length} recipient${result.recipients.length !== 1 ? 's' : ''} from CSV${warningText}`);
+         
+         // Auto-scroll to show the newly added recipients
+         setTimeout(() => {
+           if (pageRef.current) {
+             pageRef.current.scrollTop = pageRef.current.scrollHeight;
+           }
+         }, 100);
+         
+         // Reset file input
+         if (fileInputRef.current) {
+           fileInputRef.current.value = '';
+         }
+         } catch (error) {
+         notify.error('Failed to process CSV file. Please check the format and try again.');
+         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+         setCsvErrors([{ line: 0, message: errorMessage }]);
+         showMessage('error', 'Failed to process CSV file. Please check the format and try again.');
+       } finally {
+         setIsProcessing(false);
+         setCsvProgress(0);
+       }
+     }
+   };
 
   const handleDragOver = (event: React.DragEvent) => {
     event.preventDefault();
   };
 
   const handleDrop = async (event: React.DragEvent) => {
-    event.preventDefault();
-    const files = event.dataTransfer.files;
-    if (files.length > 0) {
-      const file = files[0];
-      setIsProcessing(true);
-      // Clear previous errors/warnings
-      setCsvErrors([]);
-      setCsvWarnings([]);
-      
-      try {
-        const result = await processCSVFile(file, state.type);
-        
-        if (result.errors.length > 0) {
-          // Surface errors to user via UI
-          setCsvErrors(result.errors);
-          setCsvWarnings(result.warnings);
-          showMessage('error', `CSV processing failed with ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
-          return;
-        }
+     event.preventDefault();
+     const files = event.dataTransfer.files;
+     if (files.length > 0) {
+       const file = files[0];
+       setIsProcessing(true);
+       setCsvProgress(0);
+       // Clear previous errors/warnings
+       setCsvErrors([]);
+       setCsvWarnings([]);
+       
+       try {
+         const result = await processCSVFile(file, state.type, (p) => setCsvProgress(p));
+         
+         if (result.errors.length > 0) {
+           // Surface errors to user via UI
+           setCsvErrors(result.errors);
+           setCsvWarnings(result.warnings);
+           showMessage('error', `CSV processing failed with ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`);
+           return;
+         }
 
-        // Show warnings if any (but still process)
-        if (result.warnings.length > 0) {
-          setCsvWarnings(result.warnings);
-        }
+         // Show warnings if any (but still process)
+         if (result.warnings.length > 0) {
+           setCsvWarnings(result.warnings);
+         }
 
-        // Add recipients from CSV using bulk add
-        bulkAddRecipients(result.recipients);
+         // Add recipients from CSV using bulk add
+         bulkAddRecipients(result.recipients);
 
-        const warningText = result.warnings.length > 0 
-          ? ` (${result.warnings.length} warning${result.warnings.length !== 1 ? 's' : ''})` 
-          : '';
-        showMessage('success', `Successfully imported ${result.recipients.length} recipient${result.recipients.length !== 1 ? 's' : ''} from CSV${warningText}`);
-        
-        // Auto-scroll to show the newly added recipients
-        setTimeout(() => {
-          if (pageRef.current) {
-            pageRef.current.scrollTop = pageRef.current.scrollHeight;
-          }
-        }, 100);
-      } catch (error) {
-        notify.error('Failed to process CSV file. Please check the format and try again.');
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        setCsvErrors([{ line: 0, message: errorMessage }]);
-        showMessage('error', 'Failed to process CSV file. Please check the format and try again.');
-      } finally {
-        setIsProcessing(false);
-      }
-    }
-  };
+         const warningText = result.warnings.length > 0 
+           ? ` (${result.warnings.length} warning${result.warnings.length !== 1 ? 's' : ''})` 
+           : '';
+         showMessage('success', `Successfully imported ${result.recipients.length} recipient${result.recipients.length !== 1 ? 's' : ''} from CSV${warningText}`);
+         
+         // Auto-scroll to show the newly added recipients
+         setTimeout(() => {
+           if (pageRef.current) {
+             pageRef.current.scrollTop = pageRef.current.scrollHeight;
+           }
+         }, 100);
+       } catch (error) {
+         notify.error('Failed to process CSV file. Please check the format and try again.');
+         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+         setCsvErrors([{ line: 0, message: errorMessage }]);
+         showMessage('error', 'Failed to process CSV file. Please check the format and try again.');
+       } finally {
+         setIsProcessing(false);
+         setCsvProgress(0);
+       }
+     }
+   };
 
   // Virtualized recipient table component
   const VirtualizedRecipientTable = React.useMemo(() => {
@@ -748,17 +753,23 @@ export default function DistributionPage() {
 
         {/* Recipients Table */}
         <div className="relative">
-          {isProcessing ? (
-            <>
-              <p className="text-sm text-zinc-400 mb-2 flex items-center gap-2">
-                <span className="inline-block h-2 w-2 rounded-full bg-purple-500 animate-pulse" />
-                Validating recipients...
-              </p>
-              <RecipientTableSkeleton />
-            </>
-          ) : (
-            <RecipientTableComponent />
-          )}
+           {isProcessing ? (
+             <div className="space-y-4">
+               <p className="text-sm text-zinc-400 mb-2 flex items-center gap-2">
+                 <span className="inline-block h-2 w-2 rounded-full bg-purple-500 animate-pulse" />
+                 Validating recipients... {Math.round(csvProgress * 100)}%
+               </p>
+               <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">
+                 <div 
+                   className="h-full bg-purple-500 transition-all duration-200"
+                   style={{ width: `${Math.round(csvProgress * 100)}%` }}
+                 />
+               </div>
+               <RecipientTableSkeleton />
+             </div>
+           ) : (
+             <RecipientTableComponent />
+           )}
         </div>
 
         {/* Action Buttons */}

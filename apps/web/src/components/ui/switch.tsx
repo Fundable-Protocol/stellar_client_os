@@ -5,13 +5,18 @@ export interface SwitchProps
   extends React.InputHTMLAttributes<HTMLInputElement> {}
 
 const Switch = React.forwardRef<HTMLInputElement, SwitchProps>(
-  ({ className, ...props }, ref) => {
+  ({ className, checked, ...props }, ref) => {
     return (
-      <label className="relative inline-flex items-center cursor-pointer">
+      <label 
+        className="relative inline-flex items-center cursor-pointer" 
+        role="switch"
+        aria-checked={checked}
+      >
         <input
           type="checkbox"
           className="sr-only peer"
           ref={ref}
+          checked={checked}
           {...props}
         />
         <div className={cn(

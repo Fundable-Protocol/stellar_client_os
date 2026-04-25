@@ -40,29 +40,33 @@ export function FileUploadArea({
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<CSVValidationResult | null>(null);
 
+  const [progress, setProgress] = useState(0);
+  
   const handleFileProcess = useCallback(async (file: File) => {
-    setIsProcessing(true);
-    setLastResult(null);
-
-    try {
-      const result = await processCSVFile(file, distributionType);
-      setLastResult(result);
-
-      if (result.isValid) {
-        onUpload(result.recipients);
-      } else {
-        const errorMessage = result.errors.length > 0 
-          ? `CSV validation failed with ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`
-          : 'CSV file contains invalid data';
-        onError(errorMessage, result.errors, result.warnings);
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to process CSV file';
-      onError(errorMessage, [{ line: 0, message: errorMessage }], []);
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [distributionType, onUpload, onError]);
+     setIsProcessing(true);
+     setLastResult(null);
+     setProgress(0);
+ 
+     try {
+       const result = await processCSVFile(file, distributionType, (p) => setProgress(p));
+       setLastResult(result);
+ 
+       if (result.isValid) {
+         onUpload(result.recipients);
+       } else {
+         const errorMessage = result.errors.length > 0 
+           ? `CSV validation failed with ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}`
+           : 'CSV file contains invalid data';
+         onError(errorMessage, result.errors, result.warnings);
+       }
+     } catch (error) {
+       const errorMessage = error instanceof Error ? error.message : 'Failed to process CSV file';
+       onError(errorMessage, [{ line: 0, message: errorMessage }], []);
+     } finally {
+       setIsProcessing(false);
+       setProgress(0);
+     }
+   }, [distributionType, onUpload, onError]);
 
   const handleFileSelect = useCallback((files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -146,7 +150,17 @@ export function FileUploadArea({
         <div className="text-center">
           <div className="flex justify-center mb-4">
             {isProcessing ? (
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-zinc-400" />
+              <div className="w-32">
+                <div className="h-2 bg-zinc-700 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-purple-500 transition-all duration-200"
+                    style={{ width: `${Math.round(progress * 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-zinc-400 mt-2">
+                  {Math.round(progress * 100)}% complete
+                </p>
+              </div>
             ) : (
               <Upload className="h-8 w-8 text-zinc-400" />
             )}
@@ -160,7 +174,7 @@ export function FileUploadArea({
               Drag and drop your CSV file here, or click to browse
             </p>
             <p className="text-xs text-zinc-500">
-              Supports files up to 1MB
+              Supports files up to 10MB
             </p>
           </div>
         </div>

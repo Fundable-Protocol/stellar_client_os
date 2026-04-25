@@ -15,14 +15,38 @@ const MAX_RECIPIENTS = 1000;
  */
 export async function processCSVFile(
   file: File,
-  distributionType: DistributionType
+  distributionType: DistributionType,
+  onProgress?: (progress: number) => void
 ): Promise<CSVProcessingResult> {
   if (file.size > MAX_FILE_SIZE) {
     throw new Error(`File size exceeds maximum limit of ${MAX_FILE_SIZE / 1024 / 1024}MB`);
   }
 
-  const text = await file.text();
-  return processCSVText(text, distributionType);
+  const CHUNK_SIZE = 1024 * 1024; // 1MB
+  const reader = file.stream().getReader();
+  const decoder = new TextDecoder("utf-8");
+
+  let received = 0;
+  let result = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    received += value.length;
+    result += decoder.decode(value, { stream: true });
+
+    if (onProgress) {
+      onProgress(received / file.size);
+    }
+
+    // Yield to UI thread
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  // Flush the decoder
+  result += decoder.decode();
+
+  return processCSVText(result, distributionType);
 }
 
 /**
@@ -192,10 +216,9 @@ export function validateCSVFile(file: File): string | null {
     return 'Please select a valid CSV file';
   }
 
-  // Check file size (1MB limit)
-  const maxSize = 1024 * 1024; // 1MB
-  if (file.size > maxSize) {
-    return `File size exceeds maximum limit of ${maxSize / 1024 / 1024}MB`;
+  // Check file size (10MB limit)
+  if (file.size > MAX_FILE_SIZE) {
+    return `File size exceeds maximum limit of ${MAX_FILE_SIZE / 1024 / 1024}MB`;
   }
 
   // Check if file is empty
