@@ -27,6 +27,16 @@ export const SUPPORTED_COUNTRIES: CountryInfo[] = [
     { code: "KE", name: "Kenya", currency: "KES", flag: "🇰🇪" },
 ];
 
+export const ACCOUNT_NUMBER_RULES: Record<OfframpCountry, { min: number; max: number }> = {
+    NG: { min: 10, max: 10 },
+    GH: { min: 10, max: 16 },
+    KE: { min: 6, max: 16 },
+};
+
+export function getAccountNumberRules(country: OfframpCountry) {
+    return ACCOUNT_NUMBER_RULES[country] ?? { min: 6, max: 16 };
+}
+
 // Supported crypto tokens
 export type OfframpToken = "USDC" | "USDT";
 

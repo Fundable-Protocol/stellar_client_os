@@ -12,7 +12,7 @@ import type {
     OfframpCountry,
     ProviderRate,
 } from "@/types/offramp";
-import { SUPPORTED_OFFRAMP_TOKENS } from "@/types/offramp";
+import { SUPPORTED_OFFRAMP_TOKENS, getAccountNumberRules } from "@/types/offramp";
 
 interface UseOfframpBridgeReturn {
     // State
@@ -153,7 +153,7 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
     // ---------- Effects: Account Verification ----------
 
     useEffect(() => {
-        if (!formState.bankCode || formState.accountNumber.length < 10) {
+        if (!formState.bankCode || formState.accountNumber.length < getAccountNumberRules(formState.country).min) {
             setFormState(prev => ({ ...prev, accountName: "" }));
             return;
         }
