@@ -63,7 +63,10 @@ export function isRetryable(error: unknown): boolean {
     if (error instanceof TypeError) return true; // network error
     if (error instanceof Error) {
         const status = (error as Error & { status?: number }).status;
-        if (status && status >= 400 && status < 500) return false; // 4xx — not retryable
+        if (status && status >= 400 && status < 500) {
+            if (status === 429) return true; // Rate Limit should be retryable
+            return false; // 4xx — not retryable
+        }
         if (status && status >= 500) return true; // 5xx — retryable
     }
     return true; // unknown errors are retried

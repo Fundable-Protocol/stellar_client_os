@@ -56,6 +56,29 @@ export default function DistributionPage() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const pageRef = React.useRef<HTMLDivElement>(null);
 
+  const [selectedRecipients, setSelectedRecipients] = React.useState<Set<string>>(new Set());
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedRecipients(new Set(state.recipients.map(r => r.id)));
+    } else {
+      setSelectedRecipients(new Set());
+    }
+  };
+
+  const handleSelectRow = (id: string, checked: boolean) => {
+    const newSelected = new Set(selectedRecipients);
+    if (checked) {
+      newSelected.add(id);
+    } else {
+      newSelected.delete(id);
+    }
+    setSelectedRecipients(newSelected);
+  };
+
+  const handleBulkDelete = () => {
+    selectedRecipients.forEach(id => removeRecipient(id));
+    setSelectedRecipients(new Set());
   const { execute, isSubmitting } = useDistributionTransaction();
 
   const validateXPostUrl = (url: string): string => {
@@ -748,6 +771,80 @@ export default function DistributionPage() {
 
         {/* Recipients Table */}
         <div className="relative">
+          <div 
+            className="border border-zinc-800 rounded-lg mb-6 bg-zinc-900/30"
+          >
+          <Table>
+            <TableHeader className="sticky top-0 bg-zinc-900/90 backdrop-blur-sm z-10">
+              <TableRow className="border-zinc-800">
+                <TableHead className="w-12 text-zinc-400">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-purple-600 focus:ring-purple-600 focus:ring-offset-zinc-900 cursor-pointer"
+                    checked={state.recipients.length > 0 && selectedRecipients.size === state.recipients.length}
+                    onChange={handleSelectAll}
+                  />
+                </TableHead>
+                <TableHead className="w-12 text-zinc-400">#</TableHead>
+                <TableHead className="text-zinc-400">Address</TableHead>
+                <TableHead className="w-24 text-right text-zinc-400">
+                  {state.type === 'weighted' ? 'Amount' : '0'}
+                </TableHead>
+                <TableHead className="w-12"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {state.recipients.map((recipient, index) => (
+                <TableRow key={recipient.id} className="border-zinc-800">
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-purple-600 focus:ring-purple-600 focus:ring-offset-zinc-900 cursor-pointer"
+                      checked={selectedRecipients.has(recipient.id)}
+                      onChange={(e) => handleSelectRow(recipient.id, e.target.checked)}
+                    />
+                  </TableCell>
+                  <TableCell className="text-zinc-500">{index + 1}</TableCell>
+                  <TableCell>
+                    <Input
+                      type="text"
+                      placeholder="Address"
+                      value={recipient.address}
+                      onChange={(e) => handleRecipientChange(recipient.id, 'address', e.target.value)}
+                      className="border-0 bg-transparent p-0 focus-visible:ring-0 text-zinc-300 placeholder:text-zinc-600"
+                      autoFocus={index === state.recipients.length - 1}
+                    />
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {state.type === 'weighted' ? (
+                      <Input
+                        type="text"
+                        placeholder="0"
+                        value={recipient.amount || ''}
+                        onChange={(e) => handleRecipientChange(recipient.id, 'amount', e.target.value)}
+                        className="border-0 bg-transparent p-0 text-right focus-visible:ring-0 text-zinc-300 placeholder:text-zinc-600"
+                      />
+                    ) : (
+                      <span className="text-zinc-500">0</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeRecipient(recipient.id)}
+                      className="h-8 w-8 text-zinc-500 hover:text-red-400 hover:bg-red-900/20"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          
+          {/* Scroll fade indicator for bottom - Removed as table is now full height */}
+        </div>
           {isProcessing ? (
             <>
               <p className="text-sm text-zinc-400 mb-2 flex items-center gap-2">
@@ -763,14 +860,27 @@ export default function DistributionPage() {
 
         {/* Action Buttons */}
         <div className="flex justify-between">
-          <Button
-            variant="outline"
-            onClick={handleAddRecipient}
-            className="flex items-center gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Add Row
-          </Button>
+          <div className="flex gap-4">
+            <Button
+              variant="outline"
+              onClick={handleAddRecipient}
+              className="flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Add Row
+            </Button>
+            
+            {selectedRecipients.size > 0 && (
+              <Button
+                variant="outline"
+                onClick={handleBulkDelete}
+                className="flex items-center gap-2 text-red-500 border-red-900/50 hover:bg-red-900/20 hover:text-red-400"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete Selected
+              </Button>
+            )}
+          </div>
 
           <Button
             className="bg-purple-600 hover:bg-purple-700"

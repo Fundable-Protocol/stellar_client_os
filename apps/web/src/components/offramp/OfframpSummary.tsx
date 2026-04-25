@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { OfframpFormState, ProviderRate } from "@/types/offramp";
@@ -22,6 +23,25 @@ export default function OfframpSummary({
     onProceed,
     isLoading,
 }: OfframpSummaryProps) {
+    const [timeLeft, setTimeLeft] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (!quote?.expiresAt) {
+            setTimeLeft(null);
+            return;
+        }
+
+        const tick = () => {
+            const remaining = Math.floor((new Date(quote.expiresAt!).getTime() - Date.now()) / 1000);
+            setTimeLeft(remaining > 0 ? remaining : 0);
+        };
+
+        tick();
+        const intervalId = setInterval(tick, 1000);
+
+        return () => clearInterval(intervalId);
+    }, [quote?.expiresAt]);
+
     const selectedCountry = SUPPORTED_COUNTRIES.find(
         (c) => c.code === formState.country
     );
@@ -78,8 +98,9 @@ export default function OfframpSummary({
                         {quote.expiresAt && (
                             <div className="flex justify-between text-sm">
                                 <span className="text-fundable-light-grey">Expires At</span>
-                                <span className="text-fundable-purple">
+                                <span className={timeLeft !== null && timeLeft <= 60 ? "text-orange-500 font-bold" : "text-fundable-purple"}>
                                     {new Date(quote.expiresAt).toLocaleTimeString()}
+                                    {timeLeft !== null && timeLeft <= 60 && ` (${timeLeft}s)`}
                                 </span>
                             </div>
                         )}
