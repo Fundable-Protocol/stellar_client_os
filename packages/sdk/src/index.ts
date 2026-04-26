@@ -24,6 +24,7 @@ export {
 
 // Export high-level clients
 export * from './PaymentStreamClient';
+export type { StreamHistoryEvent, StreamEventType } from './PaymentStreamClient';
 export * from './DistributorClient';
 
 // Export deployment module

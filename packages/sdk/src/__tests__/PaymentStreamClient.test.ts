@@ -8,6 +8,16 @@ import { PaymentStreamClient } from '../PaymentStreamClient';
 // ---------------------------------------------------------------------------
 const mockTx = (result: unknown = null) => ({ result, signAndSend: vi.fn() });
 
+const mockGetEvents = vi.fn();
+
+vi.mock('@stellar/stellar-sdk', () => ({
+  rpc: {
+    Server: vi.fn().mockImplementation(() => ({
+      getEvents: mockGetEvents,
+    })),
+  },
+}));
+
 const mockContractClient = {
   create_stream: vi.fn(),
   deposit: vi.fn(),
@@ -369,6 +379,57 @@ describe('PaymentStreamClient', () => {
       await expect(
         client.initialize({ admin: SENDER, fee_collector: RECIPIENT, general_fee_rate: 10 })
       ).rejects.toThrow('AlreadyInitialized');
+    });
+  });
+
+  // ── getStreamHistory ───────────────────────────────────────────────────────
+  describe('getStreamHistory', () => {
+    const makeEvent = (name: string, streamId: bigint) => ({
+      topic: [{ value: () => name }, { value: () => `u64:${streamId}` }],
+      value: { value: () => ({ amount: 500n }) },
+      ledger: 1000,
+      ledgerClosedAt: '2024-01-01T00:00:00Z',
+    });
+
+    it('queries getEvents with correct contract filter', async () => {
+      mockGetEvents.mockResolvedValue({ events: [] });
+      await client.getStreamHistory(STREAM_ID);
+      expect(mockGetEvents).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filters: [expect.objectContaining({ contractIds: [VALID_OPTIONS.contractId] })],
+        })
+      );
+    });
+
+    it('returns parsed events for the stream', async () => {
+      mockGetEvents.mockResolvedValue({
+        events: [makeEvent('withdraw_event', STREAM_ID), makeEvent('paused_event', STREAM_ID)],
+      });
+      const history = await client.getStreamHistory(STREAM_ID);
+      expect(history).toHaveLength(2);
+      expect(history[0].type).toBe('withdraw');
+      expect(history[0].streamId).toBe(STREAM_ID);
+      expect(history[0].ledger).toBe(1000);
+      expect(history[1].type).toBe('paused');
+    });
+
+    it('returns empty array when no events exist', async () => {
+      mockGetEvents.mockResolvedValue({ events: [] });
+      const history = await client.getStreamHistory(STREAM_ID);
+      expect(history).toEqual([]);
+    });
+
+    it('respects startLedger and limit options', async () => {
+      mockGetEvents.mockResolvedValue({ events: [] });
+      await client.getStreamHistory(STREAM_ID, { startLedger: 500, limit: 50 });
+      expect(mockGetEvents).toHaveBeenCalledWith(
+        expect.objectContaining({ startLedger: 500, limit: 50 })
+      );
+    });
+
+    it('propagates RPC errors', async () => {
+      mockGetEvents.mockRejectedValue(new Error('RPC error'));
+      await expect(client.getStreamHistory(STREAM_ID)).rejects.toThrow('RPC error');
     });
   });
 });
