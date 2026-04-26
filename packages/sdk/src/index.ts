@@ -28,3 +28,6 @@ export * from './DistributorClient';
 
 // Export deployment module
 export * from './deployer';
+
+// Export utility modules
+export * from './utils/batchDistribution';
