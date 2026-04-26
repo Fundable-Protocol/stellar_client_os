@@ -10,6 +10,8 @@ import {
   StreamStatus,
 } from "./generated/payment-stream/src/index";
 import { executeWithErrorHandling } from "./utils/errors";
+import { getStreamHistory, getAllStreamHistory, StreamHistoryResult } from "./utils/streamHistory";
+import { PaymentStreamContractEvent } from "./utils/events";
 
 /**
  * High-level client for interacting with the Payment Stream contract.
@@ -20,6 +22,8 @@ import { executeWithErrorHandling } from "./utils/errors";
  */
 export class PaymentStreamClient {
   private client: ContractClient;
+  private rpcUrl?: string;
+  private contractId?: string;
 
   /**
    * Create a new PaymentStreamClient.
@@ -27,6 +31,9 @@ export class PaymentStreamClient {
    */
   constructor(options: ContractClientOptions) {
     this.client = new ContractClient(options);
+    // Store RPC URL and contract ID for history methods
+    this.rpcUrl = options.rpcUrl;
+    this.contractId = options.contractId;
   }
 
   /**
@@ -272,6 +279,59 @@ export class PaymentStreamClient {
     return executeWithErrorHandling(
       () => this.client.initialize(params),
       "Initialize contract",
+    );
+  }
+
+  /**
+   * Get history events for a specific stream
+   * @param streamId The ID of the stream
+   * @param options Optional parameters for pagination
+   * @returns Stream history with parsed events
+   * @throws {Error} If RPC URL or contract ID is not configured
+   */
+  public async getStreamHistory(
+    streamId: bigint,
+    options?: { startLedger?: number; limit?: number }
+  ): Promise<StreamHistoryResult> {
+    if (!this.rpcUrl || !this.contractId) {
+      throw new Error(
+        "RPC URL and contract ID must be provided in constructor to use getStreamHistory"
+      );
+    }
+
+    return getStreamHistory({
+      rpcUrl: this.rpcUrl,
+      contractId: this.contractId,
+      streamId,
+      ...options,
+    });
+  }
+
+  /**
+   * Get all history events for a specific stream across multiple pages
+   * @param streamId The ID of the stream
+   * @param options Optional parameters
+   * @returns All stream events
+   * @throws {Error} If RPC URL or contract ID is not configured
+   */
+  public async getAllStreamHistory(
+    streamId: bigint,
+    options?: { startLedger?: number; maxPages?: number }
+  ): Promise<PaymentStreamContractEvent[]> {
+    if (!this.rpcUrl || !this.contractId) {
+      throw new Error(
+        "RPC URL and contract ID must be provided in constructor to use getAllStreamHistory"
+      );
+    }
+
+    return getAllStreamHistory(
+      {
+        rpcUrl: this.rpcUrl,
+        contractId: this.contractId,
+        streamId,
+        startLedger: options?.startLedger,
+      },
+      options?.maxPages
     );
   }
 }

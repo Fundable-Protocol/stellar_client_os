@@ -9,7 +9,10 @@
         "build": "tsc",
         "dev": "tsc --watch",
         "test": "vitest --run",
-        "test:watch": "vitest"
+        "test:watch": "vitest",
+        "lint": "eslint src --ext .ts,.tsx",
+        "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
+        "format:check": "prettier --check \"src/**/*.{ts,tsx,json}\""
     },
     "dependencies": {
         "@stellar/stellar-sdk": "^14.4.3"
@@ -17,7 +20,11 @@
     "devDependencies": {
         "typescript": "^5",
         "@types/node": "^20",
-        "vitest": "^2.0.0"
+        "vitest": "^2.0.0",
+        "eslint": "^8.57.0",
+        "@typescript-eslint/eslint-plugin": "^6.21.0",
+        "@typescript-eslint/parser": "^6.21.0",
+        "prettier": "^3.2.5"
     },
     "peerDependencies": {
         "@stellar/stellar-sdk": "^14.4.3"
