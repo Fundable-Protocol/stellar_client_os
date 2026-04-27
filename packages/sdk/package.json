@@ -6,6 +6,8 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
+        "test": "vitest",
+        "test:integration": "vitest run --dir src/deployer/__tests__/integration"
         "build": "tsc",
         "dev": "tsc --watch",
         "test": "vitest --run",
