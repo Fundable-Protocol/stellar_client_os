@@ -4,11 +4,7 @@ import { DistributorClient } from '../DistributorClient';
 // ---------------------------------------------------------------------------
 // Mock the generated distributor contract client
 // ---------------------------------------------------------------------------
-// Default to undefined so mockTx(undefined) correctly produces { result: undefined }
-// rather than falling back to a null default (explicit undefined overrides JS defaults).
-const mockTx = (result?: unknown) => ({ result: result ?? null, signAndSend: vi.fn() });
-// Use mockTxNone when the contract returns Option<T> with no value (undefined result)
-const mockTxNone = () => ({ result: undefined as unknown, signAndSend: vi.fn() });
+const mockTx = (result: unknown = undefined) => ({ result, signAndSend: vi.fn() });
 
 const mockContractClient = {
   distribute_equal: vi.fn(),
