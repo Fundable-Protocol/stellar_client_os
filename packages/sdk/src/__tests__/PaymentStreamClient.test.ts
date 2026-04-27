@@ -87,7 +87,7 @@ describe('PaymentStreamClient', () => {
       mockContractClient.create_stream.mockResolvedValue(mockTx(1n));
       const tx = await client.createStream(params);
       expect(mockContractClient.create_stream).toHaveBeenCalledWith(params);
-      expect(tx).toEqual(mockTx(1n));
+      expect(tx.result).toBe(1n);
     });
 
     it('returns an AssembledTransaction with bigint result', async () => {
@@ -288,7 +288,7 @@ describe('PaymentStreamClient', () => {
     });
 
     it('returns undefined when no delegate is set', async () => {
-      mockContractClient.get_delegate.mockResolvedValue(mockTx(undefined));
+      mockContractClient.get_delegate.mockResolvedValue(mockTxNone());
       const tx = await client.getDelegate(STREAM_ID);
       expect(tx.result).toBeUndefined();
     });

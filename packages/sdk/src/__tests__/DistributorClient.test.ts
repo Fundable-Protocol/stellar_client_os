@@ -148,7 +148,7 @@ describe('DistributorClient', () => {
     });
 
     it('returns undefined when no admin is set', async () => {
-      mockContractClient.get_admin.mockResolvedValue(mockTx(undefined));
+      mockContractClient.get_admin.mockResolvedValue(mockTxNone());
       const tx = await client.getAdmin();
       expect(tx.result).toBeUndefined();
     });
@@ -176,7 +176,7 @@ describe('DistributorClient', () => {
     });
 
     it('returns undefined for unknown user', async () => {
-      mockContractClient.get_user_stats.mockResolvedValue(mockTx(undefined));
+      mockContractClient.get_user_stats.mockResolvedValue(mockTxNone());
       const tx = await client.getUserStats('GUNKNOWN');
       expect(tx.result).toBeUndefined();
     });
@@ -206,7 +206,7 @@ describe('DistributorClient', () => {
     });
 
     it('returns undefined for unknown token', async () => {
-      mockContractClient.get_token_stats.mockResolvedValue(mockTx(undefined));
+      mockContractClient.get_token_stats.mockResolvedValue(mockTxNone());
       const tx = await client.getTokenStats('CUNKNOWN');
       expect(tx.result).toBeUndefined();
     });

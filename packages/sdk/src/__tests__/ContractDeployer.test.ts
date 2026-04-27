@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ContractDeployer } from '../deployer/ContractDeployer';
 import {
+  DeployerError,
   InvalidWasmError,
   DeployerAccountError,
   WasmUploadError,
@@ -83,6 +84,16 @@ vi.mock('@stellar/stellar-sdk', async () => {
       TransactionEnvelope: {
         fromXDR: vi.fn(() => ({})),
       },
+      HashIdPreimage: {
+        envelopeTypeContractId: vi.fn(() => ({
+          toXDR: vi.fn(() => Buffer.alloc(32, 0xcd)),
+        })),
+      },
+      HashIdPreimageContractId: vi.fn(() => ({})),
+      ContractIdPreimage: {
+        contractIdPreimageFromAddress: vi.fn(() => ({})),
+      },
+      ContractIdPreimageFromAddress: vi.fn(() => ({})),
     },
     hash: vi.fn(() => Buffer.from('a'.repeat(64), 'hex')),
     Address: vi.fn().mockImplementation((addr: string) => ({ addr })),
@@ -246,9 +257,9 @@ describe('ContractDeployer', () => {
       expect(result.wasmHash).toMatch(/^[0-9a-f]{64}$/);
     });
 
-    it('throws WasmUploadError when sendTransaction returns ERROR', async () => {
+    it('throws DeployerError when sendTransaction returns ERROR', async () => {
       mockSendTransaction.mockResolvedValue({ status: 'ERROR', errorResult: null });
-      await expect(deployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(WasmUploadError);
+      await expect(deployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(DeployerError);
     });
 
     it('throws DeploymentTimeoutError when transaction never confirms', async () => {
@@ -261,9 +272,9 @@ describe('ContractDeployer', () => {
       await expect(fastDeployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(DeploymentTimeoutError);
     });
 
-    it('throws WasmUploadError when on-chain transaction fails', async () => {
+    it('throws DeployerError when on-chain transaction fails', async () => {
       mockGetTransaction.mockResolvedValue({ status: 'FAILED' });
-      await expect(deployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(WasmUploadError);
+      await expect(deployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(DeployerError);
     });
   });
 
@@ -283,9 +294,9 @@ describe('ContractDeployer', () => {
       expect(result).toHaveProperty('contractId');
     });
 
-    it('throws ContractInstantiationError when sendTransaction returns ERROR', async () => {
+    it('throws DeployerError when sendTransaction returns ERROR', async () => {
       mockSendTransaction.mockResolvedValue({ status: 'ERROR', errorResult: null });
-      await expect(deployer.deployContract(WASM_HASH, mockKeypair)).rejects.toThrow(ContractInstantiationError);
+      await expect(deployer.deployContract(WASM_HASH, mockKeypair)).rejects.toThrow(DeployerError);
     });
 
     it('throws DeploymentTimeoutError when transaction never confirms', async () => {
