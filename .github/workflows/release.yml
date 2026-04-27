@@ -1,0 +1,68 @@
+name: Release SDK
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    # Only run if there are changeset files or a version bump commit
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history is required for changesets to detect what changed
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run SDK tests
+        run: pnpm test:sdk
+
+      - name: Create Release Pull Request or Publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          # This command runs when changesets decides to publish
+          publish: pnpm changeset:publish
+          # This command runs to bump versions and update changelogs
+          version: pnpm changeset:version
+          title: "chore: release @fundable/sdk"
+          commit: "chore: release @fundable/sdk"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Tag published version
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          echo "Published packages: ${{ steps.changesets.outputs.publishedPackages }}"

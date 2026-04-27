@@ -84,6 +84,16 @@ vi.mock('@stellar/stellar-sdk', async () => {
       TransactionEnvelope: {
         fromXDR: vi.fn(() => ({})),
       },
+      HashIdPreimage: {
+        envelopeTypeContractId: vi.fn(() => ({
+          toXDR: vi.fn(() => Buffer.alloc(32, 0xcd)),
+        })),
+      },
+      HashIdPreimageContractId: vi.fn(() => ({})),
+      ContractIdPreimage: {
+        contractIdPreimageFromAddress: vi.fn(() => ({})),
+      },
+      ContractIdPreimageFromAddress: vi.fn(() => ({})),
     },
     hash: vi.fn(() => Buffer.from('a'.repeat(64), 'hex')),
     Address: vi.fn().mockImplementation((addr: string) => ({ addr })),
