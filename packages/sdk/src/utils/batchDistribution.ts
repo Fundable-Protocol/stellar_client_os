@@ -251,7 +251,7 @@ export async function prepareBatchEqualDistribution(
  * ```ts
  * const recipients = ['G...', 'G...', 'G...', /* ...1000+ addresses... */];
  * const amounts = [BigInt(100), BigInt(200), BigInt(150), /* ...corresponding amounts... */];
- * 
+ *
  * const result = await prepareBatchWeightedDistribution(client, {
  *   sender: 'GAAAA...',
  *   token: 'CXXXX...',
@@ -260,12 +260,12 @@ export async function prepareBatchEqualDistribution(
  *   config: {
  *     maxRecipientsPerBatch: 50, // More conservative for weighted
  *     onBatchStart: (batch, total, count) =>
- *       console.log(`Starting batch ${batch}/${total} with ${count} recipients`),
+ *       console.log(\`Starting batch \${batch}/\${total} with \${count} recipients\`),
  *     onBatchComplete: (batch, total) =>
- *       console.log(`Batch ${batch}/${total} prepared`)
+ *       console.log(\`Batch \${batch}/\${total} prepared\`)
  *   }
  * });
- * 
+ *
  * // Submit each transaction
  * for (const tx of result.transactions) {
  *   const result = await tx.signAndSend();
@@ -332,11 +332,11 @@ export async function prepareBatchWeightedDistribution(
  * @returns Array of batches (last batch may be smaller)
  * 
  * @example
- * ```ts
+ * \`\`\`ts
  * const items = [1, 2, 3, 4, 5];
  * const batches = createBatches(items, 2);
  * // [[1, 2], [3, 4], [5]]
- * ```
+ * \`\`\`
  */
 export function createBatches<T>(array: T[], batchSize: number): T[][] {
   const batches: T[][] = [];
