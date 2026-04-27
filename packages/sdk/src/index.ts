@@ -32,6 +32,7 @@ export * from "./deployer";
 // Export utility modules
 export * from "./utils/batchDistribution";
 export * from "./utils/events";
+export * from "./utils/transactions";
 
 // Export error handling utilities
 export {
