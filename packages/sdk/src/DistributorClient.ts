@@ -9,6 +9,12 @@ import {
   DistributionHistory,
 } from "./generated/distributor/src/index";
 import { executeWithErrorHandling } from "./utils/errors";
+import {
+  waitForTransaction,
+  signAndWait,
+  type WaitForTransactionOptions,
+  type TransactionWaitResult,
+} from "./utils/transactions";
 
 /**
  * High-level client for interacting with the Distributor contract.
@@ -19,6 +25,7 @@ import { executeWithErrorHandling } from "./utils/errors";
  */
 export class DistributorClient {
   private client: ContractClient;
+  private rpcUrl?: string;
 
   /**
    * Create a new DistributorClient.
@@ -26,6 +33,41 @@ export class DistributorClient {
    */
   constructor(options: ContractClientOptions) {
     this.client = new ContractClient(options);
+    this.rpcUrl = options.rpcUrl;
+  }
+
+  /**
+   * Wait for a previously sent transaction to be confirmed on-chain.
+   * @param tx The AssembledTransaction to wait for (must already be signed and sent).
+   * @param options Optional polling configuration.
+   * @throws {Error} If rpcUrl was not provided in the constructor options.
+   */
+  public async waitForTransaction<T = unknown>(
+    tx: AssembledTransaction<T>,
+    options?: WaitForTransactionOptions,
+  ): Promise<TransactionWaitResult<T>> {
+    if (!this.rpcUrl) {
+      throw new Error("rpcUrl must be provided in constructor options to use waitForTransaction");
+    }
+    return waitForTransaction(tx, this.rpcUrl, options);
+  }
+
+  /**
+   * Sign, send, and wait for a transaction to be confirmed on-chain in one call.
+   * @param tx The AssembledTransaction to sign and send.
+   * @param signTransaction Callback to sign the transaction XDR.
+   * @param options Optional polling configuration.
+   * @throws {Error} If rpcUrl was not provided in the constructor options.
+   */
+  public async signAndWait<T = unknown>(
+    tx: AssembledTransaction<T>,
+    signTransaction: (xdr: string) => Promise<string>,
+    options?: WaitForTransactionOptions,
+  ): Promise<TransactionWaitResult<T>> {
+    if (!this.rpcUrl) {
+      throw new Error("rpcUrl must be provided in constructor options to use signAndWait");
+    }
+    return signAndWait(tx, this.rpcUrl, signTransaction, options);
   }
 
   /**
