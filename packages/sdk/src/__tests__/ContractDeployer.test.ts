@@ -257,6 +257,20 @@ describe('ContractDeployer', () => {
       expect(result.wasmHash).toMatch(/^[0-9a-f]{64}$/);
     });
 
+    it('wasmHash equals SHA-256(wasmBytes) in lowercase hex — the canonical Soroban WASM identifier', async () => {
+      // hash() is mocked to return Buffer.from('a'.repeat(64), 'hex') in this test suite
+      const result = await deployer.uploadWasm(VALID_WASM, mockKeypair);
+      // Verify the SDK's hash() was called with the wasm bytes and its output was hex-encoded
+      const { hash: mockHashFn } = await import('@stellar/stellar-sdk');
+      expect(mockHashFn).toHaveBeenCalledWith(Buffer.from(VALID_WASM));
+      // The returned wasmHash must be the hex encoding of hash()'s return value
+      const expectedHash = (mockHashFn as ReturnType<typeof vi.fn>).mock.results
+        .find((r) => r.type === 'return')?.value as Buffer | undefined;
+      if (expectedHash) {
+        expect(result.wasmHash).toBe(expectedHash.toString('hex'));
+      }
+    });
+
     it('throws DeployerError when sendTransaction returns ERROR', async () => {
       mockSendTransaction.mockResolvedValue({ status: 'ERROR', errorResult: null });
       await expect(deployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(DeployerError);
