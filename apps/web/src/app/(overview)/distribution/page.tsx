@@ -21,6 +21,7 @@ import { notify } from '@/utils/notification';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { ErrorFallback } from '@/components/ui/error-fallback';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
+import { useFunnelTrackingWithAutoStart } from '@/hooks/use-funnel-tracking';
 
 export default function DistributionPage() {
   const {
@@ -106,11 +107,19 @@ export default function DistributionPage() {
 
   useUnsavedChanges(hasRecipientInput || urlInput);
 
-  const handleDistribute = () => setShowPreview(true);
+  const { track } = useFunnelTrackingWithAutoStart('distribution');
+
+  const handleDistribute = () => {
+    track('recipients_added');
+    track('review');
+    setShowPreview(true);
+  };
 
   const handleConfirmDistribute = async () => {
+    track('confirmed');
     const success = await execute(state, tokenAddress);
     if (!success) return;
+    track('completed');
 
     setShowPreview(false);
     reset();

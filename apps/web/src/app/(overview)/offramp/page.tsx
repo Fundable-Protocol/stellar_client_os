@@ -13,6 +13,7 @@ import ProtectedRoute from "@/components/layouts/ProtectedRoute";
 import { useTransactionGuard } from "@/hooks/useTransactionGuard";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { ErrorFallback } from "@/components/ui/error-fallback";
+import { useFunnelTrackingWithAutoStart } from "@/hooks/use-funnel-tracking";
 
 export default function OfframpPage() {
     const {
@@ -44,6 +45,8 @@ export default function OfframpPage() {
     const quoteGuard = useTransactionGuard(0);
     const bridgeGuard = useTransactionGuard(2000);
 
+    const { track } = useFunnelTrackingWithAutoStart('offramp');
+
     React.useEffect(() => {
         if (step === "quote") {
             setShowQuoteModal(true);
@@ -55,6 +58,7 @@ export default function OfframpPage() {
     React.useEffect(() => {
         if (step === "completed") {
             setShowSuccessModal(true);
+            track('completed');
         }
     }, [step]);
 
@@ -63,6 +67,7 @@ export default function OfframpPage() {
             return;
         }
         await quoteGuard.runWithGuard(async () => {
+            track('quote_requested');
             await getQuote(formState);
         }, { cooldownMs: 0 });
     };
@@ -72,6 +77,8 @@ export default function OfframpPage() {
             return;
         }
         await bridgeGuard.runWithGuard(async () => {
+            track('quote_accepted');
+            track('bridge_initiated');
             await confirmAndBridge();
         }, { cooldownMs: 2000 });
     };

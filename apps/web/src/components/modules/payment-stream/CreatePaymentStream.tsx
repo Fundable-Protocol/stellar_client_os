@@ -18,6 +18,7 @@ import { useBalanceValidation } from "@/hooks/use-balance-validation";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { createTestnetService } from "@/services/stellar.service";
 import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID } from "@/lib/constants";
+import { useFunnelTrackingWithAutoStart } from "@/hooks/use-funnel-tracking";
 
 // Stream form state type
 interface StreamFormData {
@@ -293,6 +294,8 @@ const CreatePaymentStream = () => {
 
     useUnsavedChanges(isFormDirty);
 
+    const { track } = useFunnelTrackingWithAutoStart('payment-stream');
+
     const handleFormSubmit = () => {
         if (!isConnected || !address) {
             toast.error("Connect your wallet");
@@ -330,6 +333,8 @@ const CreatePaymentStream = () => {
 
         // Show confirmation modal
         setShowConfirmationModal(true);
+        track('form_filled');
+        track('review');
     };
 
     const handleConfirmStream = async () => {
@@ -338,6 +343,7 @@ const CreatePaymentStream = () => {
 
         try {
             setIsSubmitting(true);
+            track('confirmed');
 
             // Convert form data to the format expected by StellarService
             const formData: PaymentStreamFormData = {
@@ -355,6 +361,7 @@ const CreatePaymentStream = () => {
             toast.success(
                 `Stream created successfully! ID: ${streamId.slice(0, 10)}...`
             );
+            track('completed');
 
             // Reset form
             setStreamData(initialStreamData);
