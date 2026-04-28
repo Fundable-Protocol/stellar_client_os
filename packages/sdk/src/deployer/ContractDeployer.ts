@@ -7,9 +7,20 @@ import {
   xdr,
   hash,
   Address,
+  StrKey,
+  Transaction,
 } from '@stellar/stellar-sdk';
 import { Server, Api } from '@stellar/stellar-sdk/rpc';
 import type { DeployerConfig, WasmUploadResult, ContractDeployResult, FeeEstimate, Signer } from './types';
+import type { 
+  DeployerConfig, 
+  WasmUploadResult, 
+  ContractDeployResult, 
+  FeeEstimate,
+  Deployer,
+  Signer,
+  DeployerAccount,
+} from './types';
 import {
   DeployerError,
   InvalidWasmError,
@@ -36,18 +47,54 @@ const POLL_INTERVAL_MS = 2_000;
  *  4. `deployContract`     — instantiate the contract (returns contractId)
  *
  * Or use the convenience method `uploadAndDeploy` to do both in one call.
+ *
+ * ### Network passphrase
+ * Providing `networkPassphrase` in the config is **optional**. When omitted, it
+ * is fetched automatically from the RPC server the first time a transaction is
+ * built (lazy resolution). The result is cached so only one RPC round-trip is
+ * ever made. Use the async factory `ContractDeployer.create(config)` if you
+ * prefer to resolve the passphrase eagerly during initialisation:
+ *
+ * ```ts
+ * // Lazy (zero extra round-trip until first transaction)
+ * const deployer = new ContractDeployer({ rpcUrl: '...' });
+ *
+ * // Eager (passphrase ready before any transaction call)
+ * const deployer = await ContractDeployer.create({ rpcUrl: '...' });
+ * ```
  */
 export class ContractDeployer {
   private readonly rpc: Server;
-  private readonly networkPassphrase: string;
+  private readonly networkPassphrase: string | undefined;
   private readonly baseFee: string;
   private readonly timeoutSeconds: number;
+  /** Cached promise so the RPC fetch happens at most once. */
+  private passphrasePromise: Promise<string> | undefined;
 
   constructor(config: DeployerConfig) {
     this.rpc = new Server(config.rpcUrl, { allowHttp: true });
     this.networkPassphrase = config.networkPassphrase;
     this.baseFee = config.baseFee ?? DEFAULT_BASE_FEE;
     this.timeoutSeconds = config.timeoutSeconds ?? DEFAULT_TIMEOUT;
+  }
+
+  // ─── Async factory ─────────────────────────────────────────────────────────
+
+  /**
+   * Async factory that resolves the network passphrase from the RPC server
+   * **before** returning the deployer instance. Use this when you want the
+   * passphrase to be guaranteed available synchronously from the very first
+   * method call.
+   *
+   * ```ts
+   * const deployer = await ContractDeployer.create({ rpcUrl: 'https://...' });
+   * ```
+   */
+  static async create(config: DeployerConfig): Promise<ContractDeployer> {
+    const deployer = new ContractDeployer(config);
+    // Eagerly resolve — result is cached in passphrasePromise
+    await deployer.resolveNetworkPassphrase();
+    return deployer;
   }
 
   // ─── Static factory helpers ────────────────────────────────────────────────
@@ -68,6 +115,21 @@ export class ContractDeployer {
     });
   }
 
+  // ─── Network passphrase resolution ─────────────────────────────────────────
+
+  /**
+   * Returns the network passphrase, fetching it lazily from the RPC server if
+   * it was not supplied in the constructor config.
+   *
+   * The RPC request is made **at most once** — subsequent calls return the
+   * cached value.
+   *
+   * @throws {DeployerError} When the RPC `getNetwork` call fails.
+   */
+  async getNetworkPassphrase(): Promise<string> {
+    return this.resolveNetworkPassphrase();
+  }
+
   // ─── Fee / resource estimation ─────────────────────────────────────────────
 
   /**
@@ -82,6 +144,14 @@ export class ContractDeployer {
     const address = typeof deployer === 'string' ? deployer : deployer.publicKey();
     const account = await this.loadAccount(address);
     const tx = this.buildUploadTx(wasm, account);
+   * @param wasm  - Compiled contract WASM as a Buffer or Uint8Array.
+   * @param deployer - Keypair or account address that will pay for the upload.
+   */
+  async estimateUploadFee(wasm: Buffer | Uint8Array, deployer: Deployer): Promise<FeeEstimate> {
+    this.assertValidWasm(wasm);
+    const deployerAddress = this.getDeployerAddress(deployer);
+    const account = await this.loadAccount(deployerAddress);
+    const tx = await this.buildUploadTx(wasm, account);
     return this.simulate(tx);
   }
 
@@ -101,6 +171,18 @@ export class ContractDeployer {
     const address = typeof deployerOrAddr === 'string' ? deployerOrAddr : deployerOrAddr.publicKey();
     const account = await this.loadAccount(address);
     const tx = this.buildDeployTx(wasmHash, address, account, salt);
+   * @param wasmHash - Hex or base64 hash returned by `uploadWasm`.
+   * @param deployer - Keypair or account address that will pay for the deploy.
+   * @param salt     - Optional 32-byte salt for deterministic contract IDs.
+   */
+  async estimateDeployFee(
+    wasmHash: string,
+    deployer: Deployer,
+    salt?: Buffer,
+  ): Promise<FeeEstimate> {
+    const deployerAddress = this.getDeployerAddress(deployer);
+    const account = await this.loadAccount(deployerAddress);
+    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, salt);
     return this.simulate(tx);
   }
 
@@ -121,10 +203,22 @@ export class ContractDeployer {
     const address = this.signerAddress(signer);
     const account = await this.loadAccount(address);
     const tx = this.buildUploadTx(wasm, account);
+   * @param deployer - Keypair or multi-sig config that signs and pays for the transaction.
+   * @returns `WasmUploadResult` containing the `wasmHash` needed for deployment.
+   */
+  async uploadWasm(wasm: Buffer | Uint8Array, deployer: Deployer): Promise<WasmUploadResult> {
+    this.assertValidWasm(wasm);
+
+    const deployerAddress = this.getDeployerAddress(deployer);
+    const account = await this.loadAccount(deployerAddress);
+    const tx = await this.buildUploadTx(wasm, account);
 
     const estimate = await this.simulate(tx);
     const preparedTx = this.buildUploadTx(wasm, account, estimate.fee);
     const signedXdr = await this.signTx(preparedTx, signer);
+    const preparedTx = await this.buildUploadTx(wasm, account, estimate.fee);
+    
+    await this.signTransaction(preparedTx, deployer);
 
     try {
       const result = await this.submitAndWait(signedXdr);
@@ -135,10 +229,10 @@ export class ContractDeployer {
         feeCharged: result.feeCharged,
       };
     } catch (err) {
-      if (err instanceof DeployerError) throw err;
+      if (err instanceof WasmUploadError || err instanceof DeploymentTimeoutError) throw err;
       throw new WasmUploadError(
         `WASM upload failed: ${(err as Error).message}`,
-        undefined,
+        (err as any).txHash,
         err as Error,
       );
     }
@@ -151,6 +245,7 @@ export class ContractDeployer {
    *
    * @param wasmHash - Hex hash returned by `uploadWasm`.
    * @param signer   - Keypair, array of Keypairs (multi-sig), or signing callback.
+   * @param deployer - Keypair or multi-sig config that signs and pays for the transaction.
    * @param salt     - Optional 32-byte salt for deterministic contract IDs.
    * @returns `ContractDeployResult` containing the new `contractId`.
    */
@@ -168,6 +263,23 @@ export class ContractDeployer {
     try {
       const result = await this.submitAndWait(signedXdr);
       const contractId = this.deriveContractId(address, salt ?? result.txHash);
+    deployer: Deployer,
+    salt?: Buffer,
+  ): Promise<ContractDeployResult> {
+    const deployerAddress = this.getDeployerAddress(deployer);
+    const passphrase = await this.resolveNetworkPassphrase();
+    // Resolve the salt once so the same value is used in both the transaction
+    // and the contract-ID derivation.
+    const resolvedSalt = salt ?? this.randomSalt();
+    const account = await this.loadAccount(deployerAddress);
+    const estimate = await this.estimateDeployFee(wasmHash, deployer, resolvedSalt);
+    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, resolvedSalt, estimate.fee);
+    
+    await this.signTransaction(tx, deployer);
+
+    try {
+      const result = await this.submitAndWait(tx.toEnvelope().toXDR('base64'));
+      const contractId = this.deriveContractId(deployerAddress, resolvedSalt, passphrase);
       return {
         contractId,
         txHash: result.txHash,
@@ -175,10 +287,10 @@ export class ContractDeployer {
         feeCharged: result.feeCharged,
       };
     } catch (err) {
-      if (err instanceof DeployerError) throw err;
+      if (err instanceof ContractInstantiationError || err instanceof DeploymentTimeoutError) throw err;
       throw new ContractInstantiationError(
         `Contract instantiation failed: ${(err as Error).message}`,
-        undefined,
+        (err as any).txHash,
         err as Error,
       );
     }
@@ -197,6 +309,13 @@ export class ContractDeployer {
   async uploadAndDeploy(
     wasm: Buffer | Uint8Array,
     signer: Signer,
+   * @param wasm     - Compiled contract WASM.
+   * @param deployer - Keypair or multi-sig config that signs both transactions.
+   * @param salt     - Optional salt for deterministic contract ID.
+   */
+  async uploadAndDeploy(
+    wasm: Buffer | Uint8Array,
+    deployer: Deployer,
     salt?: Buffer,
   ): Promise<{ upload: WasmUploadResult; deploy: ContractDeployResult }> {
     const upload = await this.uploadWasm(wasm, signer);
@@ -238,10 +357,12 @@ export class ContractDeployer {
   }
 
   private buildUploadTx(
+  private async buildUploadTx(
     wasm: Buffer | Uint8Array,
     account: { id: string; sequenceNumber: () => string },
     fee = this.baseFee,
   ) {
+    const passphrase = await this.resolveNetworkPassphrase();
     const sourceAccount = {
       accountId: () => account.id,
       sequenceNumber: () => account.sequenceNumber(),
@@ -250,7 +371,7 @@ export class ContractDeployer {
 
     return new TransactionBuilder(sourceAccount as Parameters<typeof TransactionBuilder>[0], {
       fee,
-      networkPassphrase: this.networkPassphrase,
+      networkPassphrase: passphrase,
     })
       .addOperation(
         Operation.uploadContractWasm({ wasm: Buffer.from(wasm) })
@@ -259,13 +380,14 @@ export class ContractDeployer {
       .build();
   }
 
-  private buildDeployTx(
+  private async buildDeployTx(
     wasmHash: string,
     deployerAddress: string,
     account: { id: string; sequenceNumber: () => string },
     salt?: Buffer,
     fee = this.baseFee,
   ) {
+    const passphrase = await this.resolveNetworkPassphrase();
     const saltBytes = salt ?? this.randomSalt();
     const sourceAccount = {
       accountId: () => account.id,
@@ -275,7 +397,7 @@ export class ContractDeployer {
 
     return new TransactionBuilder(sourceAccount as Parameters<typeof TransactionBuilder>[0], {
       fee,
-      networkPassphrase: this.networkPassphrase,
+      networkPassphrase: passphrase,
     })
       .addOperation(
         Operation.createCustomContract({
@@ -381,6 +503,59 @@ export class ContractDeployer {
 
   // ─── Private: helpers ──────────────────────────────────────────────────────
 
+  /**
+   * Helper to sign a transaction using the provided deployer configuration.
+   * Handles both single Keypair and multi-sig/callback configurations.
+   */
+  private async signTransaction(tx: Transaction, deployer: Deployer): Promise<void> {
+    if ('signers' in deployer) {
+      const { signers } = deployer;
+      for (const signer of signers) {
+        if (signer instanceof Keypair || (typeof signer === 'object' && 'sign' in signer && typeof signer.sign === 'function')) {
+          tx.sign(signer as Keypair);
+        } else if (typeof signer === 'function') {
+          const signed = await signer(tx);
+          if (signed !== tx) {
+            tx.signatures.push(...signed.signatures);
+          }
+        }
+      }
+    } else {
+      tx.sign(deployer);
+    }
+  }
+
+  private getDeployerAddress(deployer: Deployer): string {
+    if (deployer instanceof Keypair || (typeof deployer === 'object' && 'publicKey' in deployer && typeof deployer.publicKey === 'function')) {
+      return (deployer as Keypair).publicKey();
+    }
+    return (deployer as DeployerAccount).address;
+  }
+
+  /**
+   * Resolves the network passphrase, fetching it from the RPC server exactly
+   * once if it was not provided in the config. Result is cached.
+   */
+  private resolveNetworkPassphrase(): Promise<string> {
+    if (this.networkPassphrase) {
+      return Promise.resolve(this.networkPassphrase);
+    }
+    if (!this.passphrasePromise) {
+      this.passphrasePromise = this.rpc.getNetwork().then(
+        (r) => r.passphrase,
+        (err: Error) => {
+          // Clear cache so a retry is possible after a transient failure
+          this.passphrasePromise = undefined;
+          throw new DeployerError(
+            `Failed to auto-detect network passphrase from RPC: ${err.message}`,
+            'PASSPHRASE_DETECTION_FAILED',
+          );
+        },
+      );
+    }
+    return this.passphrasePromise;
+  }
+
   private async loadAccount(address: string) {
     try {
       return await this.rpc.getAccount(address);
@@ -399,18 +574,47 @@ export class ContractDeployer {
     }
   }
 
+  /**
+   * Computes the canonical Soroban WASM identifier: SHA-256 of the raw WASM bytes,
+   * returned as a lowercase 64-character hex string.
+   *
+   * This matches the ledger key Soroban uses for `ContractCode` entries and the value
+   * expected by `Operation.createCustomContract({ wasmHash: Buffer.from(hex, 'hex') })`.
+   */
   private deriveWasmHash(wasm: Buffer | Uint8Array): string {
     return hash(Buffer.from(wasm)).toString('hex');
   }
 
-  private deriveContractId(deployerAddress: string, saltOrTxHash: Buffer | string): string {
-    // Return a placeholder — the real contract ID comes from the transaction result.
-    // In practice callers should read it from the transaction's return value.
-    return `derived:${deployerAddress.slice(0, 8)}:${
-      typeof saltOrTxHash === 'string'
-        ? saltOrTxHash.slice(0, 8)
-        : saltOrTxHash.toString('hex').slice(0, 8)
-    }`;
+  /**
+   * Derives the contract ID deterministically from the deployer address, salt,
+   * and network passphrase — **before** any transaction is submitted.
+   *
+   * Implements the standard Stellar contract ID derivation:
+   *   SHA-256( HashIdPreimage{ networkId: SHA-256(passphrase), preimage: ContractIdPreimageFromAddress } )
+   * encoded as a Stellar contract strkey (C…).
+   *
+   * @param deployerAddress   - G… Stellar account address of the deployer.
+   * @param salt              - 32-byte salt used in the create-contract transaction.
+   * @param networkPassphrase - Network passphrase (e.g. "Test SDF Network ; September 2015").
+   * @returns The contract address (C…) that will be assigned on deployment.
+   */
+  private deriveContractId(
+    deployerAddress: string,
+    salt: Buffer,
+    networkPassphrase: string,
+  ): string {
+    const preimage = xdr.HashIdPreimage.envelopeTypeContractId(
+      new xdr.HashIdPreimageContractId({
+        networkId: hash(Buffer.from(networkPassphrase)),
+        contractIdPreimage: xdr.ContractIdPreimage.contractIdPreimageFromAddress(
+          new xdr.ContractIdPreimageFromAddress({
+            address: new Address(deployerAddress).toScAddress(),
+            salt,
+          })
+        ),
+      })
+    );
+    return StrKey.encodeContract(hash(preimage.toXDR()));
   }
 
   private randomSalt(): Buffer {

@@ -1,5 +1,5 @@
 import { Keypair, Networks, Horizon } from '@stellar/stellar-sdk'
-import { PaymentStreamFormData, SUPPORTED_TOKENS, StreamRecord, WithdrawStreamFormData } from './validations'
+import { PaymentStreamFormData, SUPPORTED_TOKENS, StreamRecord, WithdrawStreamFormData, DepositStreamFormData } from './validations'
 
 // Use testnet for development
 export const server = new Horizon.Server('https://horizon-testnet.stellar.org')
@@ -174,6 +174,42 @@ export class StellarService {
         throw error
       }
       throw error instanceof Error ? error : new Error('Failed to withdraw from stream')
+    }
+  }
+
+  static async depositToStream(
+    streamId: string,
+    formData: DepositStreamFormData,
+    signal?: AbortSignal
+  ): Promise<string> {
+    try {
+      throwIfAborted(signal)
+
+      // Validate deposit amount
+      const depositAmount = parseFloat(formData.amount)
+      if (isNaN(depositAmount) || depositAmount <= 0) {
+        throw new Error('Invalid deposit amount')
+      }
+
+      // In a real implementation, you would:
+      // 1. Connect to user's wallet
+      // 2. Build a transaction to call the deposit function on the contract
+      // 3. Include operations to transfer tokens to the contract
+      // 4. Submit the transaction to the network
+
+      // Simulate network delay
+      await abortableDelay(2000, signal)
+      throwIfAborted(signal)
+
+      // Mock transaction hash
+      const txHash = `deposit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+
+      return txHash
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw error
+      }
+      throw error instanceof Error ? error : new Error('Failed to deposit to stream')
     }
   }
 

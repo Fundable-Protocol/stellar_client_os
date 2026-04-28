@@ -1,3 +1,5 @@
+import { Keypair, Transaction } from '@stellar/stellar-sdk';
+
 /**
  * Types for the ContractDeployer module.
  * 
@@ -5,6 +7,54 @@
  * contracts to the Stellar network, including configuration options, operation results,
  * and resource/fee estimates.
  */
+
+/**
+ * A callback function that signs a Stellar transaction.
+ * 
+ * This allows for custom signing logic, such as using a hardware wallet, 
+ * a web-based wallet provider, or an external signing service.
+ * 
+ * @param tx - The transaction to be signed.
+ * @returns A promise that resolves to the signed transaction.
+ */
+export type SigningCallback = (tx: Transaction) => Promise<Transaction> | Transaction;
+
+/**
+ * Represents a signer for a transaction.
+ * 
+ * Can be either a `Keypair` for direct signing or a `SigningCallback` for 
+ * delegated/asynchronous signing.
+ */
+export type Signer = Keypair | SigningCallback;
+
+/**
+ * Configuration for the account that will deploy the contract.
+ * 
+ * In Stellar, the account that initiates the transaction (the source account)
+ * may require multiple signatures to reach the required threshold for 
+ * certain operations (multi-sig).
+ */
+export interface DeployerAccount {
+  /**
+   * The public address (G...) of the account that will pay for and initiate 
+   * the deployment.
+   */
+  address: string;
+
+  /**
+   * A list of signers required to authorize the transaction.
+   * 
+   * For simple accounts, this is usually a single Keypair. 
+   * For multi-sig accounts, this can be multiple Keypairs or signing callbacks.
+   */
+  signers: Signer[];
+}
+
+/**
+ * A flexible type that can be either a single `Keypair` (for backward 
+ * compatibility and simple cases) or a full `DeployerAccount` configuration.
+ */
+export type Deployer = Keypair | DeployerAccount;
 
 /**
  * Supported Stellar networks.
@@ -58,6 +108,15 @@ export interface DeployerConfig {
    * - Local: `http://localhost:8000`
    */
   rpcUrl: string;
+  /**
+   * Network passphrase for transaction signing.
+   *
+   * When omitted, the passphrase is automatically fetched from the RPC server
+   * via `getNetwork()` the first time a transaction is built. You can also call
+   * `ContractDeployer.create(config)` (async factory) to resolve it eagerly at
+   * construction time.
+   */
+  networkPassphrase?: string;
 
   /**
    * Network passphrase used to identify and sign transactions for the specific network.
@@ -67,7 +126,6 @@ export interface DeployerConfig {
    * - `Networks.TESTNET_NETWORK_PASSPHRASE` for testnet
    * - Custom passphrase string for private networks
    */
-  networkPassphrase: string;
 
   /**
    * Base fee in stroops (0.00001 XLM) for each transaction operation.
@@ -112,13 +170,19 @@ export interface DeployerConfig {
  */
 export interface WasmUploadResult {
   /**
-   * SHA-256 hash of the uploaded WASM binary.
-   * 
-   * This is a 32-byte (64 character hex string) identifier used to reference the WASM
-   * code during contract instantiation. This hash is deterministic - uploading the same
-   * WASM binary twice will produce the same hash.
-   * 
-   * Format: 64 hex characters (e.g., `abcdef1234...`)
+   * SHA-256 hash of the uploaded WASM binary, encoded as a lowercase 64-character
+   * hex string.
+   *
+   * This is the **canonical Soroban WASM identifier**: Soroban stores installed WASM
+   * blobs in a `ContractCode` ledger entry keyed by `SHA-256(wasmBytes)`. The same
+   * value is what `stellar contract upload` prints and what `Operation.createCustomContract`
+   * expects as `wasmHash` (after decoding from hex to a 32-byte Buffer).
+   *
+   * The value is computed locally from the WASM bytes — no extra RPC round-trip is
+   * needed because SHA-256 is deterministic. Uploading the same WASM bytes twice
+   * always produces the same hash.
+   *
+   * Format: 64 lowercase hex characters (e.g., `"6ddb28e0980f643bb97350f7e3bacb0ff1fe74d846c6d4f2c625e766210fbb5b"`)
    */
   wasmHash: string;
 

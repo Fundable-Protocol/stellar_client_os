@@ -8,7 +8,12 @@
     "build": "pnpm --filter @fundable/web build",
     "build:contracts": "cd contracts && cargo build --release",
     "test:contracts": "cd contracts && cargo test",
-    "lint": "pnpm --filter @fundable/web lint"
+    "test:sdk": "pnpm --filter @fundable/sdk test",
+    "test:sdk:coverage": "pnpm --filter @fundable/sdk test:coverage",
+    "lint": "pnpm --filter @fundable/web lint",
+    "changeset": "changeset",
+    "changeset:version": "changeset version",
+    "changeset:publish": "pnpm --filter @fundable/sdk build && changeset publish"
   },
   "keywords": [
     "stellar",
@@ -20,5 +25,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/Fundable-Protocol/stellar_client.git"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.0"
   }
 }
