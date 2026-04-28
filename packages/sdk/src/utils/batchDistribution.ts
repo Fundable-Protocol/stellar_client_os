@@ -249,8 +249,10 @@ export async function prepareBatchEqualDistribution(
  * 
  * @example
  * ```ts
- * const recipients = ['G...', 'G...', 'G...', /* ...1000+ addresses... */];
- * const amounts = [BigInt(100), BigInt(200), BigInt(150), /* ...corresponding amounts... */];
+ * const recipients = ['G...', 'G...', 'G...', // ...1000+ addresses...
+ * ];
+ * const amounts = [BigInt(100), BigInt(200), BigInt(150), // ...corresponding amounts...
+ * ];
  * 
  * const result = await prepareBatchWeightedDistribution(client, {
  *   sender: 'GAAAA...',
