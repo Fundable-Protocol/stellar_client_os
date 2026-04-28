@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import type { Bank, OfframpCountry } from "@/types/offramp";
+import { getAccountNumberRules } from "@/types/offramp";
 import { offrampService } from "@/services/offramp.service";
 import { notify } from "@/utils/notification";
 
@@ -32,6 +33,8 @@ export function BankSelector({
     const [verifyError, setVerifyError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
 
+    const { min: minLen, max: maxLen } = getAccountNumberRules(country);
+
     // Load banks when country changes
     useEffect(() => {
         const loadBanks = async () => {
@@ -52,7 +55,7 @@ export function BankSelector({
 
     // Auto-verify account when both bank and account number are valid
     const verifyAccount = useCallback(async () => {
-        if (!selectedBankCode || accountNumber.length < 10) return;
+        if (!selectedBankCode || accountNumber.length < minLen) return;
 
         setIsVerifying(true);
         setVerifyError(null);
@@ -77,10 +80,10 @@ export function BankSelector({
         } finally {
             setIsVerifying(false);
         }
-    }, [selectedBankCode, accountNumber, country, walletAddress, onAccountVerified]);
+    }, [selectedBankCode, accountNumber, country, walletAddress, onAccountVerified, minLen]);
 
     useEffect(() => {
-        if (selectedBankCode && accountNumber.length >= 10) {
+        if (selectedBankCode && accountNumber.length >= minLen) {
             const timer = setTimeout(verifyAccount, 500);
             return () => clearTimeout(timer);
         }
@@ -145,8 +148,8 @@ export function BankSelector({
                 <input
                     type="text"
                     inputMode="numeric"
-                    maxLength={10}
-                    placeholder="Enter 10-digit account number"
+                    maxLength={maxLen}
+                    placeholder={`Enter ${minLen === maxLen ? `${minLen}-digit` : `${minLen}-${maxLen} digit`} account number`}
                     value={accountNumber}
                     onChange={(e) => {
                         const val = e.target.value.replace(/\D/g, "");

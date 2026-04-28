@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import type { OfframpFormState, ProviderRate } from "@/types/offramp";
-import { SUPPORTED_COUNTRIES, getCurrencySymbol } from "@/types/offramp";
+import { SUPPORTED_COUNTRIES, getCurrencySymbol, getAccountNumberRules } from "@/types/offramp";
 
 interface OfframpSummaryProps {
     formState: OfframpFormState;
@@ -45,11 +45,12 @@ export default function OfframpSummary({
     const selectedCountry = SUPPORTED_COUNTRIES.find(
         (c) => c.code === formState.country
     );
+    const parsedAmount = parseFloat(formState.amount);
+    const isAmountValid = formState.amount && !isNaN(parsedAmount) && parsedAmount > 0;
     const isFormValid =
-        formState.amount &&
-        parseFloat(formState.amount) > 0 &&
+        isAmountValid &&
         formState.bankCode &&
-        formState.accountNumber.length >= 10 &&
+        formState.accountNumber.length >= getAccountNumberRules(formState.country).min &&
         formState.accountName;
 
     const canProceed = isFormValid && quote && !isLoading;

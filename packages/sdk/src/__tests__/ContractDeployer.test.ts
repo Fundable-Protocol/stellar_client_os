@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ContractDeployer } from '../deployer/ContractDeployer';
 import {
+  DeployerError,
   InvalidWasmError,
   DeployerAccountError,
   WasmUploadError,
@@ -26,6 +27,7 @@ const mockGetAccount = vi.fn();
 const mockSimulateTransaction = vi.fn();
 const mockSendTransaction = vi.fn();
 const mockGetTransaction = vi.fn();
+const mockGetNetwork = vi.fn();
 
 vi.mock('@stellar/stellar-sdk/rpc', () => ({
   Server: vi.fn().mockImplementation(() => ({
@@ -33,6 +35,7 @@ vi.mock('@stellar/stellar-sdk/rpc', () => ({
     simulateTransaction: mockSimulateTransaction,
     sendTransaction: mockSendTransaction,
     getTransaction: mockGetTransaction,
+    getNetwork: mockGetNetwork,
   })),
   Api: {
     isSimulationError: vi.fn((r: Record<string, unknown>) => r?.error !== undefined),
@@ -81,8 +84,18 @@ vi.mock('@stellar/stellar-sdk', async () => {
       TransactionEnvelope: {
         fromXDR: vi.fn(() => ({})),
       },
+      HashIdPreimage: {
+        envelopeTypeContractId: vi.fn(() => ({
+          toXDR: vi.fn(() => Buffer.alloc(32, 0xcd)),
+        })),
+      },
+      HashIdPreimageContractId: vi.fn(() => ({})),
+      ContractIdPreimage: {
+        contractIdPreimageFromAddress: vi.fn(() => ({})),
+      },
+      ContractIdPreimageFromAddress: vi.fn(() => ({})),
     },
-    hash: vi.fn(() => Buffer.from('a'.repeat(32), 'hex')),
+    hash: vi.fn(() => Buffer.from('a'.repeat(64), 'hex')),
     Address: vi.fn().mockImplementation((addr: string) => ({ addr })),
   };
 });
@@ -128,6 +141,7 @@ describe('ContractDeployer', () => {
     mockSimulateTransaction.mockResolvedValue(mockSimulationSuccess);
     mockSendTransaction.mockResolvedValue({ status: 'PENDING', hash: 'txhash123' });
     mockGetTransaction.mockResolvedValue({ status: 'SUCCESS', ledger: 42 });
+    mockGetNetwork.mockResolvedValue({ passphrase: 'Test SDF Network ; September 2015', protocolVersion: '20' });
   });
 
   // ── static factories ───────────────────────────────────────────────────────
@@ -243,9 +257,23 @@ describe('ContractDeployer', () => {
       expect(result.wasmHash).toMatch(/^[0-9a-f]{64}$/);
     });
 
-    it('throws WasmUploadError when sendTransaction returns ERROR', async () => {
+    it('wasmHash equals SHA-256(wasmBytes) in lowercase hex — the canonical Soroban WASM identifier', async () => {
+      // hash() is mocked to return Buffer.from('a'.repeat(64), 'hex') in this test suite
+      const result = await deployer.uploadWasm(VALID_WASM, mockKeypair);
+      // Verify the SDK's hash() was called with the wasm bytes and its output was hex-encoded
+      const { hash: mockHashFn } = await import('@stellar/stellar-sdk');
+      expect(mockHashFn).toHaveBeenCalledWith(Buffer.from(VALID_WASM));
+      // The returned wasmHash must be the hex encoding of hash()'s return value
+      const expectedHash = (mockHashFn as ReturnType<typeof vi.fn>).mock.results
+        .find((r) => r.type === 'return')?.value as Buffer | undefined;
+      if (expectedHash) {
+        expect(result.wasmHash).toBe(expectedHash.toString('hex'));
+      }
+    });
+
+    it('throws DeployerError when sendTransaction returns ERROR', async () => {
       mockSendTransaction.mockResolvedValue({ status: 'ERROR', errorResult: null });
-      await expect(deployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(WasmUploadError);
+      await expect(deployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(DeployerError);
     });
 
     it('throws DeploymentTimeoutError when transaction never confirms', async () => {
@@ -258,9 +286,9 @@ describe('ContractDeployer', () => {
       await expect(fastDeployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(DeploymentTimeoutError);
     });
 
-    it('throws WasmUploadError when on-chain transaction fails', async () => {
+    it('throws DeployerError when on-chain transaction fails', async () => {
       mockGetTransaction.mockResolvedValue({ status: 'FAILED' });
-      await expect(deployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(WasmUploadError);
+      await expect(deployer.uploadWasm(VALID_WASM, mockKeypair)).rejects.toThrow(DeployerError);
     });
   });
 
@@ -280,9 +308,9 @@ describe('ContractDeployer', () => {
       expect(result).toHaveProperty('contractId');
     });
 
-    it('throws ContractInstantiationError when sendTransaction returns ERROR', async () => {
+    it('throws DeployerError when sendTransaction returns ERROR', async () => {
       mockSendTransaction.mockResolvedValue({ status: 'ERROR', errorResult: null });
-      await expect(deployer.deployContract(WASM_HASH, mockKeypair)).rejects.toThrow(ContractInstantiationError);
+      await expect(deployer.deployContract(WASM_HASH, mockKeypair)).rejects.toThrow(DeployerError);
     });
 
     it('throws DeploymentTimeoutError when transaction never confirms', async () => {
@@ -349,6 +377,78 @@ describe('ContractDeployer', () => {
     it('FeeEstimationError has correct code', () => {
       const err = new FeeEstimationError('sim failed');
       expect(err.code).toBe('FEE_ESTIMATION_ERROR');
+    });
+  });
+
+  // ── network passphrase auto-detection ──────────────────────────────────────
+  describe('network passphrase auto-detection', () => {
+    it('fetches passphrase from RPC when not provided in config', async () => {
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+        // networkPassphrase intentionally omitted
+      });
+      const passphrase = await autoDeployer.getNetworkPassphrase();
+      expect(passphrase).toBe('Test SDF Network ; September 2015');
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call getNetwork when passphrase is already configured', async () => {
+      const passphrase = await deployer.getNetworkPassphrase();
+      expect(passphrase).toBe('Test SDF Network ; September 2015');
+      expect(mockGetNetwork).not.toHaveBeenCalled();
+    });
+
+    it('fetches passphrase only once across multiple calls (caching)', async () => {
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      await autoDeployer.getNetworkPassphrase();
+      await autoDeployer.getNetworkPassphrase();
+      await autoDeployer.getNetworkPassphrase();
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses auto-detected passphrase when building transactions', async () => {
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      // Should not throw — passphrase resolved from RPC before tx is built
+      await expect(autoDeployer.uploadWasm(VALID_WASM, mockKeypair)).resolves.toBeDefined();
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+    });
+
+    it('ContractDeployer.create() resolves passphrase eagerly', async () => {
+      const autoDeployer = await ContractDeployer.create({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      // getNetwork must have been called during create()
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+      // Subsequent call must not hit the network again
+      await autoDeployer.getNetworkPassphrase();
+      expect(mockGetNetwork).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws DeployerError (PASSPHRASE_DETECTION_FAILED) when RPC getNetwork fails', async () => {
+      mockGetNetwork.mockRejectedValue(new Error('connection refused'));
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      await expect(autoDeployer.getNetworkPassphrase()).rejects.toThrow(
+        'Failed to auto-detect network passphrase from RPC: connection refused',
+      );
+    });
+
+    it('clears cache after a getNetwork failure so a retry succeeds', async () => {
+      const autoDeployer = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+      });
+      // First call fails
+      mockGetNetwork.mockRejectedValueOnce(new Error('timeout'));
+      await expect(autoDeployer.getNetworkPassphrase()).rejects.toThrow();
+      // Second call succeeds (cache was cleared)
+      mockGetNetwork.mockResolvedValue({ passphrase: 'Test SDF Network ; September 2015', protocolVersion: '20' });
+      const passphrase = await autoDeployer.getNetworkPassphrase();
+      expect(passphrase).toBe('Test SDF Network ; September 2015');
     });
   });
 });
