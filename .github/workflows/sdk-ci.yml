@@ -41,6 +41,14 @@ jobs:
           restore-keys: |
             pnpm-store-${{ runner.os }}-
 
+      - name: Ensure no npm/yarn lockfiles exist
+        run: |
+          if find . -name "package-lock.json" -o -name "yarn.lock" | grep -q .; then
+            echo "❌ npm/yarn lockfile detected. This repo uses pnpm. Remove the lockfile and re-run."
+            find . -name "package-lock.json" -o -name "yarn.lock"
+            exit 1
+          fi
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
