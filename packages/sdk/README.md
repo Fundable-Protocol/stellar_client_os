@@ -200,7 +200,7 @@ const result = await signAndWait(
 console.log(`Stream created with ID: ${result.result}`);
 ```
 
-For detailed documentation, see [waitForTransaction Guide](../docs/sdk/waitForTransaction.md).
+For detailed documentation, see [waitForTransaction Guide](../../docs/sdk/waitForTransaction.md).
 
 ### Data Structures
 
