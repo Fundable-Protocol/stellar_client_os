@@ -1,0 +1,16 @@
+{
+  "name": "sdk-consumer-test",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && node check-esm.mjs && node check-cjs.cjs"
+  },
+  "dependencies": {
+    "@fundable/sdk": "file:.."
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20"
+  }
+}
