@@ -9,7 +9,7 @@
  */
 
 import { AssembledTransaction } from '@stellar/stellar-sdk/contract';
-import type { DistributorClient } from '../DistributorClient';
+import type { DistributorClient, AddressParam } from '../DistributorClient';
 
 /**
  * Configuration for batch distribution operations.
@@ -77,16 +77,16 @@ export interface BatchDistributionConfig {
  */
 export interface EqualDistributionParams {
   /** Sender address (must have sufficient token balance). */
-  sender: string;
+  sender: AddressParam;
 
   /** Token contract ID to distribute. */
-  token: string;
+  token: AddressParam;
 
   /** Total amount to distribute across all recipients (in token base units). */
   total_amount: bigint;
 
   /** List of recipient addresses (will be split into batches). */
-  recipients: string[];
+  recipients: AddressParam[];
 
   /** Batch configuration options. */
   config?: BatchDistributionConfig;
@@ -99,13 +99,13 @@ export interface EqualDistributionParams {
  */
 export interface WeightedDistributionParams {
   /** Sender address (must have sufficient token balance). */
-  sender: string;
+  sender: AddressParam;
 
   /** Token contract ID to distribute. */
-  token: string;
+  token: AddressParam;
 
   /** Recipient addresses (will be split into batches along with amounts). */
-  recipients: string[];
+  recipients: AddressParam[];
 
   /** Amount for each recipient, in parallel order with recipients array (in token base units). */
   amounts: bigint[];
@@ -249,8 +249,10 @@ export async function prepareBatchEqualDistribution(
  * 
  * @example
  * ```ts
- * const recipients = ['G...', 'G...', 'G...', /* ...1000+ addresses... */];
- * const amounts = [BigInt(100), BigInt(200), BigInt(150), /* ...corresponding amounts... */];
+ * const recipients = ['G...', 'G...', 'G...', // ...1000+ addresses...
+ * ];
+ * const amounts = [BigInt(100), BigInt(200), BigInt(150), // ...corresponding amounts...
+ * ];
  * 
  * const result = await prepareBatchWeightedDistribution(client, {
  *   sender: 'GAAAA...',
@@ -260,12 +262,12 @@ export async function prepareBatchEqualDistribution(
  *   config: {
  *     maxRecipientsPerBatch: 50, // More conservative for weighted
  *     onBatchStart: (batch, total, count) =>
- *       console.log(`Starting batch ${batch}/${total} with ${count} recipients`),
+ *       console.log(\`Starting batch \${batch}/\${total} with \${count} recipients\`),
  *     onBatchComplete: (batch, total) =>
- *       console.log(`Batch ${batch}/${total} prepared`)
+ *       console.log(\`Batch \${batch}/\${total} prepared\`)
  *   }
  * });
- * 
+ *
  * // Submit each transaction
  * for (const tx of result.transactions) {
  *   const result = await tx.signAndSend();
@@ -332,11 +334,11 @@ export async function prepareBatchWeightedDistribution(
  * @returns Array of batches (last batch may be smaller)
  * 
  * @example
- * ```ts
+ * \`\`\`ts
  * const items = [1, 2, 3, 4, 5];
  * const batches = createBatches(items, 2);
  * // [[1, 2], [3, 4], [5]]
- * ```
+ * \`\`\`
  */
 export function createBatches<T>(array: T[], batchSize: number): T[][] {
   const batches: T[][] = [];

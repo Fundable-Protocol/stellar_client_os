@@ -4,6 +4,8 @@ import {
   xdr,
   Address,
   Account,
+  hash,
+  StrKey,
 } from '@stellar/stellar-sdk';
 import { Server as RpcServer, Api, assembleTransaction } from '@stellar/stellar-sdk/rpc';
 
@@ -113,29 +115,76 @@ export class ContractDeployer {
   }
 
   /**
-   * Builds the transaction to create a contract instance from an uploaded WASM hash
+   * Derives the contract ID deterministically from the deployer address, salt,
+   * and network passphrase — **before** any transaction is submitted.
+   *
+   * This mirrors the on-chain logic exactly:
+   *   SHA-256( HashIdPreimage{ networkId: SHA-256(passphrase), preimage: ContractIdPreimageFromAddress } )
+   * encoded as a Stellar contract strkey (C…).
+   *
+   * @param deployerAddress  - G… Stellar account address of the deployer.
+   * @param salt             - 32-byte salt used in the create-contract transaction.
+   * @param networkPassphrase - Network passphrase (e.g. "Test SDF Network ; September 2015").
+   * @returns The contract address (C…) that will be assigned on deployment.
+   */
+  static deriveContractId(
+    deployerAddress: string,
+    salt: Buffer,
+    networkPassphrase: string,
+  ): string {
+    const preimage = xdr.HashIdPreimage.envelopeTypeContractId(
+      new xdr.HashIdPreimageContractId({
+        networkId: hash(Buffer.from(networkPassphrase)),
+        contractIdPreimage: xdr.ContractIdPreimage.contractIdPreimageFromAddress(
+          new xdr.ContractIdPreimageFromAddress({
+            address: new Address(deployerAddress).toScAddress(),
+            salt,
+          })
+        ),
+      })
+    );
+    return StrKey.encodeContract(hash(preimage.toXDR()));
+  }
+
+  /**
+   * Builds the transaction to create a contract instance from an uploaded WASM hash.
+   *
+   * The salt can be supplied by the caller so the contract ID can be derived
+   * ahead of time via `ContractDeployer.deriveContractId()`. If omitted, a
+   * cryptographically random 32-byte salt is generated and returned alongside
+   * the transaction so the caller can still derive the expected contract ID.
+   *
+   * @param address  - Deployer's Stellar account address.
+   * @param wasmHash - 32-byte WASM hash returned by the upload step.
+   * @param salt     - Optional 32-byte salt. A random one is generated when omitted.
+   * @param fee      - Base fee in stroops.
+   * @returns The assembled transaction, the simulation result, and the salt used.
    */
   async buildCreateContractTx(
     address: string,
     wasmHash: Buffer,
-    fee: string = '1000'
-  ): Promise<{ transaction: any; simulation: any }> {
+    salt?: Buffer,
+    fee: string = '1000',
+  ): Promise<{ transaction: any; simulation: any; salt: Buffer }> {
     const account = await this.getAccount(address);
 
-    const salt = new Uint8Array(32);
-    crypto.getRandomValues(salt);
-    const saltBuffer = Buffer.from(salt);
-    
+    // Use the provided salt or generate a cryptographically random one.
+    const saltBuffer: Buffer = salt ?? (() => {
+      const buf = new Uint8Array(32);
+      crypto.getRandomValues(buf);
+      return Buffer.from(buf);
+    })();
+
     const func = xdr.HostFunction.hostFunctionTypeCreateContract(
-       new xdr.CreateContractArgs({
-         contractIdPreimage: xdr.ContractIdPreimage.contractIdPreimageFromAddress(
-            new xdr.ContractIdPreimageFromAddress({
-              address: new Address(address).toScAddress(),
-              salt: saltBuffer
-            })
-         ),
-         executable: xdr.ContractExecutable.contractExecutableWasm(wasmHash)
-       })
+      new xdr.CreateContractArgs({
+        contractIdPreimage: xdr.ContractIdPreimage.contractIdPreimageFromAddress(
+          new xdr.ContractIdPreimageFromAddress({
+            address: new Address(address).toScAddress(),
+            salt: saltBuffer,
+          })
+        ),
+        executable: xdr.ContractExecutable.contractExecutableWasm(wasmHash),
+      })
     );
 
     const tx = new TransactionBuilder(account, {
@@ -152,13 +201,13 @@ export class ContractDeployer {
       .build();
 
     const simulation = await this.rpcServer.simulateTransaction(tx);
-    
+
     if (Api.isSimulationError(simulation)) {
       throw new Error(`Wait! Create contract simulation failed: ${simulation.error}`);
     }
 
     const assembledTx = assembleTransaction(tx, simulation).build();
-    return { transaction: assembledTx, simulation };
+    return { transaction: assembledTx, simulation, salt: saltBuffer };
   }
   
   /**

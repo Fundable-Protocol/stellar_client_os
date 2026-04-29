@@ -4,7 +4,7 @@
  * TypeScript SDK for interacting with Fundable Protocol smart contracts on Stellar.
  */
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 // Re-export generated types for Payment Stream
 export * from "./generated/payment-stream/src/index";
@@ -33,6 +33,11 @@ export * from "./deployer";
 export * from "./utils/batchDistribution";
 export * from "./utils/events";
 export * from "./utils/soroban-transaction-helper";
+export * from "./utils/SorobanEventParser";
+export * from "./utils/networkDetection";
+export * from "./utils/streamHistory";
+export * from "./utils/BalanceWatcher";
+export * from "./utils/transactions";
 
 // Export error handling utilities
 export {

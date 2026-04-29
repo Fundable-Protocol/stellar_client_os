@@ -77,3 +77,15 @@ export const withdrawStreamSchema = z.object({
 })
 
 export type WithdrawStreamFormData = z.infer<typeof withdrawStreamSchema>
+
+export const depositStreamSchema = z.object({
+  amount: z
+    .string()
+    .min(1, "Amount is required")
+    .refine((val) => {
+      const num = parseFloat(val)
+      return !isNaN(num) && num > 0
+    }, "Amount must be a positive number"),
+})
+
+export type DepositStreamFormData = z.infer<typeof depositStreamSchema>
