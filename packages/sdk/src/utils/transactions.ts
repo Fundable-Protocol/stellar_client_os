@@ -10,6 +10,7 @@ import {
   SorobanRpc,
   AnalogSignaturePayload,
 } from "@stellar/stellar-sdk";
+import { parseContractError, FundableStellarError } from "./errors";
 
 /**
  * Configuration options for waiting on a transaction
@@ -102,11 +103,11 @@ export async function waitForTransaction<T = unknown>(
 
     // Check timeout
     if (elapsedMs > timeout) {
-      throw new Error(
-        `Transaction confirmation timeout after ${timeout}ms. ` +
-        `Transaction hash: ${tx.hash}. ` +
-        `Please check the transaction status on Horizon.`,
+      const timeoutError = parseContractError(
+        `Transaction confirmation timeout after ${timeout}ms. Hash: ${tx.hash}`,
+        "Transaction confirmation"
       );
+      throw new FundableStellarError(timeoutError);
     }
 
     try {
@@ -127,38 +128,45 @@ export async function waitForTransaction<T = unknown>(
       }
 
       if (response.status === SorobanRpc.GetTransactionStatus.FAILED) {
-        throw new Error(
-          `Transaction failed on ledger ${response.ledger}. ` +
-          `Hash: ${tx.hash}. ` +
-          `Please check the transaction for detailed error information.`,
+        // Parse the failed transaction result for better error messages
+        const error = parseContractError(
+          {
+            resultXdr: response.resultXdr,
+            message: `Transaction failed on ledger ${response.ledger}`,
+          },
+          "Transaction confirmation"
         );
+        
+        throw new FundableStellarError(error);
       }
 
       // Status is PENDING, continue polling
       await new Promise(resolve => setTimeout(resolve, pollInterval));
-    } catch (error) {
+    } catch (rpcError) {
       // Handle RPC errors
-      if (error instanceof Error) {
+      if (rpcError instanceof Error) {
         // If it's our custom error, re-throw
         if (
-          error.message.includes("Transaction confirmation timeout") ||
-          error.message.includes("Transaction failed on ledger")
+          rpcError.message.includes("Transaction confirmation timeout") ||
+          rpcError.message.includes("Transaction failed on ledger")
         ) {
-          throw error;
+          throw rpcError;
         }
 
-        // If it's a "not found" error, the transaction may not be submitted yet
-        if (error.message.includes("not found")) {
+        // If it's a "not found" error, transaction may not be submitted yet
+        if (rpcError.message.includes("not found")) {
           // Continue polling
           await new Promise(resolve => setTimeout(resolve, pollInterval));
           continue;
         }
       }
 
-      // For other RPC errors, re-throw
-      throw new Error(
-        `Error polling transaction status: ${error instanceof Error ? error.message : String(error)}`,
+      // For other RPC errors, re-throw with better context
+      const parsedError = parseContractError(
+        `Error polling transaction status: ${rpcError instanceof Error ? rpcError.message : String(rpcError)}`,
+        "Transaction polling"
       );
+      throw new FundableStellarError(parsedError);
     }
   }
 }
