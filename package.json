@@ -10,6 +10,7 @@
     "test:contracts": "cd contracts && cargo test",
     "test:sdk": "pnpm --filter @fundable/sdk test",
     "test:sdk:coverage": "pnpm --filter @fundable/sdk test:coverage",
+    "test:sdk:integration": "pnpm --filter @fundable/sdk test:integration",
     "lint": "pnpm --filter @fundable/web lint",
     "changeset": "changeset",
     "changeset:version": "changeset version",

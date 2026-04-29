@@ -5,12 +5,17 @@ export default defineConfig({
     environment: 'node',
     globals: true,
 
-     exclude: [
-      '**/__tests__/integration/**'
+    // Explicitly exclude integration tests from the standard run.
+    // They live in __integration_tests__/ and require a live local node.
+    // Use `pnpm test:integration` (or `pnpm test:sdk:integration` from root) instead.
+    exclude: [
+      'src/__integration_tests__/**',
+      'src/**/__tests__/integration/**',
+      '**/node_modules/**',
     ],
+
     // Coverage configuration
-    coverage: {
-      // Use V8's built-in coverage (no Babel transform needed, fast)
+    coverage: {      // Use V8's built-in coverage (no Babel transform needed, fast)
       provider: 'v8',
 
       // Source files to measure coverage against
@@ -21,8 +26,10 @@ export default defineConfig({
       exclude: [
         'src/generated/**',
         'src/**/__tests__/**',
+        'src/**/__integration_tests__/**',
         'src/**/*.test.ts',
         'src/**/*.spec.ts',
+        'src/**/*.integration.test.ts',
         'src/index.ts',                   // pure re-export barrel
         'src/deployer/index.ts',          // pure re-export barrel
         'src/deployer/types.ts',          // TypeScript type definitions only

@@ -157,13 +157,19 @@ export interface DeployerConfig {
  */
 export interface WasmUploadResult {
   /**
-   * SHA-256 hash of the uploaded WASM binary.
-   * 
-   * This is a 32-byte (64 character hex string) identifier used to reference the WASM
-   * code during contract instantiation. This hash is deterministic - uploading the same
-   * WASM binary twice will produce the same hash.
-   * 
-   * Format: 64 hex characters (e.g., `abcdef1234...`)
+   * SHA-256 hash of the uploaded WASM binary, encoded as a lowercase 64-character
+   * hex string.
+   *
+   * This is the **canonical Soroban WASM identifier**: Soroban stores installed WASM
+   * blobs in a `ContractCode` ledger entry keyed by `SHA-256(wasmBytes)`. The same
+   * value is what `stellar contract upload` prints and what `Operation.createCustomContract`
+   * expects as `wasmHash` (after decoding from hex to a 32-byte Buffer).
+   *
+   * The value is computed locally from the WASM bytes — no extra RPC round-trip is
+   * needed because SHA-256 is deterministic. Uploading the same WASM bytes twice
+   * always produces the same hash.
+   *
+   * Format: 64 lowercase hex characters (e.g., `"6ddb28e0980f643bb97350f7e3bacb0ff1fe74d846c6d4f2c625e766210fbb5b"`)
    */
   wasmHash: string;
 

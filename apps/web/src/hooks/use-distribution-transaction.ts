@@ -135,6 +135,21 @@ export function useDistributionTransaction() {
         return false;
       }
 
+      const recipients = state.recipients.map(r => r.address);
+
+      for (const address of recipients) {
+        try {
+          const exists = await stellarService.accountExists(address);
+          if (!exists) {
+            throw new Error(`Account ${address} does not exist or is not funded`);
+          }
+        } catch (e: any) {
+          if (e.message && e.message.includes('not exist')) throw e;
+          throw new Error('Network rate limited while verifying accounts. Please wait a moment and try again.');
+        }
+      }
+
+      let transactionHash: string;
       // Calculate total amount in stroops (7 decimal places)
       let totalStroops: bigint;
       let amountsStroops: bigint[] = [];
