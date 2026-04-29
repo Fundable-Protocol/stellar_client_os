@@ -1,0 +1,115 @@
+name: SDK CI
+
+on:
+  push:
+    paths:
+      - 'packages/sdk/**'
+      - '.github/workflows/sdk-ci.yml'
+  pull_request:
+    paths:
+      - 'packages/sdk/**'
+      - '.github/workflows/sdk-ci.yml'
+
+jobs:
+  test:
+    name: Test & Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Ensure no npm/yarn lockfiles exist
+        run: |
+          if find . -name "package-lock.json" -o -name "yarn.lock" | grep -q .; then
+            echo "❌ npm/yarn lockfile detected. This repo uses pnpm. Remove the lockfile and re-run."
+            find . -name "package-lock.json" -o -name "yarn.lock"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run SDK tests with coverage
+        run: pnpm --filter @fundable/sdk test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sdk-coverage-report
+          path: packages/sdk/coverage/
+          retention-days: 30
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: packages/sdk/coverage/lcov.info
+          flags: sdk
+          name: sdk-coverage
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  sdk-compat:
+    name: ESM/CJS Consumer Compatibility
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install SDK dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SDK (ESM + CJS)
+        run: pnpm --filter @fundable/sdk build
+
+      - name: Install consumer test dependencies
+        run: npm install
+        working-directory: packages/sdk/test-consumer
+
+      - name: Type-check consumer
+        run: npx tsc --noEmit
+        working-directory: packages/sdk/test-consumer
+
+      - name: Runtime ESM import check
+        run: node check-esm.mjs
+        working-directory: packages/sdk/test-consumer
+
+      - name: Runtime CJS require check
+        run: node check-cjs.cjs
+        working-directory: packages/sdk/test-consumer

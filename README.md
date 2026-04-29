@@ -84,6 +84,75 @@ pnpm build:contracts
 pnpm test:contracts
 ```
 
+## 💡 Usage Examples
+
+### 🌌 Horizon Client (Classic Stellar)
+
+The Horizon client is used for interacting with the classic Stellar network, such as fetching account details, balances, and transaction history.
+
+```typescript
+import { Horizon } from '@stellar/stellar-sdk';
+
+const server = new Horizon.Server('https://horizon-testnet.stellar.org');
+
+// Fetch account details and balances
+async function checkAccount(address: string) {
+  try {
+    const account = await server.loadAccount(address);
+    console.log(`Account ID: ${account.id}`);
+    
+    account.balances.forEach(balance => {
+      console.log(`Type: ${balance.asset_type}, Balance: ${balance.balance}`);
+    });
+  } catch (error) {
+    console.error('Error loading account:', error);
+  }
+}
+
+checkAccount('GBBB...');
+```
+
+### ⚡ Soroban Client (Smart Contracts)
+
+Use the `@fundable/sdk` to interact with Fundable smart contracts on the Soroban network. This example shows how to initialize the `PaymentStreamClient` and create a new payment stream.
+
+```typescript
+import { PaymentStreamClient, signAndWait } from '@fundable/sdk';
+
+const client = new PaymentStreamClient({
+  contractId: 'C...', // Deployed contract ID
+  networkPassphrase: 'Test SDF Network ; September 2015',
+  rpcUrl: 'https://soroban-testnet.stellar.org',
+});
+
+async function createNewStream() {
+  // 1. Prepare the stream creation transaction
+  const tx = await client.createStream({
+    sender: 'GAAA...',
+    recipient: 'GBBB...',
+    token: 'CDDD...', // Token contract address
+    total_amount: 1000000000n, // 100 tokens (assuming 7 decimals)
+    initial_amount: 0n,
+    start_time: BigInt(Math.floor(Date.now() / 1000)),
+    end_time: BigInt(Math.floor(Date.now() / 1000) + 86400 * 30), // 30 days duration
+  });
+
+  // 2. Sign, send, and wait for confirmation
+  const result = await signAndWait(
+    tx,
+    'https://soroban-testnet.stellar.org',
+    async (xdr) => {
+      // Logic to sign XDR with wallet (e.g., Freighter)
+      // return wallet.signTransaction(xdr);
+      return 'signed_xdr_here';
+    }
+  );
+
+  console.log(`Stream created successfully! Hash: ${result.hash}`);
+  console.log(`Stream ID: ${result.result}`);
+}
+```
+
 ## 📦 Packages
 
 ### `apps/web`

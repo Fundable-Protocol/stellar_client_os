@@ -9,7 +9,8 @@ import {
     Pause,
     Play,
     XCircle,
-    Shield
+    Shield,
+    Plus
 } from "lucide-react";
 import {
     DropdownMenu,
@@ -22,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import type { StreamRecord } from "@/lib/validations";
 import { STELLAR_EXPERT_URL } from "@/lib/constants";
 import { WithdrawStreamModal } from "./WithdrawStreamModal";
+import { DepositStreamModal } from "./DepositStreamModal";
 import { ManageDelegateModal } from "./ManageDelegateModal";
 import { toast } from "react-hot-toast";
 import { useWallet } from "@/providers/StellarWalletProvider";
@@ -34,6 +36,7 @@ type StreamActionsCellProps = {
 export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
     const { address, signTransaction } = useWallet();
     const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+    const [isDepositOpen, setIsDepositOpen] = useState(false);
     const [isDelegateModalOpen, setIsDelegateModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -54,6 +57,8 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
     };
 
     const handleOpenWithdraw = () => setIsWithdrawOpen(true);
+
+    const handleOpenDeposit = () => setIsDepositOpen(true);
 
     const handlePause = async () => {
         if (!signTransaction) return;
@@ -134,6 +139,16 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
                     {isSender && isActive && (
                         <DropdownMenuItem
                             className="cursor-pointer"
+                            onClick={handleOpenDeposit}
+                        >
+                            <Plus className="mr-2 h-4 w-4" />
+                            Top Up
+                        </DropdownMenuItem>
+                    )}
+
+                    {isSender && isActive && (
+                        <DropdownMenuItem
+                            className="cursor-pointer"
                             onClick={handlePause}
                         >
                             <Pause className="mr-2 h-4 w-4" />
@@ -193,6 +208,12 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
             <WithdrawStreamModal
                 open={isWithdrawOpen}
                 onOpenChange={setIsWithdrawOpen}
+                stream={stream}
+            />
+
+            <DepositStreamModal
+                open={isDepositOpen}
+                onOpenChange={setIsDepositOpen}
                 stream={stream}
             />
 
