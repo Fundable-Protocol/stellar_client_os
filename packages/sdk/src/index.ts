@@ -23,6 +23,9 @@ export {
 } from "./generated/distributor/src/index";
 
 // Export high-level clients
+export * from './PaymentStreamClient';
+export type { StreamHistoryEvent, StreamEventType } from './PaymentStreamClient';
+export * from './DistributorClient';
 export * from "./PaymentStreamClient";
 export * from "./DistributorClient";
 

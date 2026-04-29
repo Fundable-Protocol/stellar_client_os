@@ -1,3 +1,7 @@
+import { Client as ContractClient } from './generated/payment-stream/src/index';
+import { AssembledTransaction, ClientOptions as ContractClientOptions } from '@stellar/stellar-sdk/contract';
+import { rpc as SorobanRpc } from '@stellar/stellar-sdk';
+import { Stream, StreamMetrics, ProtocolMetrics, StreamStatus } from './generated/payment-stream/src/index';
 import { Client as ContractClient } from "./generated/payment-stream/src/index";
 import {
   AssembledTransaction,
@@ -30,6 +34,16 @@ function addressToString(address: AddressParam): string {
   return typeof address === "string" ? address : address.toString();
 }
 
+export type StreamEventType = 'created' | 'deposit' | 'withdraw' | 'paused' | 'resumed' | 'canceled' | 'completed' | 'delegate_set' | 'delegate_revoked' | 'fee_collected';
+
+export interface StreamHistoryEvent {
+  type: StreamEventType;
+  streamId: bigint;
+  ledger: number;
+  timestamp: number;
+  data: Record<string, unknown>;
+}
+
 /**
  * High-level client for interacting with the Payment Stream contract.
  * Provides a type-safe and DX-optimized interface for all contract methods.
@@ -38,6 +52,15 @@ function addressToString(address: AddressParam): string {
  * and transaction result XDR to provide human-readable error messages.
  */
 export class PaymentStreamClient {
+    private client: ContractClient;
+    private rpcUrl: string;
+    private contractId: string;
+
+    constructor(options: ContractClientOptions) {
+        this.client = new ContractClient(options);
+        this.rpcUrl = options.rpcUrl;
+        this.contractId = options.contractId;
+    }
   private client: ContractClient;
   private rpcUrl?: string;
   private contractId?: string;
@@ -359,6 +382,53 @@ export class PaymentStreamClient {
       );
     }
 
+    /**
+     * Fetch and parse history events for a specific stream from the ledger.
+     * @param streamId The ID of the stream.
+     * @param opts Optional pagination: startLedger and limit (default 100).
+     */
+    public async getStreamHistory(
+        streamId: bigint,
+        opts: { startLedger?: number; limit?: number } = {}
+    ): Promise<StreamHistoryEvent[]> {
+        const server = new SorobanRpc.Server(this.rpcUrl);
+        const { startLedger = 0, limit = 100 } = opts;
+
+        const response = await server.getEvents({
+            startLedger,
+            filters: [
+                {
+                    type: 'contract',
+                    contractIds: [this.contractId],
+                    topics: [['*', `u64:${streamId}`]],
+                },
+            ],
+            limit,
+        });
+
+        return response.events.map((event) => {
+            const topics = event.topic.map((t) => t.value());
+            const eventName = (topics[0] as string).toLowerCase().replace('_event', '') as StreamEventType;
+            const data: Record<string, unknown> = {};
+
+            try {
+                const val = event.value.value();
+                if (val && typeof val === 'object') {
+                    Object.assign(data, val);
+                }
+            } catch {
+                // non-critical, leave data empty
+            }
+
+            return {
+                type: eventName,
+                streamId,
+                ledger: event.ledger,
+                timestamp: event.ledgerClosedAt ? new Date(event.ledgerClosedAt).getTime() / 1000 : 0,
+                data,
+            };
+        });
+    }
     return getAllStreamHistory(
       {
         rpcUrl: this.rpcUrl,

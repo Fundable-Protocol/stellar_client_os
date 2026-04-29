@@ -1,5 +1,6 @@
 import {
   Keypair,
+  Transaction,
   TransactionBuilder,
   Operation,
   Networks,
@@ -10,6 +11,7 @@ import {
   Transaction,
 } from '@stellar/stellar-sdk';
 import { Server, Api } from '@stellar/stellar-sdk/rpc';
+import type { DeployerConfig, WasmUploadResult, ContractDeployResult, FeeEstimate, Signer } from './types';
 import type { 
   DeployerConfig, 
   WasmUploadResult, 
@@ -134,6 +136,14 @@ export class ContractDeployer {
    * Simulate a WASM upload transaction and return the estimated fee and
    * resource consumption without submitting anything to the network.
    *
+   * @param wasm     - Compiled contract WASM as a Buffer or Uint8Array.
+   * @param deployer - Keypair or public key string of the account that will pay.
+   */
+  async estimateUploadFee(wasm: Buffer | Uint8Array, deployer: Keypair | string): Promise<FeeEstimate> {
+    this.assertValidWasm(wasm);
+    const address = typeof deployer === 'string' ? deployer : deployer.publicKey();
+    const account = await this.loadAccount(address);
+    const tx = this.buildUploadTx(wasm, account);
    * @param wasm  - Compiled contract WASM as a Buffer or Uint8Array.
    * @param deployer - Keypair or account address that will pay for the upload.
    */
@@ -149,6 +159,18 @@ export class ContractDeployer {
    * Simulate a contract instantiation transaction and return the estimated
    * fee and resource consumption.
    *
+   * @param wasmHash       - Hex or base64 hash returned by `uploadWasm`.
+   * @param deployerOrAddr - Keypair or public key string of the paying account.
+   * @param salt           - Optional 32-byte salt for deterministic contract IDs.
+   */
+  async estimateDeployFee(
+    wasmHash: string,
+    deployerOrAddr: Keypair | string,
+    salt?: Buffer,
+  ): Promise<FeeEstimate> {
+    const address = typeof deployerOrAddr === 'string' ? deployerOrAddr : deployerOrAddr.publicKey();
+    const account = await this.loadAccount(address);
+    const tx = this.buildDeployTx(wasmHash, address, account, salt);
    * @param wasmHash - Hex or base64 hash returned by `uploadWasm`.
    * @param deployer - Keypair or account address that will pay for the deploy.
    * @param salt     - Optional 32-byte salt for deterministic contract IDs.
@@ -172,6 +194,15 @@ export class ContractDeployer {
    * contract address yet.
    *
    * @param wasm     - Compiled contract WASM as a Buffer or Uint8Array.
+   * @param signer   - Keypair, array of Keypairs (multi-sig), or signing callback.
+   * @returns `WasmUploadResult` containing the `wasmHash` needed for deployment.
+   */
+  async uploadWasm(wasm: Buffer | Uint8Array, signer: Signer): Promise<WasmUploadResult> {
+    this.assertValidWasm(wasm);
+
+    const address = this.signerAddress(signer);
+    const account = await this.loadAccount(address);
+    const tx = this.buildUploadTx(wasm, account);
    * @param deployer - Keypair or multi-sig config that signs and pays for the transaction.
    * @returns `WasmUploadResult` containing the `wasmHash` needed for deployment.
    */
@@ -182,14 +213,15 @@ export class ContractDeployer {
     const account = await this.loadAccount(deployerAddress);
     const tx = await this.buildUploadTx(wasm, account);
 
-    // Simulate to get resource footprint, then rebuild with correct fee
     const estimate = await this.simulate(tx);
+    const preparedTx = this.buildUploadTx(wasm, account, estimate.fee);
+    const signedXdr = await this.signTx(preparedTx, signer);
     const preparedTx = await this.buildUploadTx(wasm, account, estimate.fee);
     
     await this.signTransaction(preparedTx, deployer);
 
     try {
-      const result = await this.submitAndWait(preparedTx.toEnvelope().toXDR('base64'));
+      const result = await this.submitAndWait(signedXdr);
       return {
         wasmHash: this.deriveWasmHash(wasm),
         txHash: result.txHash,
@@ -212,12 +244,25 @@ export class ContractDeployer {
    * Instantiate a previously uploaded WASM as a new contract.
    *
    * @param wasmHash - Hex hash returned by `uploadWasm`.
+   * @param signer   - Keypair, array of Keypairs (multi-sig), or signing callback.
    * @param deployer - Keypair or multi-sig config that signs and pays for the transaction.
    * @param salt     - Optional 32-byte salt for deterministic contract IDs.
    * @returns `ContractDeployResult` containing the new `contractId`.
    */
   async deployContract(
     wasmHash: string,
+    signer: Signer,
+    salt?: Buffer,
+  ): Promise<ContractDeployResult> {
+    const address = this.signerAddress(signer);
+    const account = await this.loadAccount(address);
+    const estimate = await this.estimateDeployFee(wasmHash, address, salt);
+    const tx = this.buildDeployTx(wasmHash, address, account, salt, estimate.fee);
+    const signedXdr = await this.signTx(tx, signer);
+
+    try {
+      const result = await this.submitAndWait(signedXdr);
+      const contractId = this.deriveContractId(address, salt ?? result.txHash);
     deployer: Deployer,
     salt?: Buffer,
   ): Promise<ContractDeployResult> {
@@ -257,6 +302,13 @@ export class ContractDeployer {
    * Upload the WASM and immediately deploy the contract in two sequential
    * transactions. Returns both results.
    *
+   * @param wasm   - Compiled contract WASM.
+   * @param signer - Keypair, array of Keypairs (multi-sig), or signing callback.
+   * @param salt   - Optional salt for deterministic contract ID.
+   */
+  async uploadAndDeploy(
+    wasm: Buffer | Uint8Array,
+    signer: Signer,
    * @param wasm     - Compiled contract WASM.
    * @param deployer - Keypair or multi-sig config that signs both transactions.
    * @param salt     - Optional salt for deterministic contract ID.
@@ -266,13 +318,45 @@ export class ContractDeployer {
     deployer: Deployer,
     salt?: Buffer,
   ): Promise<{ upload: WasmUploadResult; deploy: ContractDeployResult }> {
-    const upload = await this.uploadWasm(wasm, deployer);
-    const deploy = await this.deployContract(upload.wasmHash, deployer, salt);
+    const upload = await this.uploadWasm(wasm, signer);
+    const deploy = await this.deployContract(upload.wasmHash, signer, salt);
     return { upload, deploy };
   }
 
   // ─── Private: transaction builders ────────────────────────────────────────
 
+  /** Resolve the source account address from any supported signer type. */
+  private signerAddress(signer: Signer): string {
+    if (typeof signer === 'function') {
+      throw new DeployerError(
+        'A SigningCallback cannot provide a public key. Pass the deployer address separately or use a Keypair.',
+        'SIGNER_ADDRESS_UNKNOWN',
+      );
+    }
+    return Array.isArray(signer) ? signer[0].publicKey() : signer.publicKey();
+  }
+
+  /**
+   * Sign a built transaction with the provided signer and return the signed XDR.
+   * - Single Keypair: signs directly.
+   * - Keypair[]: each keypair signs in order (multi-sig).
+   * - SigningCallback: delegates to the callback (e.g. browser wallet).
+   */
+  private async signTx(
+    tx: ReturnType<TransactionBuilder['build']>,
+    signer: Signer,
+  ): Promise<string> {
+    if (typeof signer === 'function') {
+      return signer(tx.toEnvelope().toXDR('base64'));
+    }
+    const keypairs = Array.isArray(signer) ? signer : [signer];
+    for (const kp of keypairs) {
+      tx.sign(kp);
+    }
+    return tx.toEnvelope().toXDR('base64');
+  }
+
+  private buildUploadTx(
   private async buildUploadTx(
     wasm: Buffer | Uint8Array,
     account: { id: string; sequenceNumber: () => string },

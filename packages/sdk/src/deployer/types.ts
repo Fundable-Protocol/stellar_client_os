@@ -67,6 +67,20 @@ export type Deployer = Keypair | DeployerAccount;
 export type StellarNetwork = 'testnet' | 'mainnet' | 'custom';
 
 /**
+ * A callback that receives a transaction XDR string, signs it externally
+ * (e.g. via a browser wallet), and returns the signed XDR string.
+ */
+export type SigningCallback = (txXdr: string) => Promise<string>;
+
+/**
+ * Accepted signer types for upload/deploy operations:
+ * - A single `Keypair` (original behaviour)
+ * - An array of `Keypair`s for multi-sig (each one signs in order)
+ * - A `SigningCallback` for wallet-based or custom signing flows
+ */
+export type Signer = import('@stellar/stellar-sdk').Keypair | import('@stellar/stellar-sdk').Keypair[] | SigningCallback;
+
+/**
  * Configuration options for the ContractDeployer.
  * 
  * Provides all necessary parameters to connect to a Stellar network and configure
