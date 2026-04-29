@@ -1,15 +1,70 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   parseContractError,
   FundableStellarError,
   executeWithErrorHandling,
   CONTRACT_ERRORS,
 } from "../utils/errors";
+import { xdr } from '@stellar/stellar-sdk';
 
 describe("Error Handling Utilities", () => {
-  // ─────────────────────────────────────────────────────────────────────────
-  // Tests for parseContractError function
-  // ─────────────────────────────────────────────────────────────────────────
+  describe("parseTransactionResultXdr", () => {
+    it("parses contract error from transaction result XDR", () => {
+      // Mock a transaction result with contract error
+      const mockResult = xdr.TransactionResult.fromXDR(
+        "AAAAAgAAAAEAAAACAAAAZAAACgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAAAAAAAAAA==",
+        "base64"
+      );
+      
+      const error = parseContractError({ resultXdr: mockResult.toXDR('base64') });
+      
+      expect(error.type).toBe("transaction_error");
+      expect(error.message).toContain("Transaction execution failed");
+      expect(error.suggestion).toBeDefined();
+    });
+
+    it("handles malformed XDR gracefully", () => {
+      const error = parseContractError({ resultXdr: "invalid_xdr_string" });
+      
+      expect(error.type).toBe("transaction_error");
+      expect(error.message).toContain("Failed to parse transaction result");
+      expect(error.suggestion).toContain("corrupted or in an unexpected format");
+    });
+  });
+
+  describe("parseSimulationError", () => {
+    it("parses insufficient fee errors", () => {
+      const error = parseContractError(new Error("insufficient fee for transaction"));
+      
+      expect(error.type).toBe("simulation_error");
+      expect(error.message).toContain("Insufficient transaction fee");
+      expect(error.suggestion).toContain("Increase the transaction fee");
+    });
+
+    it("parses insufficient balance errors", () => {
+      const error = parseContractError(new Error("insufficient balance"));
+      
+      expect(error.type).toBe("simulation_error");
+      expect(error.message).toContain("Insufficient account balance");
+      expect(error.suggestion).toContain("enough XLM to cover fees");
+    });
+
+    it("parses XDR encoding errors", () => {
+      const error = parseContractError(new Error("XDR decoding failed"));
+      
+      expect(error.type).toBe("simulation_error");
+      expect(error.message).toContain("XDR encoding/decoding error");
+      expect(error.suggestion).toContain("Check transaction format");
+    });
+
+    it("parses timeout errors", () => {
+      const error = parseContractError(new Error("simulation timeout"));
+      
+      expect(error.type).toBe("simulation_error");
+      expect(error.message).toContain("Simulation timeout");
+      expect(error.suggestion).toContain("operation may be too complex");
+    });
+  });
 
   describe("parseContractError", () => {
     describe("with Error objects", () => {
@@ -127,10 +182,6 @@ describe("Error Handling Utilities", () => {
     });
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Tests for FundableStellarError class
-  // ─────────────────────────────────────────────────────────────────────────
-
   describe("FundableStellarError", () => {
     it("creates error from parsed error", () => {
       const parsed = parseContractError("Error: 5");
@@ -151,6 +202,16 @@ describe("Error Handling Utilities", () => {
       expect(userMessage).not.toContain("Code:");
     });
 
+    it("provides user-friendly message with suggestion", () => {
+      const parsed = parseContractError("Error: 5");
+      const error = new FundableStellarError(parsed);
+
+      const userMessage = error.getUserMessageWithSuggestion();
+      expect(userMessage).toContain("InvalidTimeRange");
+      expect(userMessage).toContain("💡");
+      expect(userMessage).toContain("Verify that the end time is after the start time");
+    });
+
     it("provides formatted toString output", () => {
       const parsed = parseContractError("Error: 5");
       const error = new FundableStellarError(parsed);
@@ -159,6 +220,15 @@ describe("Error Handling Utilities", () => {
       expect(formatted).toContain("FundableStellarError");
       expect(formatted).toContain("InvalidTimeRange");
       expect(formatted).toContain("[Code: 5]");
+      expect(formatted).toContain("Suggestion:");
+    });
+
+    it("includes operation context when available", () => {
+      const parsed = parseContractError("Error: 3", "Create stream");
+      const error = new FundableStellarError(parsed);
+
+      const formatted = error.toString();
+      expect(formatted).toContain("[Operation: Create stream]");
     });
 
     it("includes details in toString when available", () => {
@@ -169,10 +239,6 @@ describe("Error Handling Utilities", () => {
       expect(formatted).toContain("Details:");
     });
   });
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Tests for executeWithErrorHandling wrapper
-  // ─────────────────────────────────────────────────────────────────────────
 
   describe("executeWithErrorHandling", () => {
     it("returns result on successful execution", async () => {
@@ -209,6 +275,7 @@ describe("Error Handling Utilities", () => {
         const fundableError = error as FundableStellarError;
         expect(fundableError.type).toBe("contract_error");
         expect(fundableError.message).toContain("Unauthorized");
+        expect(fundableError.operation).toBe("Authorize operation");
       }
     });
 
@@ -224,11 +291,22 @@ describe("Error Handling Utilities", () => {
         expect(error).toBeInstanceOf(FundableStellarError);
       }
     });
-  });
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Tests for contract error mappings
-  // ─────────────────────────────────────────────────────────────────────────
+    it("provides operation context in error", async () => {
+      const operation = async () => {
+        throw new Error("Simulation failed");
+      };
+
+      try {
+        await executeWithErrorHandling(operation, "Create stream");
+        expect.fail("Should have thrown");
+      } catch (error) {
+        const fundableError = error as FundableStellarError;
+        expect(fundableError.operation).toBe("Create stream");
+        expect(fundableError.suggestion).toBeDefined();
+      }
+    });
+  });
 
   describe("CONTRACT_ERRORS mapping", () => {
     it("contains all expected contract error codes", () => {
@@ -262,28 +340,29 @@ describe("Error Handling Utilities", () => {
 
   describe("Integration scenarios", () => {
     it("handles payment stream authorization error", () => {
-      const error = new Error("Error: 3");
-      const parsed = parseContractError(error);
+      const error = parseContractError(new Error("Error: 3"), "Create stream");
 
-      expect(parsed.code).toBe(3);
-      expect(parsed.message).toContain("Unauthorized");
-      expect(parsed.type).toBe("contract_error");
+      expect(error.code).toBe(3);
+      expect(error.message).toContain("Unauthorized");
+      expect(error.type).toBe("contract_error");
+      expect(error.operation).toBe("Create stream");
+      expect(error.suggestion).toContain("correct account with proper permissions");
     });
 
     it("handles invalid amount error in distribution", () => {
-      const error = new Error("Error: 4");
-      const parsed = parseContractError(error);
+      const error = parseContractError(new Error("Error: 4"), "Distribute tokens");
 
-      expect(parsed.code).toBe(4);
-      expect(parsed.message).toContain("InvalidAmount");
+      expect(error.code).toBe(4);
+      expect(error.message).toContain("InvalidAmount");
+      expect(error.suggestion).toContain("positive and within valid range");
     });
 
     it("handles stream not found error", () => {
-      const error = new Error("Error: 6");
-      const parsed = parseContractError(error);
+      const error = parseContractError(new Error("Error: 6"), "Get stream details");
 
-      expect(parsed.code).toBe(6);
-      expect(parsed.message).toContain("StreamNotFound");
+      expect(error.code).toBe(6);
+      expect(error.message).toContain("StreamNotFound");
+      expect(error.suggestion).toContain("stream ID is correct");
     });
 
     it("handles multiple consecutive errors", () => {
@@ -302,6 +381,17 @@ describe("Error Handling Utilities", () => {
       expect(parsed[0].message).toContain("AlreadyInitialized");
       expect(parsed[1].message).toContain("StreamNotActive");
       expect(parsed[2].message).toContain("FeeTooHigh");
+    });
+
+    it("handles XDR parsing errors gracefully", () => {
+      const error = parseContractError({
+        resultXdr: "AAAA...invalid_xdr",
+        message: "Transaction failed",
+      });
+
+      expect(error.type).toBe("transaction_error");
+      expect(error.message).toContain("Failed to parse transaction result");
+      expect(error.suggestion).toBeDefined();
     });
   });
 });
