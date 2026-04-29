@@ -32,6 +32,7 @@ export * from "./deployer";
 // Export utility modules
 export * from "./utils/batchDistribution";
 export * from "./utils/events";
+export * from "./utils/soroban-transaction-helper";
 export * from "./utils/SorobanEventParser";
 export * from "./utils/networkDetection";
 export * from "./utils/streamHistory";
