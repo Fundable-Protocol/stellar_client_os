@@ -160,7 +160,9 @@ export class ContractDeployer {
   ): Promise<FeeEstimate> {
     const deployerAddress = this.getDeployerAddress(deployer);
     const account = await this.loadAccount(deployerAddress);
-    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, salt);
+    // Use the provided salt or a zero-filled one for estimation consistency
+    const saltBytes = salt ?? Buffer.alloc(32, 0);
+    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, saltBytes);
     return this.simulate(tx);
   }
 
@@ -222,19 +224,18 @@ export class ContractDeployer {
     salt?: Buffer,
   ): Promise<ContractDeployResult> {
     const deployerAddress = this.getDeployerAddress(deployer);
-    const passphrase = await this.resolveNetworkPassphrase();
     // Resolve the salt once so the same value is used in both the transaction
     // and the contract-ID derivation.
     const resolvedSalt = salt ?? this.randomSalt();
     const account = await this.loadAccount(deployerAddress);
     const estimate = await this.estimateDeployFee(wasmHash, deployer, resolvedSalt);
     const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, resolvedSalt, estimate.fee);
-    
+
     await this.signTransaction(tx, deployer);
 
     try {
       const result = await this.submitAndWait(tx.toEnvelope().toXDR('base64'));
-      const contractId = this.deriveContractId(deployerAddress, resolvedSalt, passphrase);
+      const contractId = await this.deriveContractId(deployerAddress, resolvedSalt);
       return {
         contractId,
         txHash: result.txHash,
@@ -300,11 +301,10 @@ export class ContractDeployer {
     wasmHash: string,
     deployerAddress: string,
     account: { id: string; sequenceNumber: () => string },
-    salt?: Buffer,
+    salt: Buffer,
     fee = this.baseFee,
   ) {
     const passphrase = await this.resolveNetworkPassphrase();
-    const saltBytes = salt ?? this.randomSalt();
     const sourceAccount = {
       accountId: () => account.id,
       sequenceNumber: () => account.sequenceNumber(),
@@ -319,7 +319,7 @@ export class ContractDeployer {
         Operation.createCustomContract({
           address: new Address(deployerAddress),
           wasmHash: Buffer.from(wasmHash, 'hex'),
-          salt: saltBytes,
+          salt,
         })
       )
       .setTimeout(this.timeoutSeconds)
@@ -502,26 +502,29 @@ export class ContractDeployer {
   }
 
   /**
-   * Derives the contract ID deterministically from the deployer address, salt,
-   * and network passphrase — **before** any transaction is submitted.
+   * Derives the contract ID deterministically from the deployer address and salt
+   * before any transaction is submitted. This implements the standard Stellar
+   * contract ID derivation logic for `CREATE_CONTRACT_WITH_ADDRESS`.
    *
-   * Implements the standard Stellar contract ID derivation:
-   *   SHA-256( HashIdPreimage{ networkId: SHA-256(passphrase), preimage: ContractIdPreimageFromAddress } )
-   * encoded as a Stellar contract strkey (C…).
-   *
-   * @param deployerAddress   - G… Stellar account address of the deployer.
-   * @param salt              - 32-byte salt used in the create-contract transaction.
-   * @param networkPassphrase - Network passphrase (e.g. "Test SDF Network ; September 2015").
-   * @returns The contract address (C…) that will be assigned on deployment.
+   * @param deployerAddress - The G... address of the account deploying the contract.
+   * @param salt - A 32-byte Buffer used as the salt for deployment.
+   * @returns The predicted contract ID (C...).
+   * @throws {Error} If the salt is not exactly 32 bytes.
    */
-  private deriveContractId(
+  public async deriveContractId(
     deployerAddress: string,
     salt: Buffer,
-    networkPassphrase: string,
-  ): string {
+  ): Promise<string> {
+    if (salt.length !== 32) {
+      throw new Error('Salt must be exactly 32 bytes');
+    }
+
+    const networkPassphrase = await this.resolveNetworkPassphrase();
+    const networkId = hash(Buffer.from(networkPassphrase));
+
     const preimage = xdr.HashIdPreimage.envelopeTypeContractId(
       new xdr.HashIdPreimageContractId({
-        networkId: hash(Buffer.from(networkPassphrase)),
+        networkId,
         contractIdPreimage: xdr.ContractIdPreimage.contractIdPreimageFromAddress(
           new xdr.ContractIdPreimageFromAddress({
             address: new Address(deployerAddress).toScAddress(),
@@ -530,7 +533,9 @@ export class ContractDeployer {
         ),
       })
     );
-    return StrKey.encodeContract(hash(preimage.toXDR()));
+
+    const contractIdBuffer = hash(preimage.toXDR());
+    return StrKey.encodeContract(contractIdBuffer);
   }
 
   private randomSalt(): Buffer {
