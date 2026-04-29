@@ -16,6 +16,7 @@ vi.mock('../utils/transactions', () => ({
 // Mock the generated distributor contract client
 // ---------------------------------------------------------------------------
 const mockTx = (result: unknown = undefined) => ({ result, signAndSend: vi.fn() });
+const mockTxNone = () => ({ result: undefined, signAndSend: vi.fn() });
 
 const mockContractClient = {
   distribute_equal: vi.fn(),
