@@ -30,6 +30,7 @@
     "dev": "tsc --watch",
     "test": "vitest --run",
     "test:watch": "vitest",
+    "test:integration": "vitest --run --config vitest.integration.config.ts",
     "test:coverage": "vitest --run --coverage",
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
