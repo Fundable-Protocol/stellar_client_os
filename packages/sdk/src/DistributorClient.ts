@@ -2,6 +2,7 @@ import { Client as ContractClient } from "./generated/distributor/src/index";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
+  Address,
 } from "@stellar/stellar-sdk/contract";
 import {
   UserStats,
@@ -9,6 +10,18 @@ import {
   DistributionHistory,
 } from "./generated/distributor/src/index";
 import { executeWithErrorHandling } from "./utils/errors";
+
+/**
+ * Type alias for address parameters that accept both string and Address objects
+ */
+export type AddressParam = string | Address;
+
+/**
+ * Converts an AddressParam to its string representation
+ */
+function addressToString(address: AddressParam): string {
+  return typeof address === "string" ? address : address.toString();
+}
 
 /**
  * High-level client for interacting with the Distributor contract.
@@ -34,14 +47,20 @@ export class DistributorClient {
    * @throws {FundableStellarError} If distribution fails with a human-readable error message
    */
   public async distributeEqual(params: {
-    sender: string;
-    token: string;
+    sender: AddressParam;
+    token: AddressParam;
     total_amount: bigint;
-    recipients: string[];
+    recipients: AddressParam[];
   }): Promise<AssembledTransaction<null>> {
     return executeWithErrorHandling(
-      () => this.client.distribute_equal(params),
-      "Distribute tokens equally",
+      () =>
+        this.client.distribute_equal({
+          sender: addressToString(params.sender),
+          token: addressToString(params.token),
+          total_amount: params.total_amount,
+          recipients: params.recipients.map(addressToString),
+        }),
+      "Distribute tokens equally"
     );
   }
 
@@ -51,14 +70,20 @@ export class DistributorClient {
    * @throws {FundableStellarError} If distribution fails with a human-readable error message
    */
   public async distributeWeighted(params: {
-    sender: string;
-    token: string;
-    recipients: string[];
+    sender: AddressParam;
+    token: AddressParam;
+    recipients: AddressParam[];
     amounts: bigint[];
   }): Promise<AssembledTransaction<null>> {
     return executeWithErrorHandling(
-      () => this.client.distribute_weighted(params),
-      "Distribute tokens with weights",
+      () =>
+        this.client.distribute_weighted({
+          sender: addressToString(params.sender),
+          token: addressToString(params.token),
+          recipients: params.recipients.map(addressToString),
+          amounts: params.amounts,
+        }),
+      "Distribute tokens with weights"
     );
   }
 
@@ -69,7 +94,7 @@ export class DistributorClient {
   public async getAdmin(): Promise<AssembledTransaction<string | undefined>> {
     return executeWithErrorHandling(
       () => this.client.get_admin() as any,
-      "Get administrator",
+      "Get administrator"
     );
   }
 
@@ -79,19 +104,13 @@ export class DistributorClient {
    * @throws {FundableStellarError} If fetch fails with a human-readable error message
    */
   public async getUserStats(
-    user: string,
-  ): Promise<AssembledTransaction<UserStats | undefined>>;
-  public async getUserStats(
-    params: { user: string },
-  ): Promise<AssembledTransaction<UserStats | undefined>>;
-  public async getUserStats(
-    user: string | { user: string },
+    user: AddressParam
   ): Promise<AssembledTransaction<UserStats | undefined>> {
     const actualUser = typeof user === "object" ? user.user : user;
 
     return executeWithErrorHandling(
-      () => this.client.get_user_stats({ user: actualUser }) as any,
-      "Get user statistics",
+      () => this.client.get_user_stats({ user: addressToString(user) }) as any,
+      "Get user statistics"
     );
   }
 
@@ -101,19 +120,14 @@ export class DistributorClient {
    * @throws {FundableStellarError} If fetch fails with a human-readable error message
    */
   public async getTokenStats(
-    token: string,
-  ): Promise<AssembledTransaction<TokenStats | undefined>>;
-  public async getTokenStats(
-    params: { token: string },
-  ): Promise<AssembledTransaction<TokenStats | undefined>>;
-  public async getTokenStats(
-    token: string | { token: string },
+    token: AddressParam
   ): Promise<AssembledTransaction<TokenStats | undefined>> {
     const actualToken = typeof token === "object" ? token.token : token;
 
     return executeWithErrorHandling(
-      () => this.client.get_token_stats({ token: actualToken }) as any,
-      "Get token statistics",
+      () =>
+        this.client.get_token_stats({ token: addressToString(token) }) as any,
+      "Get token statistics"
     );
   }
 
@@ -124,7 +138,7 @@ export class DistributorClient {
   public async getTotalDistributions(): Promise<AssembledTransaction<bigint>> {
     return executeWithErrorHandling(
       () => this.client.get_total_distributions(),
-      "Get total distributions",
+      "Get total distributions"
     );
   }
 
@@ -137,7 +151,7 @@ export class DistributorClient {
   > {
     return executeWithErrorHandling(
       () => this.client.get_total_distributed_amount(),
-      "Get total distributed amount",
+      "Get total distributed amount"
     );
   }
 
@@ -180,13 +194,18 @@ export class DistributorClient {
    * @throws {FundableStellarError} If initialization fails with a human-readable error message
    */
   public async initialize(params: {
-    admin: string;
+    admin: AddressParam;
     protocol_fee_percent: number;
-    fee_address: string;
+    fee_address: AddressParam;
   }): Promise<AssembledTransaction<null>> {
     return executeWithErrorHandling(
-      () => this.client.initialize(params),
-      "Initialize contract",
+      () =>
+        this.client.initialize({
+          admin: addressToString(params.admin),
+          protocol_fee_percent: params.protocol_fee_percent,
+          fee_address: addressToString(params.fee_address),
+        }),
+      "Initialize contract"
     );
   }
 

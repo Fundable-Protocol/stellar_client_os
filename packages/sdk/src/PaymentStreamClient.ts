@@ -2,6 +2,7 @@ import { Client as ContractClient } from "./generated/payment-stream/src/index";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
+  Address,
 } from "@stellar/stellar-sdk/contract";
 import {
   Stream,
@@ -10,8 +11,24 @@ import {
   StreamStatus,
 } from "./generated/payment-stream/src/index";
 import { executeWithErrorHandling } from "./utils/errors";
-import { getStreamHistory, getAllStreamHistory, StreamHistoryResult } from "./utils/streamHistory";
+import {
+  getStreamHistory,
+  getAllStreamHistory,
+  StreamHistoryResult,
+} from "./utils/streamHistory";
 import { PaymentStreamContractEvent } from "./utils/events";
+
+/**
+ * Type alias for address parameters that accept both string and Address objects
+ */
+export type AddressParam = string | Address;
+
+/**
+ * Converts an AddressParam to its string representation
+ */
+function addressToString(address: AddressParam): string {
+  return typeof address === "string" ? address : address.toString();
+}
 
 /**
  * High-level client for interacting with the Payment Stream contract.
@@ -43,17 +60,26 @@ export class PaymentStreamClient {
    * @throws {FundableStellarError} If stream creation fails with a human-readable error message
    */
   public async createStream(params: {
-    sender: string;
-    recipient: string;
-    token: string;
+    sender: AddressParam;
+    recipient: AddressParam;
+    token: AddressParam;
     total_amount: bigint;
     initial_amount: bigint;
     start_time: bigint;
     end_time: bigint;
   }): Promise<AssembledTransaction<bigint>> {
     return executeWithErrorHandling(
-      () => this.client.create_stream(params),
-      "Create stream",
+      () =>
+        this.client.create_stream({
+          sender: addressToString(params.sender),
+          recipient: addressToString(params.recipient),
+          token: addressToString(params.token),
+          total_amount: params.total_amount,
+          initial_amount: params.initial_amount,
+          start_time: params.start_time,
+          end_time: params.end_time,
+        }),
+      "Create stream"
     );
   }
 
@@ -334,7 +360,7 @@ export class PaymentStreamClient {
   > {
     return executeWithErrorHandling(
       () => this.client.get_protocol_metrics(),
-      "Get protocol metrics",
+      "Get protocol metrics"
     );
   }
 
@@ -345,7 +371,7 @@ export class PaymentStreamClient {
   public async getFeeCollector(): Promise<AssembledTransaction<string>> {
     return executeWithErrorHandling(
       () => this.client.get_fee_collector(),
-      "Get fee collector",
+      "Get fee collector"
     );
   }
 
@@ -356,7 +382,7 @@ export class PaymentStreamClient {
   public async getProtocolFeeRate(): Promise<AssembledTransaction<number>> {
     return executeWithErrorHandling(
       () => this.client.get_protocol_fee_rate(),
-      "Get protocol fee rate",
+      "Get protocol fee rate"
     );
   }
 
@@ -365,13 +391,18 @@ export class PaymentStreamClient {
    * @throws {FundableStellarError} If initialization fails with a human-readable error message
    */
   public async initialize(params: {
-    admin: string;
-    fee_collector: string;
+    admin: AddressParam;
+    fee_collector: AddressParam;
     general_fee_rate: number;
   }): Promise<AssembledTransaction<null>> {
     return executeWithErrorHandling(
-      () => this.client.initialize(params),
-      "Initialize contract",
+      () =>
+        this.client.initialize({
+          admin: addressToString(params.admin),
+          fee_collector: addressToString(params.fee_collector),
+          general_fee_rate: params.general_fee_rate,
+        }),
+      "Initialize contract"
     );
   }
 

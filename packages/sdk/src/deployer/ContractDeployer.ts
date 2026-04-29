@@ -6,6 +6,7 @@ import {
   xdr,
   hash,
   Address,
+  StrKey,
   Transaction,
 } from '@stellar/stellar-sdk';
 import { Server, Api } from '@stellar/stellar-sdk/rpc';
@@ -221,15 +222,19 @@ export class ContractDeployer {
     salt?: Buffer,
   ): Promise<ContractDeployResult> {
     const deployerAddress = this.getDeployerAddress(deployer);
+    const passphrase = await this.resolveNetworkPassphrase();
+    // Resolve the salt once so the same value is used in both the transaction
+    // and the contract-ID derivation.
+    const resolvedSalt = salt ?? this.randomSalt();
     const account = await this.loadAccount(deployerAddress);
-    const estimate = await this.estimateDeployFee(wasmHash, deployer, salt);
-    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, salt, estimate.fee);
+    const estimate = await this.estimateDeployFee(wasmHash, deployer, resolvedSalt);
+    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, resolvedSalt, estimate.fee);
     
     await this.signTransaction(tx, deployer);
 
     try {
       const result = await this.submitAndWait(tx.toEnvelope().toXDR('base64'));
-      const contractId = this.deriveContractId(deployerAddress, salt ?? result.txHash);
+      const contractId = this.deriveContractId(deployerAddress, resolvedSalt, passphrase);
       return {
         contractId,
         txHash: result.txHash,
@@ -485,6 +490,13 @@ export class ContractDeployer {
     }
   }
 
+  /**
+   * Computes the canonical Soroban WASM identifier: SHA-256 of the raw WASM bytes,
+   * returned as a lowercase 64-character hex string.
+   *
+   * This matches the ledger key Soroban uses for `ContractCode` entries and the value
+   * expected by `Operation.createCustomContract({ wasmHash: Buffer.from(hex, 'hex') })`.
+   */
   private deriveWasmHash(wasm: Buffer | Uint8Array): string {
     return hash(Buffer.from(wasm)).toString('hex');
   }

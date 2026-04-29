@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DistributorClient } from '../DistributorClient';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { DistributorClient } from "../DistributorClient";
+import { Address } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
 // Mock the generated distributor contract client
 // ---------------------------------------------------------------------------
-const mockTx = (result: unknown = undefined) => ({ result, signAndSend: vi.fn() });
+const mockTx = (result: unknown = undefined) => ({
+  result,
+  signAndSend: vi.fn(),
+});
 
 const mockContractClient = {
   distribute_equal: vi.fn(),
@@ -19,7 +23,7 @@ const mockContractClient = {
   set_protocol_fee: vi.fn(),
 };
 
-vi.mock('../generated/distributor/src/index', () => ({
+vi.mock("../generated/distributor/src/index", () => ({
   Client: vi.fn().mockImplementation(() => mockContractClient),
 }));
 
@@ -27,20 +31,20 @@ vi.mock('../generated/distributor/src/index', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 const VALID_OPTIONS = {
-  contractId: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M',
-  networkPassphrase: 'Test SDF Network ; September 2015',
-  rpcUrl: 'https://soroban-testnet.stellar.org',
+  contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+  networkPassphrase: "Test SDF Network ; September 2015",
+  rpcUrl: "https://soroban-testnet.stellar.org",
 };
 
-const SENDER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
-const TOKEN = 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM';
-const RECIPIENT_A = 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
-const RECIPIENT_B = 'GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
+const SENDER = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+const TOKEN = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+const RECIPIENT_A = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+const RECIPIENT_B = "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-describe('DistributorClient', () => {
+describe("DistributorClient", () => {
   let client: DistributorClient;
 
   beforeEach(() => {
@@ -49,19 +53,19 @@ describe('DistributorClient', () => {
   });
 
   // ── constructor ────────────────────────────────────────────────────────────
-  describe('constructor', () => {
-    it('instantiates without throwing', () => {
+  describe("constructor", () => {
+    it("instantiates without throwing", () => {
       expect(client).toBeInstanceOf(DistributorClient);
     });
 
-    it('passes options through to the generated ContractClient', async () => {
-      const { Client } = await import('../generated/distributor/src/index');
+    it("passes options through to the generated ContractClient", async () => {
+      const { Client } = await import("../generated/distributor/src/index");
       expect(Client).toHaveBeenCalledWith(VALID_OPTIONS);
     });
   });
 
   // ── distributeEqual ────────────────────────────────────────────────────────
-  describe('distributeEqual', () => {
+  describe("distributeEqual", () => {
     const params = {
       sender: SENDER,
       token: TOKEN,
@@ -69,38 +73,72 @@ describe('DistributorClient', () => {
       recipients: [RECIPIENT_A, RECIPIENT_B],
     };
 
-    it('delegates to client.distribute_equal with correct params', async () => {
+    it("delegates to client.distribute_equal with correct params", async () => {
       mockContractClient.distribute_equal.mockResolvedValue(mockTx());
       await client.distributeEqual(params);
       expect(mockContractClient.distribute_equal).toHaveBeenCalledWith(params);
     });
 
-    it('returns AssembledTransaction<null>', async () => {
+    it("returns AssembledTransaction<null>", async () => {
       mockContractClient.distribute_equal.mockResolvedValue(mockTx(null));
       const tx = await client.distributeEqual(params);
       expect(tx.result).toBeNull();
     });
 
-    it('handles single recipient', async () => {
+    it("handles single recipient", async () => {
       mockContractClient.distribute_equal.mockResolvedValue(mockTx());
       const singleRecipient = { ...params, recipients: [RECIPIENT_A] };
       await client.distributeEqual(singleRecipient);
-      expect(mockContractClient.distribute_equal).toHaveBeenCalledWith(singleRecipient);
+      expect(mockContractClient.distribute_equal).toHaveBeenCalledWith(
+        singleRecipient
+      );
     });
 
-    it('propagates contract revert', async () => {
-      mockContractClient.distribute_equal.mockRejectedValue(new Error('InvalidAmount'));
-      await expect(client.distributeEqual(params)).rejects.toThrow('InvalidAmount');
+    it("propagates contract revert", async () => {
+      mockContractClient.distribute_equal.mockRejectedValue(
+        new Error("InvalidAmount")
+      );
+      await expect(client.distributeEqual(params)).rejects.toThrow(
+        "InvalidAmount"
+      );
     });
 
-    it('propagates network failure', async () => {
-      mockContractClient.distribute_equal.mockRejectedValue(new Error('Network error'));
-      await expect(client.distributeEqual(params)).rejects.toThrow('Network error');
+    it("propagates network failure", async () => {
+      mockContractClient.distribute_equal.mockRejectedValue(
+        new Error("Network error")
+      );
+      await expect(client.distributeEqual(params)).rejects.toThrow(
+        "Network error"
+      );
+    });
+
+    it("accepts Address objects for addresses", async () => {
+      mockContractClient.distribute_equal.mockResolvedValue(mockTx());
+      const addressParams = {
+        sender: new Address(SENDER),
+        token: new Address(TOKEN),
+        total_amount: 1000n,
+        recipients: [new Address(RECIPIENT_A), new Address(RECIPIENT_B)],
+      };
+      await client.distributeEqual(addressParams);
+      expect(mockContractClient.distribute_equal).toHaveBeenCalledWith(params);
+    });
+
+    it("accepts mixed string and Address objects", async () => {
+      mockContractClient.distribute_equal.mockResolvedValue(mockTx());
+      const mixedParams = {
+        sender: SENDER, // string
+        token: new Address(TOKEN), // Address
+        total_amount: 1000n,
+        recipients: [RECIPIENT_A, new Address(RECIPIENT_B)], // mixed
+      };
+      await client.distributeEqual(mixedParams);
+      expect(mockContractClient.distribute_equal).toHaveBeenCalledWith(params);
     });
   });
 
   // ── distributeWeighted ─────────────────────────────────────────────────────
-  describe('distributeWeighted', () => {
+  describe("distributeWeighted", () => {
     const params = {
       sender: SENDER,
       token: TOKEN,
@@ -108,46 +146,72 @@ describe('DistributorClient', () => {
       amounts: [700n, 300n],
     };
 
-    it('delegates to client.distribute_weighted with correct params', async () => {
+    it("delegates to client.distribute_weighted with correct params", async () => {
       mockContractClient.distribute_weighted.mockResolvedValue(mockTx());
       await client.distributeWeighted(params);
-      expect(mockContractClient.distribute_weighted).toHaveBeenCalledWith(params);
+      expect(mockContractClient.distribute_weighted).toHaveBeenCalledWith(
+        params
+      );
     });
 
-    it('returns AssembledTransaction<null>', async () => {
+    it("returns AssembledTransaction<null>", async () => {
       mockContractClient.distribute_weighted.mockResolvedValue(mockTx(null));
       const tx = await client.distributeWeighted(params);
       expect(tx.result).toBeNull();
     });
 
-    it('handles unequal weight distribution', async () => {
+    it("handles unequal weight distribution", async () => {
       const skewed = { ...params, amounts: [999n, 1n] };
       mockContractClient.distribute_weighted.mockResolvedValue(mockTx());
       await client.distributeWeighted(skewed);
-      expect(mockContractClient.distribute_weighted).toHaveBeenCalledWith(skewed);
+      expect(mockContractClient.distribute_weighted).toHaveBeenCalledWith(
+        skewed
+      );
     });
 
-    it('propagates mismatched recipients/amounts error', async () => {
-      mockContractClient.distribute_weighted.mockRejectedValue(new Error('InvalidAmount'));
+    it("propagates mismatched recipients/amounts error", async () => {
+      mockContractClient.distribute_weighted.mockRejectedValue(
+        new Error("InvalidAmount")
+      );
       const bad = { ...params, amounts: [100n] }; // length mismatch
-      await expect(client.distributeWeighted(bad)).rejects.toThrow('InvalidAmount');
+      await expect(client.distributeWeighted(bad)).rejects.toThrow(
+        "InvalidAmount"
+      );
     });
 
-    it('propagates Unauthorized error', async () => {
-      mockContractClient.distribute_weighted.mockRejectedValue(new Error('Unauthorized'));
-      await expect(client.distributeWeighted(params)).rejects.toThrow('Unauthorized');
+    it("propagates Unauthorized error", async () => {
+      mockContractClient.distribute_weighted.mockRejectedValue(
+        new Error("Unauthorized")
+      );
+      await expect(client.distributeWeighted(params)).rejects.toThrow(
+        "Unauthorized"
+      );
+    });
+
+    it("accepts Address objects for addresses", async () => {
+      mockContractClient.distribute_weighted.mockResolvedValue(mockTx());
+      const addressParams = {
+        sender: new Address(SENDER),
+        token: new Address(TOKEN),
+        recipients: [new Address(RECIPIENT_A), new Address(RECIPIENT_B)],
+        amounts: [700n, 300n],
+      };
+      await client.distributeWeighted(addressParams);
+      expect(mockContractClient.distribute_weighted).toHaveBeenCalledWith(
+        params
+      );
     });
   });
 
   // ── getAdmin ───────────────────────────────────────────────────────────────
-  describe('getAdmin', () => {
-    it('returns admin address when set', async () => {
+  describe("getAdmin", () => {
+    it("returns admin address when set", async () => {
       mockContractClient.get_admin.mockResolvedValue(mockTx(SENDER));
       const tx = await client.getAdmin();
       expect(tx.result).toBe(SENDER);
     });
 
-    it('returns undefined when no admin is set', async () => {
+    it("returns undefined when no admin is set", async () => {
       mockContractClient.get_admin.mockResolvedValue(mockTxNone());
       const tx = await client.getAdmin();
       expect(tx.result).toBeUndefined();
@@ -155,73 +219,92 @@ describe('DistributorClient', () => {
   });
 
   // ── getUserStats ───────────────────────────────────────────────────────────
-  describe('getUserStats', () => {
+  describe("getUserStats", () => {
     const mockStats = {
       distributions_initiated: 3,
       total_amount: 5000n,
     };
 
-    it('delegates to client.get_user_stats with correct user param', async () => {
+    it("delegates to client.get_user_stats with correct user param", async () => {
       mockContractClient.get_user_stats.mockResolvedValue(mockTx(mockStats));
       const tx = await client.getUserStats(SENDER);
-      expect(mockContractClient.get_user_stats).toHaveBeenCalledWith({ user: SENDER });
+      expect(mockContractClient.get_user_stats).toHaveBeenCalledWith({
+        user: SENDER,
+      });
       expect(tx.result).toEqual(mockStats);
     });
 
-    it('returns correct UserStats shape', async () => {
+    it("returns correct UserStats shape", async () => {
       mockContractClient.get_user_stats.mockResolvedValue(mockTx(mockStats));
       const tx = await client.getUserStats(SENDER);
-      expect(tx.result).toHaveProperty('distributions_initiated');
-      expect(tx.result).toHaveProperty('total_amount');
+      expect(tx.result).toHaveProperty("distributions_initiated");
+      expect(tx.result).toHaveProperty("total_amount");
     });
 
-    it('returns undefined for unknown user', async () => {
+    it("returns undefined for unknown user", async () => {
       mockContractClient.get_user_stats.mockResolvedValue(mockTxNone());
-      const tx = await client.getUserStats('GUNKNOWN');
+      const tx = await client.getUserStats("GUNKNOWN");
       expect(tx.result).toBeUndefined();
+    });
+    it("accepts Address object for user param", async () => {
+      mockContractClient.get_user_stats.mockResolvedValue(mockTx(mockStats));
+      const tx = await client.getUserStats(new Address(SENDER));
+      expect(mockContractClient.get_user_stats).toHaveBeenCalledWith({
+        user: SENDER,
+      });
     });
   });
 
   // ── getTokenStats ──────────────────────────────────────────────────────────
-  describe('getTokenStats', () => {
+  describe("getTokenStats", () => {
     const mockStats = {
       distribution_count: 5,
       last_time: 1700000000n,
       total_amount: 25000n,
     };
 
-    it('delegates to client.get_token_stats with correct token param', async () => {
+    it("delegates to client.get_token_stats with correct token param", async () => {
       mockContractClient.get_token_stats.mockResolvedValue(mockTx(mockStats));
       const tx = await client.getTokenStats(TOKEN);
-      expect(mockContractClient.get_token_stats).toHaveBeenCalledWith({ token: TOKEN });
+      expect(mockContractClient.get_token_stats).toHaveBeenCalledWith({
+        token: TOKEN,
+      });
       expect(tx.result).toEqual(mockStats);
     });
 
-    it('returns correct TokenStats shape', async () => {
+    it("returns correct TokenStats shape", async () => {
       mockContractClient.get_token_stats.mockResolvedValue(mockTx(mockStats));
       const tx = await client.getTokenStats(TOKEN);
-      expect(tx.result).toHaveProperty('distribution_count');
-      expect(tx.result).toHaveProperty('last_time');
-      expect(tx.result).toHaveProperty('total_amount');
+      expect(tx.result).toHaveProperty("distribution_count");
+      expect(tx.result).toHaveProperty("last_time");
+      expect(tx.result).toHaveProperty("total_amount");
     });
 
-    it('returns undefined for unknown token', async () => {
+    it("returns undefined for unknown token", async () => {
       mockContractClient.get_token_stats.mockResolvedValue(mockTxNone());
-      const tx = await client.getTokenStats('CUNKNOWN');
+      const tx = await client.getTokenStats("CUNKNOWN");
       expect(tx.result).toBeUndefined();
+    });
+
+    it("accepts Address object for token param", async () => {
+      mockContractClient.get_token_stats.mockResolvedValue(mockTx(mockStats));
+      const tx = await client.getTokenStats(new Address(TOKEN));
+      expect(mockContractClient.get_token_stats).toHaveBeenCalledWith({
+        token: TOKEN,
+      });
     });
   });
 
   // ── getTotalDistributions ──────────────────────────────────────────────────
-  describe('getTotalDistributions', () => {
-    it('returns total distribution count as bigint', async () => {
+  describe("getTotalDistributions", () => {
+    it("returns total distribution count as bigint", async () => {
       mockContractClient.get_total_distributions.mockResolvedValue(mockTx(42n));
       const tx = await client.getTotalDistributions();
       expect(mockContractClient.get_total_distributions).toHaveBeenCalled();
       expect(tx.result).toBe(42n);
     });
 
-    it('returns 0n when no distributions have occurred', async () => {
+    it("returns 0n when no distributions have occurred", async () => {
       mockContractClient.get_total_distributions.mockResolvedValue(mockTx(0n));
       const tx = await client.getTotalDistributions();
       expect(tx.result).toBe(0n);
@@ -229,17 +312,21 @@ describe('DistributorClient', () => {
   });
 
   // ── getTotalDistributedAmount ──────────────────────────────────────────────
-  describe('getTotalDistributedAmount', () => {
-    it('returns total distributed amount as bigint', async () => {
-      mockContractClient.get_total_distributed_amount.mockResolvedValue(mockTx(100000n));
+  describe("getTotalDistributedAmount", () => {
+    it("returns total distributed amount as bigint", async () => {
+      mockContractClient.get_total_distributed_amount.mockResolvedValue(
+        mockTx(100000n)
+      );
       const tx = await client.getTotalDistributedAmount();
-      expect(mockContractClient.get_total_distributed_amount).toHaveBeenCalled();
+      expect(
+        mockContractClient.get_total_distributed_amount
+      ).toHaveBeenCalled();
       expect(tx.result).toBe(100000n);
     });
   });
 
   // ── getDistributionHistory ─────────────────────────────────────────────────
-  describe('getDistributionHistory', () => {
+  describe("getDistributionHistory", () => {
     const mockHistory = [
       {
         amount: 1000n,
@@ -250,8 +337,10 @@ describe('DistributorClient', () => {
       },
     ];
 
-    it('delegates to client.get_distribution_history with correct params', async () => {
-      mockContractClient.get_distribution_history.mockResolvedValue(mockTx(mockHistory));
+    it("delegates to client.get_distribution_history with correct params", async () => {
+      mockContractClient.get_distribution_history.mockResolvedValue(
+        mockTx(mockHistory)
+      );
       const tx = await client.getDistributionHistory(0n, 10n);
       expect(mockContractClient.get_distribution_history).toHaveBeenCalledWith({
         start_id: 0n,
@@ -260,24 +349,26 @@ describe('DistributorClient', () => {
       expect(tx.result).toEqual(mockHistory);
     });
 
-    it('returns empty array when no history exists', async () => {
+    it("returns empty array when no history exists", async () => {
       mockContractClient.get_distribution_history.mockResolvedValue(mockTx([]));
       const tx = await client.getDistributionHistory(0n, 10n);
       expect(tx.result).toEqual([]);
     });
 
-    it('returns correct DistributionHistory shape', async () => {
-      mockContractClient.get_distribution_history.mockResolvedValue(mockTx(mockHistory));
+    it("returns correct DistributionHistory shape", async () => {
+      mockContractClient.get_distribution_history.mockResolvedValue(
+        mockTx(mockHistory)
+      );
       const tx = await client.getDistributionHistory(0n, 1n);
       const entry = (tx.result as typeof mockHistory)[0];
-      expect(entry).toHaveProperty('amount');
-      expect(entry).toHaveProperty('recipients_count');
-      expect(entry).toHaveProperty('sender');
-      expect(entry).toHaveProperty('timestamp');
-      expect(entry).toHaveProperty('token');
+      expect(entry).toHaveProperty("amount");
+      expect(entry).toHaveProperty("recipients_count");
+      expect(entry).toHaveProperty("sender");
+      expect(entry).toHaveProperty("timestamp");
+      expect(entry).toHaveProperty("token");
     });
 
-    it('respects pagination params', async () => {
+    it("respects pagination params", async () => {
       mockContractClient.get_distribution_history.mockResolvedValue(mockTx([]));
       await client.getDistributionHistory(5n, 20n);
       expect(mockContractClient.get_distribution_history).toHaveBeenCalledWith({
@@ -288,28 +379,43 @@ describe('DistributorClient', () => {
   });
 
   // ── initialize ─────────────────────────────────────────────────────────────
-  describe('initialize', () => {
+  describe("initialize", () => {
     const params = {
       admin: SENDER,
       protocol_fee_percent: 5,
       fee_address: RECIPIENT_A,
     };
 
-    it('delegates to client.initialize with correct params', async () => {
+    it("delegates to client.initialize with correct params", async () => {
       mockContractClient.initialize.mockResolvedValue(mockTx());
       await client.initialize(params);
       expect(mockContractClient.initialize).toHaveBeenCalledWith(params);
     });
 
-    it('propagates AlreadyInitialized error', async () => {
-      mockContractClient.initialize.mockRejectedValue(new Error('AlreadyInitialized'));
-      await expect(client.initialize(params)).rejects.toThrow('AlreadyInitialized');
+    it("propagates AlreadyInitialized error", async () => {
+      mockContractClient.initialize.mockRejectedValue(
+        new Error("AlreadyInitialized")
+      );
+      await expect(client.initialize(params)).rejects.toThrow(
+        "AlreadyInitialized"
+      );
+    });
+
+    it("accepts Address objects for addresses", async () => {
+      mockContractClient.initialize.mockResolvedValue(mockTx());
+      const addressParams = {
+        admin: new Address(SENDER),
+        protocol_fee_percent: 5,
+        fee_address: new Address(RECIPIENT_A),
+      };
+      await client.initialize(addressParams);
+      expect(mockContractClient.initialize).toHaveBeenCalledWith(params);
     });
   });
 
   // ── setProtocolFee ─────────────────────────────────────────────────────────
-  describe('setProtocolFee', () => {
-    it('delegates to client.set_protocol_fee with correct params', async () => {
+  describe("setProtocolFee", () => {
+    it("delegates to client.set_protocol_fee with correct params", async () => {
       mockContractClient.set_protocol_fee.mockResolvedValue(mockTx());
       await client.setProtocolFee(SENDER, 10);
       expect(mockContractClient.set_protocol_fee).toHaveBeenCalledWith({
@@ -318,14 +424,31 @@ describe('DistributorClient', () => {
       });
     });
 
-    it('propagates Unauthorized error when non-admin calls', async () => {
-      mockContractClient.set_protocol_fee.mockRejectedValue(new Error('Unauthorized'));
-      await expect(client.setProtocolFee('GNOTADMIN', 10)).rejects.toThrow('Unauthorized');
+    it("propagates Unauthorized error when non-admin calls", async () => {
+      mockContractClient.set_protocol_fee.mockRejectedValue(
+        new Error("Unauthorized")
+      );
+      await expect(client.setProtocolFee("GNOTADMIN", 10)).rejects.toThrow(
+        "Unauthorized"
+      );
     });
 
-    it('propagates FeeTooHigh error', async () => {
-      mockContractClient.set_protocol_fee.mockRejectedValue(new Error('FeeTooHigh'));
-      await expect(client.setProtocolFee(SENDER, 9999)).rejects.toThrow('FeeTooHigh');
+    it("propagates FeeTooHigh error", async () => {
+      mockContractClient.set_protocol_fee.mockRejectedValue(
+        new Error("FeeTooHigh")
+      );
+      await expect(client.setProtocolFee(SENDER, 9999)).rejects.toThrow(
+        "FeeTooHigh"
+      );
+    });
+
+    it("accepts Address object for admin param", async () => {
+      mockContractClient.set_protocol_fee.mockResolvedValue(mockTx());
+      await client.setProtocolFee(new Address(SENDER), 10);
+      expect(mockContractClient.set_protocol_fee).toHaveBeenCalledWith({
+        admin: SENDER,
+        new_fee_percent: 10,
+      });
     });
   });
 });

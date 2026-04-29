@@ -4,7 +4,7 @@
  * TypeScript SDK for interacting with Fundable Protocol smart contracts on Stellar.
  */
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 // Re-export generated types for Payment Stream
 export * from "./generated/payment-stream/src/index";

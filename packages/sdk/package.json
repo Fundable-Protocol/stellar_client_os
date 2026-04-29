@@ -1,62 +1,71 @@
 {
-    "name": "@fundable/sdk",
-    "version": "0.1.0",
-    "description": "TypeScript SDK for interacting with Fundable Stellar contracts",
-    "main": "dist/index.js",
-    "module": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.js",
-            "require": "./dist/index.js"
-        }
-    },
-    "files": [
-        "dist",
-        "README.md",
-        "CHANGELOG.md"
-    ],
-    "scripts": {
-        "build": "tsc",
-        "dev": "tsc --watch",
-        "test": "vitest --run",
-        "test:watch": "vitest",
-        "lint": "eslint src --ext .ts,.tsx",
-        "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
-        "format:check": "prettier --check \"src/**/*.{ts,tsx,json}\""
-    },
-    "dependencies": {
-        "@stellar/stellar-sdk": "^14.4.3"
-    },
-    "devDependencies": {
-        "typescript": "^5",
-        "@types/node": "^20",
-        "vitest": "^2.0.0",
-        "eslint": "^8.57.0",
-        "@typescript-eslint/eslint-plugin": "^6.21.0",
-        "@typescript-eslint/parser": "^6.21.0",
-        "prettier": "^3.2.5"
-    },
-    "peerDependencies": {
-        "@stellar/stellar-sdk": "^14.4.3"
-    },
-    "keywords": [
-        "stellar",
-        "soroban",
-        "fundable",
-        "payment-streaming",
-        "defi",
-        "sdk"
-    ],
-    "license": "MIT",
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/Fundable-Protocol/stellar_client.git",
-        "directory": "packages/sdk"
-    },
-    "homepage": "https://github.com/Fundable-Protocol/stellar_client/tree/main/packages/sdk#readme",
-    "bugs": {
-        "url": "https://github.com/Fundable-Protocol/stellar_client/issues"
+  "name": "@fundable/sdk",
+  "version": "0.2.0",
+  "description": "TypeScript SDK for interacting with Fundable Stellar contracts",
+  "type": "module",
+  "main": "./dist/cjs/index.cjs",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.cts",
+        "default": "./dist/cjs/index.cjs"
+      }
     }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json && node scripts/rename-cjs.js",
+    "build:esm": "tsc -p tsconfig.json",
+    "build:cjs": "tsc -p tsconfig.cjs.json && node scripts/rename-cjs.js",
+    "dev": "tsc --watch",
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --run --coverage",
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,json}\""
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^14.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20",
+    "vitest": "^2.0.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "prettier": "^3.2.5"
+  },
+  "peerDependencies": {
+    "@stellar/stellar-sdk": "^14.4.3"
+  },
+  "keywords": [
+    "stellar",
+    "soroban",
+    "fundable",
+    "payment-streaming",
+    "defi",
+    "sdk"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fundable-Protocol/stellar_client.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/Fundable-Protocol/stellar_client/tree/main/packages/sdk#readme",
+  "bugs": {
+    "url": "https://github.com/Fundable-Protocol/stellar_client/issues"
+  }
 }

@@ -41,6 +41,14 @@ jobs:
           restore-keys: |
             pnpm-store-${{ runner.os }}-
 
+      - name: Ensure no npm/yarn lockfiles exist
+        run: |
+          if find . -name "package-lock.json" -o -name "yarn.lock" | grep -q .; then
+            echo "❌ npm/yarn lockfile detected. This repo uses pnpm. Remove the lockfile and re-run."
+            find . -name "package-lock.json" -o -name "yarn.lock"
+            exit 1
+          fi
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -64,3 +72,44 @@ jobs:
           name: sdk-coverage
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  sdk-compat:
+    name: ESM/CJS Consumer Compatibility
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install SDK dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SDK (ESM + CJS)
+        run: pnpm --filter @fundable/sdk build
+
+      - name: Install consumer test dependencies
+        run: npm install
+        working-directory: packages/sdk/test-consumer
+
+      - name: Type-check consumer
+        run: npx tsc --noEmit
+        working-directory: packages/sdk/test-consumer
+
+      - name: Runtime ESM import check
+        run: node check-esm.mjs
+        working-directory: packages/sdk/test-consumer
+
+      - name: Runtime CJS require check
+        run: node check-cjs.cjs
+        working-directory: packages/sdk/test-consumer

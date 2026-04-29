@@ -9,7 +9,7 @@
  */
 
 import { AssembledTransaction } from '@stellar/stellar-sdk/contract';
-import type { DistributorClient } from '../DistributorClient';
+import type { DistributorClient, AddressParam } from '../DistributorClient';
 
 /**
  * Configuration for batch distribution operations.
@@ -77,16 +77,16 @@ export interface BatchDistributionConfig {
  */
 export interface EqualDistributionParams {
   /** Sender address (must have sufficient token balance). */
-  sender: string;
+  sender: AddressParam;
 
   /** Token contract ID to distribute. */
-  token: string;
+  token: AddressParam;
 
   /** Total amount to distribute across all recipients (in token base units). */
   total_amount: bigint;
 
   /** List of recipient addresses (will be split into batches). */
-  recipients: string[];
+  recipients: AddressParam[];
 
   /** Batch configuration options. */
   config?: BatchDistributionConfig;
@@ -99,13 +99,13 @@ export interface EqualDistributionParams {
  */
 export interface WeightedDistributionParams {
   /** Sender address (must have sufficient token balance). */
-  sender: string;
+  sender: AddressParam;
 
   /** Token contract ID to distribute. */
-  token: string;
+  token: AddressParam;
 
   /** Recipient addresses (will be split into batches along with amounts). */
-  recipients: string[];
+  recipients: AddressParam[];
 
   /** Amount for each recipient, in parallel order with recipients array (in token base units). */
   amounts: bigint[];
@@ -249,9 +249,11 @@ export async function prepareBatchEqualDistribution(
  * 
  * @example
  * ```ts
- * const recipients = ['G...', 'G...', 'G...', /* ...1000+ addresses... */];
- * const amounts = [BigInt(100), BigInt(200), BigInt(150), /* ...corresponding amounts... */];
- *
+ * const recipients = ['G...', 'G...', 'G...', // ...1000+ addresses...
+ * ];
+ * const amounts = [BigInt(100), BigInt(200), BigInt(150), // ...corresponding amounts...
+ * ];
+ * 
  * const result = await prepareBatchWeightedDistribution(client, {
  *   sender: 'GAAAA...',
  *   token: 'CXXXX...',
