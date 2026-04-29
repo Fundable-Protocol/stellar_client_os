@@ -34,7 +34,8 @@
     "lint": "eslint src --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,json}\"",
-    "generate": "node scripts/regenerate-types.js",
+    "generate": "node scripts/regenerate-types-from-wasm.js",
+    "generate:wasm": "node scripts/regenerate-types-from-wasm.js",
     "generate:testnet": "node scripts/regenerate-types.js --network=testnet",
     "generate:mainnet": "node scripts/regenerate-types.js --network=mainnet"
   },

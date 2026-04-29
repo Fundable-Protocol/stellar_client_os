@@ -24,6 +24,16 @@ This SDK has a peer dependency on `@stellar/stellar-sdk`. You will need to have 
 pnpm add @stellar/stellar-sdk
 ```
 
+## Regenerating Contract Bindings
+
+Regenerate the SDK's generated contract clients from the current local contract WASM files:
+
+```bash
+pnpm --filter @fundable/sdk generate
+```
+
+The script builds the SDK contracts with `stellar contract build --optimize`, then runs `stellar contract bindings typescript --wasm` into `src/generated/payment-stream` and `src/generated/distributor`.
+
 ## Address Support
 
 All SDK methods that accept address parameters now support both string addresses and `@stellar/stellar-sdk` `Address` objects. This provides better type safety and consistency with the underlying Stellar SDK.

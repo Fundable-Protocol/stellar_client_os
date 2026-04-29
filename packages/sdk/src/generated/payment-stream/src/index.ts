@@ -1,5 +1,5 @@
 import { Buffer } from "buffer";
-import { Address } from '@stellar/stellar-sdk';
+import { Address } from "@stellar/stellar-sdk";
 import {
   AssembledTransaction,
   Client as ContractClient,
@@ -7,7 +7,7 @@ import {
   MethodOptions,
   Result,
   Spec as ContractSpec,
-} from '@stellar/stellar-sdk/contract';
+} from "@stellar/stellar-sdk/contract";
 import type {
   u32,
   i32,
@@ -18,14 +18,14 @@ import type {
   u256,
   i256,
   Option,
-  Typepoint,
+  Timepoint,
   Duration,
-} from '@stellar/stellar-sdk/contract';
-export * from '@stellar/stellar-sdk'
-export * as contract from '@stellar/stellar-sdk/contract'
-export * as rpc from '@stellar/stellar-sdk/rpc'
+} from "@stellar/stellar-sdk/contract";
+export * from "@stellar/stellar-sdk";
+export * as contract from "@stellar/stellar-sdk/contract";
+export * as rpc from "@stellar/stellar-sdk/rpc";
 
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   //@ts-ignore Buffer exists
   window.Buffer = window.Buffer || Buffer;
 }
@@ -159,400 +159,115 @@ export interface Client {
    * Construct and simulate a deposit transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Deposit tokens to an existing stream
    */
-  deposit: ({stream_id, amount}: {stream_id: u64, amount: i128}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  deposit: ({stream_id, amount}: {stream_id: u64, amount: i128}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a withdraw transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Withdraw from a stream
    */
-  withdraw: ({stream_id, amount}: {stream_id: u64, amount: i128}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  withdraw: ({stream_id, amount}: {stream_id: u64, amount: i128}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a get_stream transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Get stream details
    */
-  get_stream: ({stream_id}: {stream_id: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<Stream>>
+  get_stream: ({stream_id}: {stream_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<Stream>>
 
   /**
    * Construct and simulate a initialize transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Initialize the contract
    */
-  initialize: ({admin, fee_collector, general_fee_rate}: {admin: string, fee_collector: string, general_fee_rate: u32}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  initialize: ({admin, fee_collector, general_fee_rate}: {admin: string, fee_collector: string, general_fee_rate: u32}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a get_delegate transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Get the delegate for a stream
    */
-  get_delegate: ({stream_id}: {stream_id: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<Option<string>>>
+  get_delegate: ({stream_id}: {stream_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>
 
   /**
    * Construct and simulate a pause_stream transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Pause a stream (sender only)
    */
-  pause_stream: ({stream_id}: {stream_id: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  pause_stream: ({stream_id}: {stream_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a set_delegate transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Set a delegate for withdrawal rights on a stream
    */
-  set_delegate: ({stream_id, delegate}: {stream_id: u64, delegate: string}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  set_delegate: ({stream_id, delegate}: {stream_id: u64, delegate: string}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a withdraw_max transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Withdraw the maximum available amount from a stream
    */
-  withdraw_max: ({stream_id}: {stream_id: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  withdraw_max: ({stream_id}: {stream_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a cancel_stream transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Cancel a stream
    */
-  cancel_stream: ({stream_id}: {stream_id: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  cancel_stream: ({stream_id}: {stream_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a create_stream transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Create a new payment stream
    */
-  create_stream: ({sender, recipient, token, total_amount, initial_amount, start_time, end_time}: {sender: string, recipient: string, token: string, total_amount: i128, initial_amount: i128, start_time: u64, end_time: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<u64>>
+  create_stream: ({sender, recipient, token, total_amount, initial_amount, start_time, end_time}: {sender: string, recipient: string, token: string, total_amount: i128, initial_amount: i128, start_time: u64, end_time: u64}, options?: MethodOptions) => Promise<AssembledTransaction<u64>>
 
   /**
    * Construct and simulate a resume_stream transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Resume a paused stream (sender only)
    */
-  resume_stream: ({stream_id}: {stream_id: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  resume_stream: ({stream_id}: {stream_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a revoke_delegate transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Revoke the delegate for a stream
    */
-  revoke_delegate: ({stream_id}: {stream_id: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  revoke_delegate: ({stream_id}: {stream_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a get_fee_collector transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Get the current fee collector
    */
-  get_fee_collector: (options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<string>>
+  get_fee_collector: (options?: MethodOptions) => Promise<AssembledTransaction<string>>
 
   /**
    * Construct and simulate a set_fee_collector transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Set the fee collector address
    */
-  set_fee_collector: ({new_fee_collector}: {new_fee_collector: string}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  set_fee_collector: ({new_fee_collector}: {new_fee_collector: string}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a get_stream_metrics transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Get stream-specific metrics
    */
-  get_stream_metrics: ({stream_id}: {stream_id: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<StreamMetrics>>
+  get_stream_metrics: ({stream_id}: {stream_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<StreamMetrics>>
 
   /**
    * Construct and simulate a withdrawable_amount transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Calculate withdrawable amount for a stream
    */
-  withdrawable_amount: ({stream_id}: {stream_id: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<i128>>
+  withdrawable_amount: ({stream_id}: {stream_id: u64}, options?: MethodOptions) => Promise<AssembledTransaction<i128>>
 
   /**
    * Construct and simulate a get_protocol_metrics transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Get protocol-wide metrics
    */
-  get_protocol_metrics: (options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<ProtocolMetrics>>
+  get_protocol_metrics: (options?: MethodOptions) => Promise<AssembledTransaction<ProtocolMetrics>>
 
   /**
    * Construct and simulate a get_protocol_fee_rate transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Get the current protocol fee rate
    */
-  get_protocol_fee_rate: (options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<u32>>
+  get_protocol_fee_rate: (options?: MethodOptions) => Promise<AssembledTransaction<u32>>
 
   /**
    * Construct and simulate a set_protocol_fee_rate transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Set the protocol fee rate
    */
-  set_protocol_fee_rate: ({new_fee_rate}: {new_fee_rate: u32}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  set_protocol_fee_rate: ({new_fee_rate}: {new_fee_rate: u32}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
 }
 export class Client extends ContractClient {
