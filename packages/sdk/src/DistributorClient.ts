@@ -100,12 +100,14 @@ export class DistributorClient {
 
   /**
    * Get stats for a specific user.
-   * @param user The address of the user.
+   * @param user The address of the user, or an object containing the user address.
    * @throws {FundableStellarError} If fetch fails with a human-readable error message
    */
   public async getUserStats(
     user: AddressParam
   ): Promise<AssembledTransaction<UserStats | undefined>> {
+    const actualUser = typeof user === "object" ? user.user : user;
+
     return executeWithErrorHandling(
       () =>
         this.client.get_user_stats({ user: addressToString(user) }) as Promise<
@@ -117,12 +119,14 @@ export class DistributorClient {
 
   /**
    * Get stats for a specific token.
-   * @param token The address of the token (contract ID).
+   * @param token The address of the token (contract ID), or an object containing the token address.
    * @throws {FundableStellarError} If fetch fails with a human-readable error message
    */
   public async getTokenStats(
     token: AddressParam
   ): Promise<AssembledTransaction<TokenStats | undefined>> {
+    const actualToken = typeof token === "object" ? token.token : token;
+
     return executeWithErrorHandling(
       () =>
         this.client.get_token_stats({ token: addressToString(token) }) as Promise<
@@ -158,17 +162,35 @@ export class DistributorClient {
 
   /**
    * Get distribution history with pagination.
-   * @param startId The ID to start from.
+   * @param startId The ID to start from, or an object containing startId and limit.
    * @param limit The maximum number of records to return.
    * @throws {FundableStellarError} If fetch fails with a human-readable error message
    */
   public async getDistributionHistory(
     startId: bigint,
-    limit: bigint
+    limit: bigint,
+  ): Promise<AssembledTransaction<DistributionHistory[]>>;
+  public async getDistributionHistory(
+    params: { startId: bigint; limit: bigint },
+  ): Promise<AssembledTransaction<DistributionHistory[]>>;
+  public async getDistributionHistory(
+    startId: bigint | { startId: bigint; limit: bigint },
+    limit?: bigint,
   ): Promise<AssembledTransaction<DistributionHistory[]>> {
+    let actualStartId: bigint;
+    let actualLimit: bigint;
+
+    if (typeof startId === "object") {
+      actualStartId = startId.startId;
+      actualLimit = startId.limit;
+    } else {
+      actualStartId = startId;
+      actualLimit = limit!;
+    }
+
     return executeWithErrorHandling(
-      () => this.client.get_distribution_history({ start_id: startId, limit }),
-      "Get distribution history"
+      () => this.client.get_distribution_history({ start_id: actualStartId, limit: actualLimit }),
+      "Get distribution history",
     );
   }
 
@@ -194,19 +216,36 @@ export class DistributorClient {
 
   /**
    * Set the protocol fee. Only the administrator can call this.
+   * @param admin The administrator address, or an object containing admin and newFeePercent.
+   * @param newFeePercent The new fee percentage.
    * @throws {FundableStellarError} If operation fails with a human-readable error message
    */
   public async setProtocolFee(
-    admin: AddressParam,
-    newFeePercent: number
+    admin: string,
+    newFeePercent: number,
+  ): Promise<AssembledTransaction<null>>;
+  public async setProtocolFee(
+    params: { admin: string; newFeePercent: number },
+  ): Promise<AssembledTransaction<null>>;
+  public async setProtocolFee(
+    admin: string | { admin: string; newFeePercent: number },
+    newFeePercent?: number,
   ): Promise<AssembledTransaction<null>> {
+    let actualAdmin: string;
+    let actualNewFeePercent: number;
+
+    if (typeof admin === "object") {
+      actualAdmin = admin.admin;
+      actualNewFeePercent = admin.newFeePercent;
+    } else {
+      actualAdmin = admin;
+      actualNewFeePercent = newFeePercent!;
+    }
+
     return executeWithErrorHandling(
       () =>
-        this.client.set_protocol_fee({
-          admin: addressToString(admin),
-          new_fee_percent: newFeePercent,
-        }),
-      "Set protocol fee"
+        this.client.set_protocol_fee({ admin: actualAdmin, new_fee_percent: actualNewFeePercent }),
+      "Set protocol fee",
     );
   }
 }
