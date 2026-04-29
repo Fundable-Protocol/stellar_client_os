@@ -6,12 +6,12 @@
  * that arises from advancing startLedger = latestLedger + 1.
  */
 
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import * as StellarSdk from "@stellar/stellar-sdk";
 import {
   parsePaymentStreamContractEvent,
   PaymentStreamContractEvent,
   ContractEventRaw,
-} from "./events";
+} from "./events.js";
 
 export interface StreamHistoryOptions {
   rpcUrl: string;
@@ -41,15 +41,15 @@ export async function getStreamHistory(
 ): Promise<StreamHistoryResult> {
   const { rpcUrl, contractId, streamId, startLedger, limit = 100 } = options;
 
-  const server = new SorobanRpc.Server(rpcUrl);
+  const server = new StellarSdk.rpc.Server(rpcUrl);
 
-  const filter: SorobanRpc.EventFilter = {
+  const filter: StellarSdk.rpc.EventFilter = {
     type: "contract",
     contractIds: [contractId],
   };
 
   // cursor takes precedence over startLedger for continuation pages
-  const requestParams: SorobanRpc.GetEventsRequest = cursor
+  const requestParams: StellarSdk.rpc.GetEventsRequest = cursor
     ? { filters: [filter], cursor, limit }
     : { filters: [filter], startLedger, limit };
 
@@ -134,6 +134,8 @@ function isStreamEvent(
   event: PaymentStreamContractEvent,
   streamId: bigint
 ): boolean {
-  const payload = event.payload as Record<string, unknown>;
-  return "stream_id" in payload && payload.stream_id === streamId;
+  // Use a type-safe check for the stream_id property which is common to all
+  // payment stream event payloads.
+  const payload = event.payload as { stream_id: bigint };
+  return payload.stream_id === streamId;
 }

@@ -1,4 +1,4 @@
-import { Client as ContractClient } from "./generated/payment-stream/src/index";
+import { Client as ContractClient } from "./generated/payment-stream/src/index.js";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
@@ -9,14 +9,14 @@ import {
   StreamMetrics,
   ProtocolMetrics,
   StreamStatus,
-} from "./generated/payment-stream/src/index";
-import { executeWithErrorHandling } from "./utils/errors";
+} from "./generated/payment-stream/src/index.js";
+import { executeWithErrorHandling } from "./utils/errors.js";
 import {
   getStreamHistory,
   getAllStreamHistory,
   StreamHistoryResult,
-} from "./utils/streamHistory";
-import { PaymentStreamContractEvent } from "./utils/events";
+} from "./utils/streamHistory.js";
+import { PaymentStreamContractEvent } from "./utils/events.js";
 
 /**
  * Type alias for address parameters that accept both string and Address objects
@@ -241,9 +241,11 @@ export class PaymentStreamClient {
   public async getDelegate(
     streamId: bigint
   ): Promise<AssembledTransaction<string | undefined>> {
-    // Option<string> is usually returned as string | undefined or similar in the generated client
     return executeWithErrorHandling(
-      () => this.client.get_delegate({ stream_id: streamId }) as any,
+      () =>
+        this.client.get_delegate({ stream_id: streamId }) as Promise<
+          AssembledTransaction<string | undefined>
+        >,
       "Get stream delegate"
     );
   }

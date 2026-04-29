@@ -1,4 +1,4 @@
-import { Client as ContractClient } from "./generated/distributor/src/index";
+import { Client as ContractClient } from "./generated/distributor/src/index.js";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
@@ -8,8 +8,8 @@ import {
   UserStats,
   TokenStats,
   DistributionHistory,
-} from "./generated/distributor/src/index";
-import { executeWithErrorHandling } from "./utils/errors";
+} from "./generated/distributor/src/index.js";
+import { executeWithErrorHandling } from "./utils/errors.js";
 
 /**
  * Type alias for address parameters that accept both string and Address objects
@@ -93,7 +93,7 @@ export class DistributorClient {
    */
   public async getAdmin(): Promise<AssembledTransaction<string | undefined>> {
     return executeWithErrorHandling(
-      () => this.client.get_admin() as any,
+      () => this.client.get_admin() as Promise<AssembledTransaction<string | undefined>>,
       "Get administrator"
     );
   }
@@ -107,7 +107,10 @@ export class DistributorClient {
     user: AddressParam
   ): Promise<AssembledTransaction<UserStats | undefined>> {
     return executeWithErrorHandling(
-      () => this.client.get_user_stats({ user: addressToString(user) }) as any,
+      () =>
+        this.client.get_user_stats({ user: addressToString(user) }) as Promise<
+          AssembledTransaction<UserStats | undefined>
+        >,
       "Get user statistics"
     );
   }
@@ -122,7 +125,9 @@ export class DistributorClient {
   ): Promise<AssembledTransaction<TokenStats | undefined>> {
     return executeWithErrorHandling(
       () =>
-        this.client.get_token_stats({ token: addressToString(token) }) as any,
+        this.client.get_token_stats({ token: addressToString(token) }) as Promise<
+          AssembledTransaction<TokenStats | undefined>
+        >,
       "Get token statistics"
     );
   }
