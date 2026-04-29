@@ -6,8 +6,8 @@ import {
   xdr,
   hash,
   Address,
-  Transaction,
   StrKey,
+  Transaction,
 } from '@stellar/stellar-sdk';
 import { Server, Api } from '@stellar/stellar-sdk/rpc';
 import type { 
@@ -224,22 +224,18 @@ export class ContractDeployer {
     salt?: Buffer,
   ): Promise<ContractDeployResult> {
     const deployerAddress = this.getDeployerAddress(deployer);
+    // Resolve the salt once so the same value is used in both the transaction
+    // and the contract-ID derivation.
+    const resolvedSalt = salt ?? this.randomSalt();
     const account = await this.loadAccount(deployerAddress);
-    
-    // Explicitly manage the salt so we can derive the ID correctly
-    const saltBytes = salt ?? this.randomSalt();
-    
-    const estimate = await this.estimateDeployFee(wasmHash, deployer, saltBytes);
-    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, saltBytes, estimate.fee);
-    
+    const estimate = await this.estimateDeployFee(wasmHash, deployer, resolvedSalt);
+    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, resolvedSalt, estimate.fee);
+
     await this.signTransaction(tx, deployer);
 
     try {
       const result = await this.submitAndWait(tx.toEnvelope().toXDR('base64'));
-      
-      // Derive the contract ID using the same salt and network passphrase
-      const contractId = await this.deriveContractId(deployerAddress, saltBytes);
-      
+      const contractId = await this.deriveContractId(deployerAddress, resolvedSalt);
       return {
         contractId,
         txHash: result.txHash,
@@ -494,6 +490,13 @@ export class ContractDeployer {
     }
   }
 
+  /**
+   * Computes the canonical Soroban WASM identifier: SHA-256 of the raw WASM bytes,
+   * returned as a lowercase 64-character hex string.
+   *
+   * This matches the ledger key Soroban uses for `ContractCode` entries and the value
+   * expected by `Operation.createCustomContract({ wasmHash: Buffer.from(hex, 'hex') })`.
+   */
   private deriveWasmHash(wasm: Buffer | Uint8Array): string {
     return hash(Buffer.from(wasm)).toString('hex');
   }
