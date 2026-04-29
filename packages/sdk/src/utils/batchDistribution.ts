@@ -177,15 +177,14 @@ export interface BatchDistributionResult {
  *   sender: 'GAAAA...',
  *   token: 'CXXXX...',
  *   total_amount: BigInt(1_000_000_000),
- *   recipients: largeRecipientList, // 1000+ addresses
+ *   recipients: largeRecipientList,
  *   config: {
  *     maxRecipientsPerBatch: 100,
  *     onBatchComplete: (batch, total) => 
- *       console.log(`Prepared ${batch}/${total}`)
+ *       console.log(`Prepared batch ${batch}/${total}`)
  *   }
  * });
  * 
- * // Submit each transaction
  * for (const tx of result.transactions) {
  *   const result = await tx.signAndSend();
  * }
@@ -249,8 +248,8 @@ export async function prepareBatchEqualDistribution(
  * 
  * @example
  * ```ts
- * const recipients = ['G...', 'G...', 'G...', /* ...1000+ addresses... */];
- * const amounts = [BigInt(100), BigInt(200), BigInt(150), /* ...corresponding amounts... */];
+ * const recipients = ['GAAA...', 'GBBB...', 'GCCC...'];
+ * const amounts = [BigInt(100), BigInt(200), BigInt(150)];
  * 
  * const result = await prepareBatchWeightedDistribution(client, {
  *   sender: 'GAAAA...',
@@ -258,15 +257,14 @@ export async function prepareBatchEqualDistribution(
  *   recipients,
  *   amounts,
  *   config: {
- *     maxRecipientsPerBatch: 50, // More conservative for weighted
+ *     maxRecipientsPerBatch: 50,
  *     onBatchStart: (batch, total, count) =>
- *       console.log(`Starting batch ${batch}/${total} with ${count} recipients`),
+ *       console.log(`Starting batch ${batch}/${total}`),
  *     onBatchComplete: (batch, total) =>
  *       console.log(`Batch ${batch}/${total} prepared`)
  *   }
  * });
  * 
- * // Submit each transaction
  * for (const tx of result.transactions) {
  *   const result = await tx.signAndSend();
  * }

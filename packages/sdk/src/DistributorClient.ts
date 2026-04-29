@@ -9,6 +9,13 @@ import {
   DistributionHistory,
 } from "./generated/distributor/src/index";
 import { executeWithErrorHandling } from "./utils/errors";
+import {
+  prepareBatchEqualDistribution,
+  prepareBatchWeightedDistribution,
+  type EqualDistributionParams,
+  type WeightedDistributionParams,
+  type BatchDistributionResult,
+} from "./utils/batchDistribution";
 
 /**
  * High-level client for interacting with the Distributor contract.
@@ -169,5 +176,91 @@ export class DistributorClient {
         this.client.set_protocol_fee({ admin, new_fee_percent: newFeePercent }),
       "Set protocol fee",
     );
+  }
+
+  /**
+   * Batch distribute tokens equally among a large list of recipients.
+   *
+   * Automatically splits large recipient lists into multiple transactions to avoid
+   * Soroban gas limit issues. Each batch is processed separately with the same
+   * total amount distributed per batch.
+   *
+   * Use this when you have 200+ recipients and want to avoid gas limit errors.
+   *
+   * @param params Distribution parameters including sender, token, total amount, recipients, and batch config
+   * @returns Promise containing batched transactions and split recipient lists
+   *
+   * @throws {Error} If recipients array is empty
+   * @throws {FundableStellarError} If any batch transaction fails
+   *
+   * @example
+   * ```ts
+   * const result = await client.batchDistributeEqual({
+   *   sender: 'GAAAA...',
+   *   token: 'CXXXX...',
+   *   total_amount: BigInt(1_000_000_000),
+   *   recipients: largeRecipientList, // 1000+ addresses
+   *   config: {
+   *     maxRecipientsPerBatch: 150,
+   *     onBatchComplete: (batch, total) =>
+   *       console.log(`Batch ${batch}/${total} prepared`)
+   *   }
+   * });
+   *
+   * // Submit each transaction sequentially
+   * for (const tx of result.transactions) {
+   *   await tx.signAndSend();
+   * }
+   * ```
+   */
+  public async batchDistributeEqual(
+    params: EqualDistributionParams,
+  ): Promise<BatchDistributionResult> {
+    return prepareBatchEqualDistribution(this, params);
+  }
+
+  /**
+   * Batch distribute tokens with varying amounts to a large list of recipients.
+   *
+   * Automatically splits large recipient/amount lists into multiple transactions to avoid
+   * Soroban gas limit issues. Each recipient-amount pair is maintained together across batches.
+   *
+   * Use this when you have 200+ recipients with specific amounts and want to avoid gas limit errors.
+   *
+   * @param params Distribution parameters including sender, token, recipients, amounts, and batch config
+   * @returns Promise containing batched transactions, split recipient lists, and split amount lists
+   *
+   * @throws {Error} If recipients array is empty
+   * @throws {Error} If recipients and amounts arrays have different lengths
+   * @throws {FundableStellarError} If any batch transaction fails
+   *
+   * @example
+   * ```ts
+   * const recipients = ['GAAAA...', 'GBBBB...', 'GCCCC...'];
+   * const amounts = [BigInt(100), BigInt(200), BigInt(150)];
+   *
+   * const result = await client.batchDistributeWeighted({
+   *   sender: 'GAAAA...',
+   *   token: 'CXXXX...',
+   *   recipients,
+   *   amounts,
+   *   config: {
+   *     maxRecipientsPerBatch: 75,
+   *     onBatchStart: (batch, total, count) =>
+   *       console.log(`Batch ${batch}/${total} with ${count} recipients`),
+   *     onBatchComplete: (batch, total) =>
+   *       console.log(`Batch ${batch}/${total} prepared`)
+   *   }
+   * });
+   *
+   * for (const tx of result.transactions) {
+   *   await tx.signAndSend();
+   * }
+   * ```
+   */
+  public async batchDistributeWeighted(
+    params: WeightedDistributionParams,
+  ): Promise<BatchDistributionResult> {
+    return prepareBatchWeightedDistribution(this, params);
   }
 }
