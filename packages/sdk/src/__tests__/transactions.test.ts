@@ -5,7 +5,7 @@ import {
   signAndWait,
   type TransactionWaitResult,
   type WaitForTransactionOptions,
-} from "../transactions";
+} from "../utils/transactions";
 
 /**
  * Mock AssembledTransaction for testing
