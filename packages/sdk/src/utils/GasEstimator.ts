@@ -84,18 +84,42 @@ export class GasEstimator {
   private readonly congestionBuffer: number;
   private readonly highCongestionBuffer: number;
 
+function assertStroopString(value: string, name: string): string {
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`${name} must be a non-negative integer string in stroops`);
+  }
+  return value;
+}
+
+function assertFinitePositiveNumber(value: number, name: string): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${name} must be a finite number greater than 0`);
+  }
+  return value;
+}
+
   constructor(options: GasEstimatorOptions) {
     if (!options.rpc && !options.rpcUrl) {
       throw new Error("GasEstimator requires either rpc or rpcUrl");
     }
 
     this.rpc = options.rpc ?? new Server(options.rpcUrl!, { allowHttp: true });
-    this.baseFee = options.baseFee ?? DEFAULT_BASE_FEE;
-    this.resourceBuffer = options.resourceBuffer ?? DEFAULT_RESOURCE_BUFFER;
-    this.congestionBuffer =
-      options.congestionBuffer ?? DEFAULT_CONGESTION_BUFFER;
-    this.highCongestionBuffer =
-      options.highCongestionBuffer ?? DEFAULT_HIGH_CONGESTION_BUFFER;
+    this.baseFee = assertStroopString(
+      options.baseFee ?? DEFAULT_BASE_FEE,
+      "baseFee"
+    );
+    this.resourceBuffer = assertFinitePositiveNumber(
+      options.resourceBuffer ?? DEFAULT_RESOURCE_BUFFER,
+      "resourceBuffer"
+    );
+    this.congestionBuffer = assertFinitePositiveNumber(
+      options.congestionBuffer ?? DEFAULT_CONGESTION_BUFFER,
+      "congestionBuffer"
+    );
+    this.highCongestionBuffer = assertFinitePositiveNumber(
+      options.highCongestionBuffer ?? DEFAULT_HIGH_CONGESTION_BUFFER,
+      "highCongestionBuffer"
+    );
   }
 
   async estimate(tx: SimulatableTransaction): Promise<GasEstimate> {
