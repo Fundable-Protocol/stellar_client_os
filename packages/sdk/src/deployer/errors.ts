@@ -66,6 +66,25 @@ export class FeeEstimationError extends DeployerError {
   }
 }
 
+/**
+ * Thrown when a deployment transaction is not confirmed within
+ * the configured timeout period.
+ *
+ * @remarks
+ * The deployer continuously polls the network for confirmation.
+ * If the timeout is exceeded, this error is raised.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await deployer.deployContract(...);
+ * } catch (err) {
+ *   if (err instanceof DeploymentTimeoutError) {
+ *     console.error('Deployment took too long');
+ *   }
+ * }
+ * ```
+ */
 /** Thrown when a transaction confirmation times out. */
 export class DeploymentTimeoutError extends DeployerError {
   public readonly txHash: string;

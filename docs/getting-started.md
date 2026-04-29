@@ -8,9 +8,10 @@ Before you begin, ensure you have the following installed:
 
 -   **Node.js**: Version 18 or higher.
     -   `node -v`
--   **pnpm**: Version 8 or higher. This project uses `pnpm` for package management.
+-   **pnpm**: Version 8 or higher. This project uses `pnpm` exclusively for package management.
     -   `pnpm -v`
     -   If not installed, install with: `npm install -g pnpm`
+    -   **Do not use `npm install` or `yarn`** — doing so will create a `package-lock.json` or `yarn.lock` that conflicts with the monorepo setup and will fail CI.
 -   **Rust**: For compiling the Soroban smart contracts.
     -   Install `rustup` by following instructions on [rustup.rs](https://rustup.rs/).
     -   `rustc --version`

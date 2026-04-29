@@ -527,6 +527,55 @@ describe('ContractDeployer — edge cases', () => {
     });
   });
 
+  // ── Contract ID determinism ────────────────────────────────────────────────
+  describe('contract ID determinism', () => {
+    it('same deployer + same salt + same passphrase => same contractId', async () => {
+      const salt = Buffer.alloc(32, 0x11);
+      const r1 = await deployer.deployContract(WASM_HASH, mockKeypair, salt);
+      const r2 = await deployer.deployContract(WASM_HASH, mockKeypair, salt);
+      expect(r1.contractId).toBe(r2.contractId);
+    });
+
+    it('different salt => ContractIdPreimageFromAddress called with different salt bytes', async () => {
+      const { xdr } = await import('@stellar/stellar-sdk');
+      const salt1 = Buffer.alloc(32, 0xaa);
+      const salt2 = Buffer.alloc(32, 0xbb);
+      await deployer.deployContract(WASM_HASH, mockKeypair, salt1);
+      const ctor = xdr.ContractIdPreimageFromAddress as unknown as ReturnType<typeof vi.fn>;
+      const calls = ctor.mock.calls;
+      const lastSalt1 = calls[calls.length - 1]?.[0]?.salt as Buffer | undefined;
+      await deployer.deployContract(WASM_HASH, mockKeypair, salt2);
+      const calls2 = ctor.mock.calls;
+      const lastSalt2 = calls2[calls2.length - 1]?.[0]?.salt as Buffer | undefined;
+      expect(Buffer.compare(lastSalt1 ?? Buffer.alloc(0), lastSalt2 ?? Buffer.alloc(1))).not.toBe(0);
+    });
+
+    it('different passphrase => hash() called with different passphrase bytes', async () => {
+      const { hash: mockHash } = await import('@stellar/stellar-sdk');
+      const salt = Buffer.alloc(32, 0x55);
+      const passphraseBuffers: string[] = [];
+      (mockHash as ReturnType<typeof vi.fn>).mockImplementation((buf: Buffer) => {
+        if (buf.length > 32) passphraseBuffers.push(buf.toString());
+        return Buffer.alloc(32, 0xab);
+      });
+
+      const d1 = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+        networkPassphrase: 'Test SDF Network ; September 2015',
+      });
+      const d2 = new ContractDeployer({
+        rpcUrl: 'https://soroban-testnet.stellar.org',
+        networkPassphrase: 'Public Global Stellar Network ; September 2015',
+      });
+
+      await d1.deployContract(WASM_HASH, mockKeypair, salt);
+      await d2.deployContract(WASM_HASH, mockKeypair, salt);
+
+      expect(passphraseBuffers.length).toBeGreaterThanOrEqual(2);
+      expect(passphraseBuffers[0]).not.toBe(passphraseBuffers[1]);
+    });
+  });
+
   // ── Network passphrase edge cases ──────────────────────────────────────────
   describe('network passphrase edge cases', () => {
     it('retries passphrase fetch after transient failure', async () => {

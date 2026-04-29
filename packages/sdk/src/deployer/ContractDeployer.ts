@@ -6,6 +6,7 @@ import {
   xdr,
   hash,
   Address,
+  StrKey,
   Transaction,
 } from '@stellar/stellar-sdk';
 import { Server, Api } from '@stellar/stellar-sdk/rpc';
@@ -159,21 +160,31 @@ export class ContractDeployer {
   ): Promise<FeeEstimate> {
     const deployerAddress = this.getDeployerAddress(deployer);
     const account = await this.loadAccount(deployerAddress);
-    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, salt);
+    // Use the provided salt or a zero-filled one for estimation consistency
+    const saltBytes = salt ?? Buffer.alloc(32, 0);
+    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, saltBytes);
     return this.simulate(tx);
   }
 
   // ─── Upload (install) ──────────────────────────────────────────────────────
 
   /**
-   * Upload (install) a compiled WASM blob to the Stellar network.
-   * This makes the WASM available for instantiation but does not create a
-   * contract address yet.
-   *
-   * @param wasm     - Compiled contract WASM as a Buffer or Uint8Array.
-   * @param deployer - Keypair or multi-sig config that signs and pays for the transaction.
-   * @returns `WasmUploadResult` containing the `wasmHash` needed for deployment.
-   */
+ * Uploads a WASM binary to the Stellar network.
+ *
+ * @param wasm - The compiled WASM contract binary.
+ * @param signer - The signer responsible for authorizing the transaction.
+ *
+ * @returns A promise resolving to the upload result, including wasm hash and transaction details.
+ *
+ * @throws {DeploymentTimeoutError} If the transaction is not confirmed in time.
+ *
+ * @example
+ * ```ts
+ * const result = await deployer.uploadWasm(wasmBuffer, keypair);
+ * console.log(result.wasmHash);
+ * ```
+ */
+
   async uploadWasm(wasm: Buffer | Uint8Array, deployer: Deployer): Promise<WasmUploadResult> {
     this.assertValidWasm(wasm);
 
@@ -207,29 +218,37 @@ export class ContractDeployer {
 
   // ─── Deploy (instantiate) ──────────────────────────────────────────────────
 
-  /**
-   * Instantiate a previously uploaded WASM as a new contract.
-   *
-   * @param wasmHash - Hex hash returned by `uploadWasm`.
-   * @param deployer - Keypair or multi-sig config that signs and pays for the transaction.
-   * @param salt     - Optional 32-byte salt for deterministic contract IDs.
-   * @returns `ContractDeployResult` containing the new `contractId`.
-   */
+/**
+ * Deploys a smart contract instance on the Stellar network.
+ *
+ * @param wasmHash - The hash of the uploaded WASM binary.
+ * @param initParams - Initialization parameters for the contract.
+ * @param signer - The signer authorizing deployment.
+ *
+ * @returns Deployment result including contract ID and fees.
+ *
+ * @remarks
+ * This step instantiates a contract from previously uploaded WASM code.
+ */
+
   async deployContract(
     wasmHash: string,
     deployer: Deployer,
     salt?: Buffer,
   ): Promise<ContractDeployResult> {
     const deployerAddress = this.getDeployerAddress(deployer);
+    // Resolve the salt once so the same value is used in both the transaction
+    // and the contract-ID derivation.
+    const resolvedSalt = salt ?? this.randomSalt();
     const account = await this.loadAccount(deployerAddress);
-    const estimate = await this.estimateDeployFee(wasmHash, deployer, salt);
-    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, salt, estimate.fee);
-    
+    const estimate = await this.estimateDeployFee(wasmHash, deployer, resolvedSalt);
+    const tx = await this.buildDeployTx(wasmHash, deployerAddress, account, resolvedSalt, estimate.fee);
+
     await this.signTransaction(tx, deployer);
 
     try {
       const result = await this.submitAndWait(tx.toEnvelope().toXDR('base64'));
-      const contractId = this.deriveContractId(deployerAddress, salt ?? result.txHash);
+      const contractId = await this.deriveContractId(deployerAddress, resolvedSalt);
       return {
         contractId,
         txHash: result.txHash,
@@ -295,11 +314,10 @@ export class ContractDeployer {
     wasmHash: string,
     deployerAddress: string,
     account: { id: string; sequenceNumber: () => string },
-    salt?: Buffer,
+    salt: Buffer,
     fee = this.baseFee,
   ) {
     const passphrase = await this.resolveNetworkPassphrase();
-    const saltBytes = salt ?? this.randomSalt();
     const sourceAccount = {
       accountId: () => account.id,
       sequenceNumber: () => account.sequenceNumber(),
@@ -314,7 +332,7 @@ export class ContractDeployer {
         Operation.createCustomContract({
           address: new Address(deployerAddress),
           wasmHash: Buffer.from(wasmHash, 'hex'),
-          salt: saltBytes,
+          salt,
         })
       )
       .setTimeout(this.timeoutSeconds)
@@ -485,31 +503,41 @@ export class ContractDeployer {
     }
   }
 
+  /**
+   * Computes the canonical Soroban WASM identifier: SHA-256 of the raw WASM bytes,
+   * returned as a lowercase 64-character hex string.
+   *
+   * This matches the ledger key Soroban uses for `ContractCode` entries and the value
+   * expected by `Operation.createCustomContract({ wasmHash: Buffer.from(hex, 'hex') })`.
+   */
   private deriveWasmHash(wasm: Buffer | Uint8Array): string {
     return hash(Buffer.from(wasm)).toString('hex');
   }
 
   /**
-   * Derives the contract ID deterministically from the deployer address, salt,
-   * and network passphrase — **before** any transaction is submitted.
+   * Derives the contract ID deterministically from the deployer address and salt
+   * before any transaction is submitted. This implements the standard Stellar
+   * contract ID derivation logic for `CREATE_CONTRACT_WITH_ADDRESS`.
    *
-   * Implements the standard Stellar contract ID derivation:
-   *   SHA-256( HashIdPreimage{ networkId: SHA-256(passphrase), preimage: ContractIdPreimageFromAddress } )
-   * encoded as a Stellar contract strkey (C…).
-   *
-   * @param deployerAddress   - G… Stellar account address of the deployer.
-   * @param salt              - 32-byte salt used in the create-contract transaction.
-   * @param networkPassphrase - Network passphrase (e.g. "Test SDF Network ; September 2015").
-   * @returns The contract address (C…) that will be assigned on deployment.
+   * @param deployerAddress - The G... address of the account deploying the contract.
+   * @param salt - A 32-byte Buffer used as the salt for deployment.
+   * @returns The predicted contract ID (C...).
+   * @throws {Error} If the salt is not exactly 32 bytes.
    */
-  private deriveContractId(
+  public async deriveContractId(
     deployerAddress: string,
     salt: Buffer,
-    networkPassphrase: string,
-  ): string {
+  ): Promise<string> {
+    if (salt.length !== 32) {
+      throw new Error('Salt must be exactly 32 bytes');
+    }
+
+    const networkPassphrase = await this.resolveNetworkPassphrase();
+    const networkId = hash(Buffer.from(networkPassphrase));
+
     const preimage = xdr.HashIdPreimage.envelopeTypeContractId(
       new xdr.HashIdPreimageContractId({
-        networkId: hash(Buffer.from(networkPassphrase)),
+        networkId,
         contractIdPreimage: xdr.ContractIdPreimage.contractIdPreimageFromAddress(
           new xdr.ContractIdPreimageFromAddress({
             address: new Address(deployerAddress).toScAddress(),
@@ -518,7 +546,9 @@ export class ContractDeployer {
         ),
       })
     );
-    return StrKey.encodeContract(hash(preimage.toXDR()));
+
+    const contractIdBuffer = hash(preimage.toXDR());
+    return StrKey.encodeContract(contractIdBuffer);
   }
 
   private randomSalt(): Buffer {
