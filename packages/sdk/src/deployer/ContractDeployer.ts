@@ -169,14 +169,22 @@ export class ContractDeployer {
   // ─── Upload (install) ──────────────────────────────────────────────────────
 
   /**
-   * Upload (install) a compiled WASM blob to the Stellar network.
-   * This makes the WASM available for instantiation but does not create a
-   * contract address yet.
-   *
-   * @param wasm     - Compiled contract WASM as a Buffer or Uint8Array.
-   * @param deployer - Keypair or multi-sig config that signs and pays for the transaction.
-   * @returns `WasmUploadResult` containing the `wasmHash` needed for deployment.
-   */
+ * Uploads a WASM binary to the Stellar network.
+ *
+ * @param wasm - The compiled WASM contract binary.
+ * @param signer - The signer responsible for authorizing the transaction.
+ *
+ * @returns A promise resolving to the upload result, including wasm hash and transaction details.
+ *
+ * @throws {DeploymentTimeoutError} If the transaction is not confirmed in time.
+ *
+ * @example
+ * ```ts
+ * const result = await deployer.uploadWasm(wasmBuffer, keypair);
+ * console.log(result.wasmHash);
+ * ```
+ */
+
   async uploadWasm(wasm: Buffer | Uint8Array, deployer: Deployer): Promise<WasmUploadResult> {
     this.assertValidWasm(wasm);
 
@@ -210,14 +218,19 @@ export class ContractDeployer {
 
   // ─── Deploy (instantiate) ──────────────────────────────────────────────────
 
-  /**
-   * Instantiate a previously uploaded WASM as a new contract.
-   *
-   * @param wasmHash - Hex hash returned by `uploadWasm`.
-   * @param deployer - Keypair or multi-sig config that signs and pays for the transaction.
-   * @param salt     - Optional 32-byte salt for deterministic contract IDs.
-   * @returns `ContractDeployResult` containing the new `contractId`.
-   */
+/**
+ * Deploys a smart contract instance on the Stellar network.
+ *
+ * @param wasmHash - The hash of the uploaded WASM binary.
+ * @param initParams - Initialization parameters for the contract.
+ * @param signer - The signer authorizing deployment.
+ *
+ * @returns Deployment result including contract ID and fees.
+ *
+ * @remarks
+ * This step instantiates a contract from previously uploaded WASM code.
+ */
+
   async deployContract(
     wasmHash: string,
     deployer: Deployer,

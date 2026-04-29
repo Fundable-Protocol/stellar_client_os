@@ -55,14 +55,15 @@ export interface DeployerAccount {
  * compatibility and simple cases) or a full `DeployerAccount` configuration.
  */
 export type Deployer = Keypair | DeployerAccount;
-
 /**
- * Supported Stellar networks.
- * 
- * @typedef {('testnet' | 'mainnet' | 'custom')} StellarNetwork
- * - `testnet`: Stellar Test Network Global Base Server
- * - `mainnet`: Stellar Public Network
- * - `custom`: Custom Stellar network (requires custom networkPassphrase)
+ * Represents a Stellar network environment.
+ *
+ * @remarks
+ * Used to determine the appropriate RPC endpoints and network passphrase.
+ *
+ * - `testnet`: Public Stellar test network
+ * - `mainnet`: Public Stellar production network
+ * - `custom`: Developer-defined network (requires manual configuration)
  */
 export type StellarNetwork = 'testnet' | 'mainnet' | 'custom';
 
