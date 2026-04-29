@@ -506,4 +506,38 @@ export class PaymentStreamClient {
       actualMaxPages
     );
   }
+
+  /**
+   * Wait for a previously sent transaction to be confirmed on-chain.
+   * @param tx The AssembledTransaction to wait for (must already be signed and sent).
+   * @param options Optional polling configuration.
+   * @throws {Error} If rpcUrl was not provided in the constructor options.
+   */
+  public async waitForTransaction<T = unknown>(
+    tx: AssembledTransaction<T>,
+    options?: WaitForTransactionOptions,
+  ): Promise<TransactionWaitResult<T>> {
+    if (!this.rpcUrl) {
+      throw new Error("rpcUrl must be provided in constructor options to use waitForTransaction");
+    }
+    return waitForTransaction(tx, this.rpcUrl, options);
+  }
+
+  /**
+   * Sign, send, and wait for a transaction to be confirmed on-chain in one call.
+   * @param tx The AssembledTransaction to sign and send.
+   * @param signTransaction Callback to sign the transaction XDR.
+   * @param options Optional polling configuration.
+   * @throws {Error} If rpcUrl was not provided in the constructor options.
+   */
+  public async signAndWait<T = unknown>(
+    tx: AssembledTransaction<T>,
+    signTransaction: (xdr: string) => Promise<string>,
+    options?: WaitForTransactionOptions,
+  ): Promise<TransactionWaitResult<T>> {
+    if (!this.rpcUrl) {
+      throw new Error("rpcUrl must be provided in constructor options to use signAndWait");
+    }
+    return signAndWait(tx, this.rpcUrl, signTransaction, options);
+  }
 }
