@@ -10,6 +10,7 @@ export default defineConfig({
     // Use `pnpm test:integration` (or `pnpm test:sdk:integration` from root) instead.
     exclude: [
       'src/__integration_tests__/**',
+      'src/**/__tests__/integration/**',
       '**/node_modules/**',
     ],
 
