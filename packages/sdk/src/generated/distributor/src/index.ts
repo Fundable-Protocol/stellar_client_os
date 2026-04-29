@@ -1,5 +1,5 @@
 import { Buffer } from "buffer";
-import { Address } from '@stellar/stellar-sdk';
+import { Address } from "@stellar/stellar-sdk";
 import {
   AssembledTransaction,
   Client as ContractClient,
@@ -7,7 +7,7 @@ import {
   MethodOptions,
   Result,
   Spec as ContractSpec,
-} from '@stellar/stellar-sdk/contract';
+} from "@stellar/stellar-sdk/contract";
 import type {
   u32,
   i32,
@@ -18,14 +18,14 @@ import type {
   u256,
   i256,
   Option,
-  Typepoint,
+  Timepoint,
   Duration,
-} from '@stellar/stellar-sdk/contract';
-export * from '@stellar/stellar-sdk'
-export * as contract from '@stellar/stellar-sdk/contract'
-export * as rpc from '@stellar/stellar-sdk/rpc'
+} from "@stellar/stellar-sdk/contract";
+export * from "@stellar/stellar-sdk";
+export * as contract from "@stellar/stellar-sdk/contract";
+export * as rpc from "@stellar/stellar-sdk/rpc";
 
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   //@ts-ignore Buffer exists
   window.Buffer = window.Buffer || Buffer;
 }
@@ -59,202 +59,52 @@ export interface Client {
   /**
    * Construct and simulate a get_admin transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  get_admin: (options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<Option<string>>>
+  get_admin: (options?: MethodOptions) => Promise<AssembledTransaction<Option<string>>>
 
   /**
    * Construct and simulate a initialize transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  initialize: ({admin, protocol_fee_percent, fee_address}: {admin: string, protocol_fee_percent: u32, fee_address: string}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  initialize: ({admin, protocol_fee_percent, fee_address}: {admin: string, protocol_fee_percent: u32, fee_address: string}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a get_user_stats transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  get_user_stats: ({user}: {user: string}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<Option<UserStats>>>
+  get_user_stats: ({user}: {user: string}, options?: MethodOptions) => Promise<AssembledTransaction<Option<UserStats>>>
 
   /**
    * Construct and simulate a get_token_stats transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  get_token_stats: ({token}: {token: string}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<Option<TokenStats>>>
+  get_token_stats: ({token}: {token: string}, options?: MethodOptions) => Promise<AssembledTransaction<Option<TokenStats>>>
 
   /**
    * Construct and simulate a distribute_equal transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  distribute_equal: ({sender, token, total_amount, recipients}: {sender: string, token: string, total_amount: i128, recipients: Array<string>}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  distribute_equal: ({sender, token, total_amount, recipients}: {sender: string, token: string, total_amount: i128, recipients: Array<string>}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a set_protocol_fee transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  set_protocol_fee: ({admin, new_fee_percent}: {admin: string, new_fee_percent: u32}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  set_protocol_fee: ({admin, new_fee_percent}: {admin: string, new_fee_percent: u32}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a distribute_weighted transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  distribute_weighted: ({sender, token, recipients, amounts}: {sender: string, token: string, recipients: Array<string>, amounts: Array<i128>}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<null>>
+  distribute_weighted: ({sender, token, recipients, amounts}: {sender: string, token: string, recipients: Array<string>, amounts: Array<i128>}, options?: MethodOptions) => Promise<AssembledTransaction<null>>
 
   /**
    * Construct and simulate a get_total_distributions transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  get_total_distributions: (options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<u64>>
+  get_total_distributions: (options?: MethodOptions) => Promise<AssembledTransaction<u64>>
 
   /**
    * Construct and simulate a get_distribution_history transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  get_distribution_history: ({start_id, limit}: {start_id: u64, limit: u64}, options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<Array<DistributionHistory>>>
+  get_distribution_history: ({start_id, limit}: {start_id: u64, limit: u64}, options?: MethodOptions) => Promise<AssembledTransaction<Array<DistributionHistory>>>
 
   /**
    * Construct and simulate a get_total_distributed_amount transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    */
-  get_total_distributed_amount: (options?: {
-    /**
-     * The fee to pay for the transaction. Default: BASE_FEE
-     */
-    fee?: number;
-
-    /**
-     * The maximum amount of time to wait for the transaction to complete. Default: DEFAULT_TIMEOUT
-     */
-    timeoutInSeconds?: number;
-
-    /**
-     * Whether to automatically simulate the transaction when constructing the AssembledTransaction. Default: true
-     */
-    simulate?: boolean;
-  }) => Promise<AssembledTransaction<i128>>
+  get_total_distributed_amount: (options?: MethodOptions) => Promise<AssembledTransaction<i128>>
 
 }
 export class Client extends ContractClient {
