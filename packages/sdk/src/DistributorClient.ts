@@ -100,14 +100,12 @@ export class DistributorClient {
 
   /**
    * Get stats for a specific user.
-   * @param user The address of the user, or an object containing the user address.
+   * @param user The address of the user.
    * @throws {FundableStellarError} If fetch fails with a human-readable error message
    */
   public async getUserStats(
     user: AddressParam
   ): Promise<AssembledTransaction<UserStats | undefined>> {
-    const actualUser = typeof user === "object" ? user.user : user;
-
     return executeWithErrorHandling(
       () =>
         this.client.get_user_stats({ user: addressToString(user) }) as Promise<
@@ -119,14 +117,12 @@ export class DistributorClient {
 
   /**
    * Get stats for a specific token.
-   * @param token The address of the token (contract ID), or an object containing the token address.
+   * @param token The address of the token contract.
    * @throws {FundableStellarError} If fetch fails with a human-readable error message
    */
   public async getTokenStats(
     token: AddressParam
   ): Promise<AssembledTransaction<TokenStats | undefined>> {
-    const actualToken = typeof token === "object" ? token.token : token;
-
     return executeWithErrorHandling(
       () =>
         this.client.get_token_stats({ token: addressToString(token) }) as Promise<

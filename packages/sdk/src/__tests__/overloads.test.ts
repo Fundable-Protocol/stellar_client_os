@@ -207,31 +207,11 @@ describe("Client Method Overloads", () => {
       expect(result).toBe(mockResult);
     });
 
-    it("getUserStats accepts object parameter", async () => {
-      const mockResult = { signAndSend: vi.fn() };
-      mockDistributorClient.get_user_stats.mockResolvedValue(mockResult);
-
-      const result = await distributorClient.getUserStats({ user });
-
-      expect(mockDistributorClient.get_user_stats).toHaveBeenCalledWith({ user });
-      expect(result).toBe(mockResult);
-    });
-
     it("getTokenStats accepts individual parameters", async () => {
       const mockResult = { signAndSend: vi.fn() };
       mockDistributorClient.get_token_stats.mockResolvedValue(mockResult);
 
       const result = await distributorClient.getTokenStats(token);
-
-      expect(mockDistributorClient.get_token_stats).toHaveBeenCalledWith({ token });
-      expect(result).toBe(mockResult);
-    });
-
-    it("getTokenStats accepts object parameter", async () => {
-      const mockResult = { signAndSend: vi.fn() };
-      mockDistributorClient.get_token_stats.mockResolvedValue(mockResult);
-
-      const result = await distributorClient.getTokenStats({ token });
 
       expect(mockDistributorClient.get_token_stats).toHaveBeenCalledWith({ token });
       expect(result).toBe(mockResult);
