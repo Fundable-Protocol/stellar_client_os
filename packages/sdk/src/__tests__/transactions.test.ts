@@ -262,12 +262,12 @@ describe("waitForTransaction", () => {
       });
 
       vi.useFakeTimers();
+      // Use a poll interval close to the 60s timeout so the loop terminates quickly
       const promise = waitForTransaction(tx, "https://test.stellar.org", {
-        pollInterval: 1000,
+        pollInterval: 30000,
       });
 
-      // Simulate advancing time just past 60 seconds
-      vi.advanceTimersByTime(61000);
+      await vi.runAllTimersAsync();
       vi.useRealTimers();
 
       await expect(promise).rejects.toThrow("timeout");
@@ -283,10 +283,10 @@ describe("waitForTransaction", () => {
       vi.useFakeTimers();
       const promise = waitForTransaction(tx, "https://test.stellar.org", {
         timeout: 5000,
-        pollInterval: 1000,
+        pollInterval: 2500,
       });
 
-      vi.advanceTimersByTime(5500);
+      await vi.runAllTimersAsync();
       vi.useRealTimers();
 
       await expect(promise).rejects.toThrow("timeout");
@@ -371,6 +371,7 @@ describe("waitForTransaction", () => {
 describe("signAndWait", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetTransaction.mockReset();
   });
 
   afterEach(() => {
@@ -413,6 +414,11 @@ describe("signAndWait", () => {
     const tx = createMockAssembledTx(null, "txsignfail");
     const signerError = new Error("Wallet rejected transaction");
     const signer = vi.fn().mockRejectedValue(signerError);
+
+    // Make signAndSend actually invoke the signTransaction callback so the signer error propagates
+    tx.signAndSend.mockImplementation(async ({ signTransaction }: { signTransaction: (xdr: string) => Promise<{ signedTxXdr: string }> }) => {
+      await signTransaction("mock-xdr");
+    });
 
     await expect(
       signAndWait(tx, "https://test.stellar.org", signer),

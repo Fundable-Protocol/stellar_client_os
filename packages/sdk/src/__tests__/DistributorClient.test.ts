@@ -3,6 +3,17 @@ import { DistributorClient } from "../DistributorClient";
 import { Address } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
+// Mock transaction utilities
+// ---------------------------------------------------------------------------
+const mockWaitForTransaction = vi.fn();
+const mockSignAndWait = vi.fn();
+
+vi.mock('../utils/transactions', () => ({
+  waitForTransaction: (...args: unknown[]) => mockWaitForTransaction(...args),
+  signAndWait: (...args: unknown[]) => mockSignAndWait(...args),
+}));
+
+// ---------------------------------------------------------------------------
 // Mock the generated distributor contract client
 // ---------------------------------------------------------------------------
 const mockTx = (result: unknown = undefined) => ({
@@ -449,6 +460,67 @@ describe("DistributorClient", () => {
         admin: SENDER,
         new_fee_percent: 10,
       });
+    });
+  });
+
+  // ── waitForTransaction ─────────────────────────────────────────────────────
+  describe('waitForTransaction', () => {
+    const mockTxObj = { hash: 'abc123', result: 1n, signAndSend: vi.fn() } as any;
+    const waitResult = { hash: 'abc123', ledger: 100, result: 1n };
+
+    it('delegates to the utility with stored rpcUrl', async () => {
+      mockWaitForTransaction.mockResolvedValue(waitResult);
+      const result = await client.waitForTransaction(mockTxObj);
+      expect(mockWaitForTransaction).toHaveBeenCalledWith(mockTxObj, VALID_OPTIONS.rpcUrl, undefined);
+      expect(result).toEqual(waitResult);
+    });
+
+    it('passes options through to the utility', async () => {
+      mockWaitForTransaction.mockResolvedValue(waitResult);
+      const opts = { timeout: 5000, pollInterval: 500 };
+      await client.waitForTransaction(mockTxObj, opts);
+      expect(mockWaitForTransaction).toHaveBeenCalledWith(mockTxObj, VALID_OPTIONS.rpcUrl, opts);
+    });
+
+    it('throws when rpcUrl is not configured', async () => {
+      const clientNoRpc = new DistributorClient({
+        contractId: VALID_OPTIONS.contractId,
+        networkPassphrase: VALID_OPTIONS.networkPassphrase,
+      });
+      await expect(clientNoRpc.waitForTransaction(mockTxObj)).rejects.toThrow(
+        'rpcUrl must be provided in constructor options'
+      );
+    });
+  });
+
+  // ── signAndWait ────────────────────────────────────────────────────────────
+  describe('signAndWait', () => {
+    const mockTxObj = { hash: 'def456', result: null, signAndSend: vi.fn() } as any;
+    const waitResult = { hash: 'def456', ledger: 200, result: null };
+    const signer = vi.fn().mockResolvedValue('signed-xdr');
+
+    it('delegates to the utility with stored rpcUrl', async () => {
+      mockSignAndWait.mockResolvedValue(waitResult);
+      const result = await client.signAndWait(mockTxObj, signer);
+      expect(mockSignAndWait).toHaveBeenCalledWith(mockTxObj, VALID_OPTIONS.rpcUrl, signer, undefined);
+      expect(result).toEqual(waitResult);
+    });
+
+    it('passes options through to the utility', async () => {
+      mockSignAndWait.mockResolvedValue(waitResult);
+      const opts = { timeout: 30000 };
+      await client.signAndWait(mockTxObj, signer, opts);
+      expect(mockSignAndWait).toHaveBeenCalledWith(mockTxObj, VALID_OPTIONS.rpcUrl, signer, opts);
+    });
+
+    it('throws when rpcUrl is not configured', async () => {
+      const clientNoRpc = new DistributorClient({
+        contractId: VALID_OPTIONS.contractId,
+        networkPassphrase: VALID_OPTIONS.networkPassphrase,
+      });
+      await expect(clientNoRpc.signAndWait(mockTxObj, signer)).rejects.toThrow(
+        'rpcUrl must be provided in constructor options'
+      );
     });
   });
 });
