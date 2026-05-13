@@ -1,46 +1,46 @@
 /**
  * Utilities for handling large-scale token distributions while respecting Soroban gas limits.
- * 
+ *
  * The Soroban smart contract platform has gas limits that prevent arbitrarily large
  * transactions. This module provides functions to automatically split large distribution
  * operations into multiple smaller transactions that each stay within gas limits.
- * 
+ *
  * @module utils/batchDistribution
  */
 
-import { AssembledTransaction } from '@stellar/stellar-sdk/contract';
-import type { DistributorClient, AddressParam } from '../DistributorClient';
+import { AssembledTransaction } from "@stellar/stellar-sdk/contract";
+import type { DistributorClient, AddressParam } from "../DistributorClient";
 
 /**
  * Configuration for batch distribution operations.
- * 
+ *
  * @interface BatchDistributionConfig
  */
 export interface BatchDistributionConfig {
   /**
    * Maximum number of recipients per batch/transaction.
-   * 
+   *
    * Each recipient in a distribution operation consumes contract resources.
    * This limit ensures each transaction stays well below Soroban's gas limits.
-   * 
+   *
    * Recommended values:
    * - Equal distribution: 100-200 recipients per batch
    * - Weighted distribution: 50-100 recipients per batch (more complex)
-   * 
+   *
    * @default 100
    */
   maxRecipientsPerBatch?: number;
 
   /**
    * Callback function invoked when a batch starts processing.
-   * 
+   *
    * Useful for progress tracking and user feedback during large distributions.
    * Called before each transaction is assembled.
-   * 
+   *
    * @param batchNumber - Current batch number (1-indexed)
    * @param totalBatches - Total number of batches
    * @param recipientCount - Number of recipients in this batch
-   * 
+   *
    * @example
    * ```ts
    * onBatchStart: (batch, total, count) => {
@@ -48,18 +48,22 @@ export interface BatchDistributionConfig {
    * }
    * ```
    */
-  onBatchStart?: (batchNumber: number, totalBatches: number, recipientCount: number) => void;
+  onBatchStart?: (
+    batchNumber: number,
+    totalBatches: number,
+    recipientCount: number
+  ) => void;
 
   /**
    * Callback function invoked when a batch completes.
-   * 
+   *
    * Useful for tracking progress and handling batch results individually.
    * Called after each transaction is assembled.
-   * 
+   *
    * @param batchNumber - Batch number that completed (1-indexed)
    * @param totalBatches - Total number of batches
    * @param transaction - The assembled transaction for this batch
-   * 
+   *
    * @example
    * ```ts
    * onBatchComplete: (batch, total, tx) => {
@@ -67,12 +71,16 @@ export interface BatchDistributionConfig {
    * }
    * ```
    */
-  onBatchComplete?: (batchNumber: number, totalBatches: number, transaction: AssembledTransaction<null>) => void;
+  onBatchComplete?: (
+    batchNumber: number,
+    totalBatches: number,
+    transaction: AssembledTransaction<null>
+  ) => void;
 }
 
 /**
  * Parameters for an equal distribution across multiple batches.
- * 
+ *
  * @interface EqualDistributionParams
  */
 export interface EqualDistributionParams {
@@ -94,7 +102,7 @@ export interface EqualDistributionParams {
 
 /**
  * Parameters for a weighted distribution across multiple batches.
- * 
+ *
  * @interface WeightedDistributionParams
  */
 export interface WeightedDistributionParams {
@@ -116,13 +124,13 @@ export interface WeightedDistributionParams {
 
 /**
  * Result of a batch distribution operation.
- * 
+ *
  * @interface BatchDistributionResult
  */
 export interface BatchDistributionResult {
   /**
    * Array of assembled transactions, one per batch.
-   * 
+   *
    * Each transaction is ready to sign and submit to the network.
    * Transactions should be submitted sequentially or with appropriate
    * account sequence number management.
@@ -136,7 +144,7 @@ export interface BatchDistributionResult {
 
   /**
    * Recipients split into batches.
-   * 
+   *
    * Each inner array contains the recipients for that batch.
    * Index corresponds to batch number (0-indexed).
    */
@@ -144,33 +152,39 @@ export interface BatchDistributionResult {
 
   /**
    * Amounts split into batches (only for weighted distribution).
-   * 
+   *
    * Each inner array contains the amounts for that batch.
    * Index corresponds to batch number (0-indexed).
-   * 
+   *
    * @optional Only present for weighted distributions.
    */
   amountBatches?: bigint[][];
 }
 
+function assertPositiveInteger(value: number, fieldName: string): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${fieldName} must be a positive integer (got ${value})`);
+  }
+}
+
 /**
  * Splits recipients into batches and creates assembled transactions for equal distribution.
- * 
+ *
  * For large recipient lists, this function automatically batches them to ensure each
  * transaction stays within Soroban's gas limits. Each batch is processed as a separate
  * `distributeEqual` call with its subset of recipients.
- * 
+ *
  * The total amount is NOT split proportionally - each batch still distributes to its
  * recipients from the full total_amount. If you need to split the total amount itself,
  * use the amounts parameter with `prepareBatchWeightedDistribution` instead.
- * 
+ *
  * @param client - DistributorClient instance
  * @param params - Distribution parameters and batch configuration
  * @returns Promise containing batched transactions and split recipient lists
- * 
+ *
  * @throws {Error} If recipients array is empty
  * @throws {Error} If recipient count doesn't match amounts length (for weighted)
- * 
+ *
  * @example
  * ```ts
  * const result = await prepareBatchEqualDistribution(client, {
@@ -180,11 +194,11 @@ export interface BatchDistributionResult {
  *   recipients: largeRecipientList, // 1000+ addresses
  *   config: {
  *     maxRecipientsPerBatch: 100,
- *     onBatchComplete: (batch, total) => 
+ *     onBatchComplete: (batch, total) =>
  *       console.log(`Prepared ${batch}/${total}`)
  *   }
  * });
- * 
+ *
  * // Submit each transaction
  * for (const tx of result.transactions) {
  *   const result = await tx.signAndSend();
@@ -198,8 +212,10 @@ export async function prepareBatchEqualDistribution(
   const { sender, token, total_amount, recipients, config = {} } = params;
   const maxRecipientsPerBatch = config.maxRecipientsPerBatch ?? 100;
 
+  assertPositiveInteger(maxRecipientsPerBatch, "config.maxRecipientsPerBatch");
+
   if (recipients.length === 0) {
-    throw new Error('Recipients array cannot be empty');
+    throw new Error("Recipients array cannot be empty");
   }
 
   const recipientBatches = createBatches(recipients, maxRecipientsPerBatch);
@@ -232,28 +248,28 @@ export async function prepareBatchEqualDistribution(
 
 /**
  * Splits recipients and amounts into batches and creates transactions for weighted distribution.
- * 
+ *
  * For large recipient/amount lists, this function automatically batches them to ensure each
  * transaction stays within Soroban's gas limits. Each batch is processed as a separate
  * `distributeWeighted` call with its subset of recipients and corresponding amounts.
- * 
+ *
  * The recipients and amounts arrays must have the same length. They will be split in parallel,
  * maintaining the recipient-amount correspondence.
- * 
+ *
  * @param client - DistributorClient instance
  * @param params - Distribution parameters and batch configuration
  * @returns Promise containing batched transactions, split recipient lists, and split amount lists
- * 
+ *
  * @throws {Error} If recipients array is empty
  * @throws {Error} If recipients and amounts arrays have different lengths
- * 
+ *
  * @example
  * ```ts
  * const recipients = ['G...', 'G...', 'G...', // ...1000+ addresses...
  * ];
  * const amounts = [BigInt(100), BigInt(200), BigInt(150), // ...corresponding amounts...
  * ];
- * 
+ *
  * const result = await prepareBatchWeightedDistribution(client, {
  *   sender: 'GAAAA...',
  *   token: 'CXXXX...',
@@ -281,14 +297,16 @@ export async function prepareBatchWeightedDistribution(
   const { sender, token, recipients, amounts, config = {} } = params;
   const maxRecipientsPerBatch = config.maxRecipientsPerBatch ?? 100;
 
+  assertPositiveInteger(maxRecipientsPerBatch, "config.maxRecipientsPerBatch");
+
   if (recipients.length === 0) {
-    throw new Error('Recipients array cannot be empty');
+    throw new Error("Recipients array cannot be empty");
   }
 
   if (recipients.length !== amounts.length) {
     throw new Error(
       `Recipients and amounts array length mismatch: ` +
-      `${recipients.length} recipients vs ${amounts.length} amounts`
+        `${recipients.length} recipients vs ${amounts.length} amounts`
     );
   }
 
@@ -325,14 +343,14 @@ export async function prepareBatchWeightedDistribution(
 
 /**
  * Generic utility function to split an array into fixed-size batches.
- * 
+ *
  * Used internally to chunk recipients and amounts arrays.
- * 
+ *
  * @template T - Type of array elements
  * @param array - Array to split into batches
  * @param batchSize - Size of each batch
  * @returns Array of batches (last batch may be smaller)
- * 
+ *
  * @example
  * \`\`\`ts
  * const items = [1, 2, 3, 4, 5];
@@ -341,25 +359,27 @@ export async function prepareBatchWeightedDistribution(
  * \`\`\`
  */
 export function createBatches<T>(array: T[], batchSize: number): T[][] {
+  assertPositiveInteger(batchSize, "batchSize");
+
   const batches: T[][] = [];
-  
+
   for (let i = 0; i < array.length; i += batchSize) {
     batches.push(array.slice(i, i + batchSize));
   }
-  
+
   return batches;
 }
 
 /**
  * Calculates the recommended maximum recipients per batch based on distribution type.
- * 
+ *
  * Different operations have different gas costs:
  * - Equal distribution: simpler, can handle more recipients
  * - Weighted distribution: more complex, requires fewer recipients per batch
- * 
+ *
  * @param distributionType - Type of distribution ('equal' or 'weighted')
  * @returns Recommended maximum recipients per batch
- * 
+ *
  * @example
  * ```ts
  * const maxForEqual = getRecommendedBatchSize('equal');     // 150
@@ -367,12 +387,12 @@ export function createBatches<T>(array: T[], batchSize: number): T[][] {
  * ```
  */
 export function getRecommendedBatchSize(
-  distributionType: 'equal' | 'weighted'
+  distributionType: "equal" | "weighted"
 ): number {
   switch (distributionType) {
-    case 'equal':
+    case "equal":
       return 150; // Equal distribution is cheaper
-    case 'weighted':
+    case "weighted":
       return 75; // Weighted distribution is more expensive
     default:
       return 100; // Safe default
