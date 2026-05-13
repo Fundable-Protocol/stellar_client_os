@@ -161,6 +161,14 @@ export interface BatchDistributionResult {
   amountBatches?: bigint[][];
 }
 
+/**
+ * Ensures batch sizing inputs advance array iteration safely.
+ *
+ * @param value - Numeric value to validate
+ * @param fieldName - Name included in the thrown error
+ *
+ * @throws {Error} If value is not a positive integer
+ */
 function assertPositiveInteger(value: number, fieldName: string): void {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${fieldName} must be a positive integer (got ${value})`);
@@ -183,7 +191,7 @@ function assertPositiveInteger(value: number, fieldName: string): void {
  * @returns Promise containing batched transactions and split recipient lists
  *
  * @throws {Error} If recipients array is empty
- * @throws {Error} If recipient count doesn't match amounts length (for weighted)
+ * @throws {Error} If config.maxRecipientsPerBatch is not a positive integer
  *
  * @example
  * ```ts
@@ -262,6 +270,7 @@ export async function prepareBatchEqualDistribution(
  *
  * @throws {Error} If recipients array is empty
  * @throws {Error} If recipients and amounts arrays have different lengths
+ * @throws {Error} If config.maxRecipientsPerBatch is not a positive integer
  *
  * @example
  * ```ts
@@ -350,6 +359,8 @@ export async function prepareBatchWeightedDistribution(
  * @param array - Array to split into batches
  * @param batchSize - Size of each batch
  * @returns Array of batches (last batch may be smaller)
+ *
+ * @throws {Error} If batchSize is not a positive integer
  *
  * @example
  * \`\`\`ts
