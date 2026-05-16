@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   Keypair,
   TransactionBuilder,
@@ -552,9 +553,7 @@ export class ContractDeployer {
   }
 
   private randomSalt(): Buffer {
-    const buf = Buffer.alloc(32);
-    for (let i = 0; i < 32; i++) buf[i] = Math.floor(Math.random() * 256);
-    return buf;
+    return randomBytes(32);
   }
 }
 
