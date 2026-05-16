@@ -153,6 +153,12 @@ export interface BatchDistributionResult {
   amountBatches?: bigint[][];
 }
 
+function assertPositiveInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer (got ${value})`);
+  }
+}
+
 /**
  * Splits recipients into batches and creates assembled transactions for equal distribution.
  * 
@@ -197,6 +203,10 @@ export async function prepareBatchEqualDistribution(
 ): Promise<BatchDistributionResult> {
   const { sender, token, total_amount, recipients, config = {} } = params;
   const maxRecipientsPerBatch = config.maxRecipientsPerBatch ?? 100;
+  assertPositiveInteger(
+    maxRecipientsPerBatch,
+    'config.maxRecipientsPerBatch'
+  );
 
   if (recipients.length === 0) {
     throw new Error('Recipients array cannot be empty');
@@ -280,6 +290,10 @@ export async function prepareBatchWeightedDistribution(
 ): Promise<BatchDistributionResult> {
   const { sender, token, recipients, amounts, config = {} } = params;
   const maxRecipientsPerBatch = config.maxRecipientsPerBatch ?? 100;
+  assertPositiveInteger(
+    maxRecipientsPerBatch,
+    'config.maxRecipientsPerBatch'
+  );
 
   if (recipients.length === 0) {
     throw new Error('Recipients array cannot be empty');
@@ -341,6 +355,8 @@ export async function prepareBatchWeightedDistribution(
  * \`\`\`
  */
 export function createBatches<T>(array: T[], batchSize: number): T[][] {
+  assertPositiveInteger(batchSize, 'batchSize');
+
   const batches: T[][] = [];
   
   for (let i = 0; i < array.length; i += batchSize) {
