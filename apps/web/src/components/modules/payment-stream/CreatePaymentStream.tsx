@@ -1,7 +1,7 @@
 "use client";
 
 import toast from "react-hot-toast";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWallet } from "@/providers/StellarWalletProvider";
 
@@ -11,13 +11,15 @@ import { PaymentStreamConfirmationModal } from "./PaymentStreamConfirmationModal
 import { capitalizeWord } from "@/lib/utils";
 import { SUPPORTED_TOKENS, PaymentStreamFormData } from "@/lib/validations";
 import { StellarService } from "@/lib/stellar";
-import { useTransactionGuard } from "@/hooks/useTransactionGuard";
 import { validateEndTime } from "@/lib/stream-validation";
 import { useDebouncedCallback } from "@/hooks/use-debounce-callback";
 import { useBalanceValidation } from "@/hooks/use-balance-validation";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { createTestnetService } from "@/services/stellar.service";
 import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID } from "@/lib/constants";
+
+/** Minimum XLM reserve to keep for transaction fees and account minimum. */
+const XLM_RESERVE = 2.0;
 
 // Stream form state type
 interface StreamFormData {
@@ -46,159 +48,6 @@ const createInitialStreamData = (
 });
 
 const CreatePaymentStream = () => {
-  const { address, isConnected } = useWallet();
-  const queryClient = useQueryClient();
-
-  const tokenOptions = SUPPORTED_TOKENS.map((token) => ({
-    label: token.label,
-    value: token.value,
-  }));
-
-  const durationOptions = ["hour", "day", "week", "month", "year"].map(
-    (option) => ({
-      label: capitalizeWord(option),
-      value: option,
-    }),
-  );
-
-  const [streamData, setStreamData] = useState<StreamFormData>({
-    name: "",
-    recipient: "",
-    token: tokenOptions[0]?.value || "XLM",
-    amount: "",
-    duration: durationOptions[0]?.value || "day",
-    durationValue: "",
-    cancellability: true,
-    transferability: false,
-  });
-  const [formKey, setFormKey] = useState(0);
-  const { isGuardActive: isSubmitting, runWithGuard } =
-    useTransactionGuard(2000);
-  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
-
-  const selectedToken = useMemo(() => {
-    return SUPPORTED_TOKENS.find((t) => t.value === streamData.token);
-  }, [streamData.token]);
-
-  const handleFormSubmit = () => {
-    if (isSubmitting) {
-      return;
-    }
-
-    if (!isConnected || !address) {
-      toast.error("Connect your wallet");
-      return;
-    }
-
-    // Basic validation
-    if (!streamData.name.trim()) {
-      toast.error("Stream name is required");
-      return;
-    }
-    if (!streamData.recipient.trim()) {
-      toast.error("Recipient address is required");
-      return;
-    }
-    if (!StellarService.validateStellarAddress(streamData.recipient)) {
-      toast.error("Invalid Stellar address");
-      return;
-    }
-    if (!streamData.amount || parseFloat(streamData.amount) <= 0) {
-      toast.error("Amount must be greater than 0");
-      return;
-    }
-    if (!streamData.durationValue || parseInt(streamData.durationValue) <= 0) {
-      toast.error("Duration must be greater than 0");
-      return;
-    }
-
-    // Show confirmation modal
-    setShowConfirmationModal(true);
-  };
-
-  const handleConfirmStream = async () => {
-    await runWithGuard(
-      async () => {
-        // Close modal immediately to show loading state on form
-        setShowConfirmationModal(false);
-
-        // Convert form data to the format expected by StellarService
-        const formData: PaymentStreamFormData = {
-          recipientAddress: streamData.recipient,
-          token: streamData.token,
-          totalAmount: streamData.amount,
-          duration: streamData.durationValue,
-          durationUnit: streamData.duration === "hour" ? "hours" : "days",
-          cancelable: streamData.cancellability,
-          transferable: streamData.transferability,
-        };
-
-        const streamId = await StellarService.createPaymentStream(formData);
-
-        toast.success(
-          `Stream created successfully! ID: ${streamId.slice(0, 10)}...`,
-        );
-
-        // Reset form
-        setStreamData({
-          name: "",
-          recipient: "",
-          token: tokenOptions[0]?.value || "XLM",
-          amount: "",
-          duration: durationOptions[0]?.value || "day",
-          durationValue: "",
-          cancellability: true,
-          transferability: false,
-        });
-        setFormKey((k) => k + 1);
-
-        // Invalidate streams queries
-        await queryClient.invalidateQueries({
-          queryKey: ["payment-streams-table"],
-        });
-
-        // Set a temporary query data to indicate tab should switch
-        queryClient.setQueryData(["stream-created-switch-tab"], true);
-      },
-      { cooldownMs: 2000 },
-    ).catch((error) => {
-      const message =
-        error instanceof Error ? error.message : "Failed to create stream";
-      toast.error(message);
-    });
-  };
-
-  const handleCloseModal = () => {
-    if (!isSubmitting) {
-      setShowConfirmationModal(false);
-    }
-  };
-
-  return (
-    <>
-      <main className="flex flex-col lg:flex-row gap-6 w-full">
-        <div className="w-full lg:w-[70%]">
-          <div
-            id="create-stream-card"
-            className="bg-zinc-800/50 rounded-lg border border-zinc-700 p-6"
-          >
-            <div className="mb-6">
-              <h2 className="text-xl font-semibold text-zinc-50 mb-2">
-                Create New Stream
-              </h2>
-              <p className="text-zinc-400 text-sm">
-                Set up a continuous payment stream on the Stellar network
-              </p>
-            </div>
-
-            <PaymentStreamForm
-              key={formKey}
-              streamData={streamData}
-              tokenOptions={tokenOptions}
-              setStreamData={setStreamData}
-              durationOptions={durationOptions}
-              onSubmit={handleFormSubmit}
-              isSubmitting={isSubmitting}
     const { address, isConnected } = useWallet();
     const queryClient = useQueryClient();
 
@@ -223,7 +72,7 @@ const CreatePaymentStream = () => {
     const [formKey, setFormKey] = useState(0);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showConfirmationModal, setShowConfirmationModal] = useState(false);
-    
+
     // Fee estimation state
     const [estimatedFee, setEstimatedFee] = useState<string | null>(null);
     const [isEstimatingFee, setIsEstimatingFee] = useState<boolean>(false);
@@ -233,11 +82,7 @@ const CreatePaymentStream = () => {
         distributor: DISTRIBUTOR_CONTRACT_ID
     }), []);
 
-    const selectedToken = useMemo(() => {
-        return SUPPORTED_TOKENS.find((t) => t.value === streamData.token);
-    }, [streamData.token]);
-
-    const { balanceError, insufficientBalance } = useBalanceValidation(
+    const { balanceError, insufficientBalance, availableBalance } = useBalanceValidation(
         streamData.amount,
         streamData.token
     );
@@ -250,13 +95,13 @@ const CreatePaymentStream = () => {
         setIsEstimatingFee(true);
         try {
             const amount = BigInt(Math.floor(parseFloat(data.amount) * 10000000));
-            const durationMultiplier = data.duration === 'hour' ? 3600 : 
+            const durationMultiplier = data.duration === 'hour' ? 3600 :
                                       data.duration === 'day' ? 86400 :
                                       data.duration === 'week' ? 604800 :
                                       data.duration === 'month' ? 2592000 : 31536000;
             const durationInSeconds = Math.floor(parseFloat(data.durationValue) * durationMultiplier);
             const startTime = BigInt(Math.floor(Date.now() / 1000));
-            
+
             const fee = await realStellarService.getStreamCreationFeeEstimate({
                 recipient: data.recipient,
                 token: data.token,
@@ -278,10 +123,10 @@ const CreatePaymentStream = () => {
             estimateFee(streamData, address);
         }
     }, [
-        streamData.recipient, 
-        streamData.amount, 
-        streamData.token, 
-        streamData.duration, 
+        streamData.recipient,
+        streamData.amount,
+        streamData.token,
+        streamData.duration,
         streamData.durationValue,
         isConnected,
         address
@@ -292,6 +137,33 @@ const CreatePaymentStream = () => {
     }, [streamData, initialStreamData]);
 
     useUnsavedChanges(isFormDirty);
+
+    /**
+     * Compute the max amount the user can stream for the selected token.
+     * For XLM, deduct a 2.0 XLM reserve so the user has enough left
+     * for transaction fees and the Stellar minimum account reserve.
+     * For other tokens, returns the full balance.
+     */
+    const maxAmount = useMemo(() => {
+        if (!availableBalance) return null;
+        const balanceNum = parseFloat(availableBalance);
+        if (isNaN(balanceNum) || balanceNum <= 0) return null;
+
+        if (streamData.token === "XLM") {
+            const afterReserve = balanceNum - XLM_RESERVE;
+            if (afterReserve <= 0) return "0";
+            // Format to 7 decimal places (Stroop precision), trim trailing zeros
+            return afterReserve.toFixed(7).replace(/0+$/, "").replace(/\.$/, "");
+        }
+
+        return availableBalance;
+    }, [availableBalance, streamData.token]);
+
+    const handleMaxClick = useCallback(() => {
+        if (maxAmount) {
+            setStreamData((prev) => ({ ...prev, amount: maxAmount }));
+        }
+    }, [maxAmount]);
 
     const handleFormSubmit = () => {
         if (!isConnected || !address) {
@@ -407,6 +279,8 @@ const CreatePaymentStream = () => {
                             isSubmitting={isSubmitting}
                             balanceError={balanceError}
                             insufficientBalance={insufficientBalance}
+                            maxBalance={maxAmount}
+                            onMaxClick={handleMaxClick}
                         />
                     </div>
                 </div>
@@ -447,30 +321,8 @@ const CreatePaymentStream = () => {
                 estimatedFee={estimatedFee}
                 isEstimatingFee={isEstimatingFee}
             />
-          </div>
-        </div>
-        <div className="w-full lg:w-[30%]">
-          <PaymentStreamSummary streamData={streamData} />
-        </div>
-      </main>
-
-      <PaymentStreamConfirmationModal
-        open={showConfirmationModal}
-        onOpenChange={handleCloseModal}
-        data={{
-          recipientAddress: streamData.recipient,
-          token: streamData.token,
-          totalAmount: streamData.amount,
-          duration: streamData.durationValue,
-          durationUnit: streamData.duration === "hour" ? "hours" : "days",
-          cancelable: streamData.cancellability,
-          transferable: streamData.transferability,
-        }}
-        onConfirm={handleConfirmStream}
-        isSubmitting={isSubmitting}
-      />
-    </>
-  );
+        </>
+    );
 };
 
 export default CreatePaymentStream;

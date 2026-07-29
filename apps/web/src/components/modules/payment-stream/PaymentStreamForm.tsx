@@ -34,6 +34,8 @@ interface StreamFormProps {
   isSubmitting: boolean;
   balanceError?: string | null;
   insufficientBalance?: boolean;
+  maxBalance?: string | null;
+  onMaxClick?: () => void;
 }
 
 export function PaymentStreamForm({
@@ -45,6 +47,8 @@ export function PaymentStreamForm({
   isSubmitting,
   balanceError,
   insufficientBalance,
+  maxBalance,
+  onMaxClick,
 }: StreamFormProps) {
   const booleanOptions = [
     { label: "Yes", value: "true" },
@@ -97,16 +101,27 @@ export function PaymentStreamForm({
             value={streamData.name}
             onChange={(e) => handleStreamDataChange("name", e.target.value)}
           />
-          <InputWithLabel
-            title="Total Amount"
-            name="amount"
-            type="number"
-            step="0.0000001"
-            placeholder="Enter total amount to stream"
-            value={streamData.amount}
-            onChange={(e) => handleStreamDataChange("amount", e.target.value)}
-            errorMessage={balanceError ?? undefined}
-          />
+          <div className="relative">
+            <InputWithLabel
+              title="Total Amount"
+              name="amount"
+              type="number"
+              step="0.0000001"
+              placeholder="Enter total amount to stream"
+              value={streamData.amount}
+              onChange={(e) => handleStreamDataChange("amount", e.target.value)}
+              errorMessage={balanceError ?? undefined}
+            />
+            {maxBalance && onMaxClick && (
+              <button
+                type="button"
+                onClick={onMaxClick}
+                className="absolute right-3 top-8 text-purple-400 text-sm font-medium hover:text-purple-300 transition-colors"
+              >
+                MAX
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid md:grid-cols-2 gap-4 sm:gap-6 my-6">
