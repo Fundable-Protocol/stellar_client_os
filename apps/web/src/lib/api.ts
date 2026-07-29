@@ -54,8 +54,8 @@ function ensureSafeNumber(value: bigint): number {
     return Number(value);
 }
 
-async function signAndSendTx(
-    tx: AssembledTransaction<unknown>,
+async function signAndSendTx<T>(
+    tx: AssembledTransaction<T>,
     signTransaction?: WalletSigner
 ): Promise<void> {
     if (!signTransaction) {
@@ -121,7 +121,7 @@ export async function createStream(params: {
         end_time: BigInt(params.endTime),
     });
 
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    await signAndSendTx(tx, params.signTransaction);
 
     const streamId = tx.result;
     if (typeof streamId !== 'bigint') {
@@ -148,7 +148,7 @@ export async function withdraw(params: {
 
     const client = createPaymentStreamClient(sender);
     const tx = await client.withdraw(BigInt(params.streamId), params.amount);
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    await signAndSendTx(tx, params.signTransaction);
 }
 
 import { createBatches } from '../../../../packages/sdk/src/utils/batchDistribution';
@@ -172,7 +172,7 @@ export async function distribute(params: {
                 total_amount: params.amounts,
                 recipients: batch,
             });
-            await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+            await signAndSendTx(tx, params.signTransaction);
         }
         return;
     }
@@ -191,7 +191,7 @@ export async function distribute(params: {
             recipients: recipientBatches[i],
             amounts: amountBatches[i],
         });
-        await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+        await signAndSendTx(tx, params.signTransaction);
     }
 }
 
@@ -212,7 +212,7 @@ export async function pauseStream(params: { id: string; signTransaction: (xdr: s
 
     const tx = await client.pauseStream(BigInt(params.id));
 
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    await signAndSendTx(tx, params.signTransaction);
 }
 
 export async function resumeStream(params: { id: string; signTransaction: (xdr: string) => Promise<string> }) {
@@ -224,7 +224,7 @@ export async function resumeStream(params: { id: string; signTransaction: (xdr: 
 
     const tx = await client.resumeStream(BigInt(params.id));
 
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    await signAndSendTx(tx, params.signTransaction);
 }
 
 export async function cancelStream(params: { id: string; signTransaction: (xdr: string) => Promise<string> }) {
@@ -236,5 +236,5 @@ export async function cancelStream(params: { id: string; signTransaction: (xdr: 
 
     const tx = await client.cancelStream(BigInt(params.id));
 
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    await signAndSendTx(tx, params.signTransaction);
 }
