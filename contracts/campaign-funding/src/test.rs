@@ -106,6 +106,21 @@ mod test {
     }
 
     #[test]
+    #[should_panic(expected = "Error(Contract, #15)")]
+    fn test_create_campaign_deadline_too_far() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _contract_id) = setup(&env);
+        let creator = Address::generate(&env);
+        let token_address = Address::generate(&env);
+
+        // Deadline well beyond the ~365-day TTL horizon
+        let deadline = env.ledger().timestamp() + 10_000_000_000;
+        client.create_campaign(&creator, &token_address, &1000, &deadline);
+    }
+
+    #[test]
     fn test_contribute() {
         let env = Env::default();
         env.mock_all_auths();

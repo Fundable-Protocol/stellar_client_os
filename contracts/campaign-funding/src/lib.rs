@@ -19,6 +19,7 @@ pub enum Error {
     AlreadyRefunded = 12,
     ArithmeticOverflow = 13,
     DeadlineInPast = 14,
+    DeadlineTooFar = 15,
 }
 
 #[contracttype]
@@ -94,6 +95,9 @@ const LEDGER_THRESHOLD: u32 = 518400;
 const LEDGER_BUMP: u32 = 535680;
 const MAX_TTL: u32 = 6312000;
 const SECONDS_PER_LEDGER: u64 = 5;
+/// Upper bound for (deadline - now) that the TTL system can retain.
+/// ~365 days at 5 s/ledger.
+const MAX_DEADLINE_DELTA: u64 = (MAX_TTL as u64) * SECONDS_PER_LEDGER;
 
 #[contract]
 pub struct CampaignFundingContract;
@@ -158,13 +162,17 @@ impl CampaignFundingContract {
             panic_with_error!(&env, Error::DeadlineInPast);
         }
 
+        // Reject deadlines too far in the future for the TTL system to retain
+        if deadline.saturating_sub(current_time) > MAX_DEADLINE_DELTA {
+            panic_with_error!(&env, Error::DeadlineTooFar);
+        }
+
         let mut counter: u64 = env.storage().instance()
             .get(&Symbol::new(&env, "campaign_counter"))
             .unwrap_or(0);
         let campaign_id = counter + 1;
         counter += 1;
         env.storage().instance().set(&Symbol::new(&env, "campaign_counter"), &counter);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         let campaign = Campaign {
             id: campaign_id,
@@ -178,6 +186,8 @@ impl CampaignFundingContract {
         };
 
         let (ttl, bump) = Self::campaign_ttl(&env, deadline);
+        // Extend instance storage so admin and counter survive alongside the campaign
+        env.storage().instance().extend_ttl(ttl, bump);
         env.storage().persistent().set(&campaign_id, &campaign);
         env.storage().persistent().extend_ttl(&campaign_id, ttl, bump);
 
