@@ -83,11 +83,11 @@ export class StellarService {
   constructor(config: StellarServiceConfig) {
     this.rpcServer = new RpcServer(
       config.network.rpcUrl,
-      getStellarServerOptions(config.network.rpcUrl)
+      getStellarServerOptions(config.network.rpcUrl, config.network.rpcHeader)
     );
     this.horizonServer = new Horizon.Server(
       config.network.horizonUrl,
-      getStellarServerOptions(config.network.horizonUrl)
+      getStellarServerOptions(config.network.horizonUrl, config.network.rpcHeader)
     );
     this.networkPassphrase = config.network.networkPassphrase;
     this.paymentStreamContractId = config.contracts.paymentStream;

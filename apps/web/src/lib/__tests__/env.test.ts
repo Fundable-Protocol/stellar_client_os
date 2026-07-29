@@ -44,4 +44,20 @@ describe("Environment Variable Validation", () => {
     process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID456";
     expect(() => validateEnv()).not.toThrow();
   });
+
+  it("should accept optional NEXT_PUBLIC_SOROBAN_RPC_HEADER variable", () => {
+    process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID = "CVALID123";
+    process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID456";
+    process.env.NEXT_PUBLIC_SOROBAN_RPC_HEADER = "Bearer secret-token";
+    const env = validateEnv();
+    expect(env.NEXT_PUBLIC_SOROBAN_RPC_HEADER).toBe("Bearer secret-token");
+  });
+
+  it("should accept empty NEXT_PUBLIC_SOROBAN_RPC_HEADER variable", () => {
+    process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID = "CVALID123";
+    process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID456";
+    process.env.NEXT_PUBLIC_SOROBAN_RPC_HEADER = "";
+    const env = validateEnv();
+    expect(env.NEXT_PUBLIC_SOROBAN_RPC_HEADER).toBe("");
+  });
 });

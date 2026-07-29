@@ -15,7 +15,6 @@
   "dependencies": {
     "@fundable/sdk": "workspace:*",
     "@creit.tech/stellar-wallets-kit": "^1.9.5",
-    "@fundable/sdk": "workspace:*",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-dialog": "^1.1.15",

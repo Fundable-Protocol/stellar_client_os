@@ -138,6 +138,8 @@ export interface NetworkConfig {
   rpcUrl: string;
   /** Horizon API URL */
   horizonUrl: string;
+  /** Optional Soroban RPC header */
+  rpcHeader?: string;
 }
 
 /**
