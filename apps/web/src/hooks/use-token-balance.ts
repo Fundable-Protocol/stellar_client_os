@@ -1,3 +1,5 @@
+"use client";
+
 import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { StellarService } from "@/services/stellar.service";
@@ -15,7 +17,7 @@ export function useTokenBalances() {
 
   const { data: balances, isLoading, error } = useQuery<TokenBalanceData[] | null>({
     queryKey: ["token-balances", address, network],
-    queryFn: async ({ signal }) => {
+    queryFn: async ({ signal }: { signal?: AbortSignal }) => {
       if (!address) return null;
 
       const isTestnet = network === WalletNetwork.TESTNET;
@@ -34,8 +36,20 @@ export function useTokenBalances() {
         contracts: { paymentStream: "", distributor: "" },
       });
 
-      const accountInfo = await stellarService.getAccount(address, signal);
-      return extractBalances(accountInfo);
+      try {
+        const accountInfo = await stellarService.getAccount(address, signal);
+        return extractBalances(accountInfo);
+      } catch (err: unknown) {
+        if (
+          err &&
+          typeof err === "object" &&
+          (("name" in err && err.name === "AccountNotFoundError") ||
+            ("status" in err && (err as { status: number }).status === 404))
+        ) {
+          return [];
+        }
+        throw err;
+      }
     },
     enabled: isConnected && !!address,
     staleTime: 15_000,
@@ -63,7 +77,7 @@ export function useTokenBalance(tokenCode: string | undefined) {
       if (!tokenCode || !balances.length || !address) return null;
 
       const entry = balances.find(
-        (b) => b.assetCode.toUpperCase() === tokenCode.toUpperCase()
+        (b: TokenBalanceData) => Boolean(b && b.assetCode && b.assetCode.toUpperCase() === tokenCode.toUpperCase())
       );
 
       return entry?.balance ?? null;

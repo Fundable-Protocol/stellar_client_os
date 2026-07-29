@@ -1,5 +1,3 @@
-import { useMemo } from "react";
-
 export type PaginationRangeItem =
   | { type: "page"; page: number }
   | { type: "ellipsis"; key: "left" | "right" };
@@ -13,21 +11,32 @@ type UsePaginationParams = {
 const range = (start: number, end: number) =>
   Array.from({ length: end - start + 1 }, (_, index) => start + index);
 
+export const clampPageCount = (pageCount: number): number => {
+  if (!pageCount || Number.isNaN(pageCount) || pageCount < 1) {
+    return 1;
+  }
+  return Math.ceil(pageCount);
+};
+
 export const getPaginationRange = ({
   currentPage,
   pageCount,
   siblingCount = 2,
 }: UsePaginationParams): PaginationRangeItem[] => {
-  const safePageCount = Math.max(1, pageCount);
-  const safeCurrentPage = Math.min(Math.max(1, currentPage), safePageCount);
-  const windowSize = siblingCount * 2 + 1;
+  const safePageCount = clampPageCount(pageCount);
+  const safeSiblingCount = Math.max(0, Math.floor(siblingCount ?? 2));
+  const safeCurrentPage = Math.min(
+    Math.max(1, Math.floor(currentPage || 1)),
+    safePageCount
+  );
+  const windowSize = safeSiblingCount * 2 + 1;
 
   if (safePageCount <= 7) {
     return range(1, safePageCount).map((page) => ({ type: "page", page }));
   }
 
-  let left = Math.max(2, safeCurrentPage - siblingCount);
-  let right = Math.min(safePageCount - 1, safeCurrentPage + siblingCount);
+  let left = Math.max(2, safeCurrentPage - safeSiblingCount);
+  let right = Math.min(safePageCount - 1, safeCurrentPage + safeSiblingCount);
 
   while (right - left + 1 < windowSize) {
     if (left > 2) {
@@ -41,6 +50,14 @@ export const getPaginationRange = ({
     }
 
     break;
+  }
+
+  if (left === 3) {
+    left = 2;
+  }
+
+  if (right === safePageCount - 2) {
+    right = safePageCount - 1;
   }
 
   const showLeftEllipsis = left > 2;
@@ -65,8 +82,9 @@ export const getPaginationRange = ({
   return items;
 };
 
-export const usePagination = ({ currentPage, pageCount, siblingCount = 2 }: UsePaginationParams) =>
-  useMemo(
-    () => getPaginationRange({ currentPage, pageCount, siblingCount }),
-    [currentPage, pageCount, siblingCount]
-  );
+export const usePagination = ({
+  currentPage = 1,
+  pageCount = 1,
+  siblingCount = 2,
+}: Partial<UsePaginationParams> = {}): PaginationRangeItem[] =>
+  getPaginationRange({ currentPage, pageCount, siblingCount });
