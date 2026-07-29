@@ -28,6 +28,7 @@ import { StreamRecord } from "@/lib/validations";
 import { validPageLimits } from "@/lib/constants";
 import AppSelect from "@/components/molecules/AppSelect";
 import SlidingPagination from "@/components/molecules/SlidingPagination";
+import { clampPageCount } from "@/hooks/use-pagination";
 
 interface StreamsTableProps {
     data: StreamRecord[];
@@ -48,7 +49,7 @@ function StreamsTable({
 }: StreamsTableProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const pageCount = Math.ceil(totalCount / limit);
+    const pageCount = clampPageCount(Math.ceil(totalCount / limit));
     const [sorting, setSorting] = useState<SortingState>([]);
 
     const defaultColumns = useStreamColumns();

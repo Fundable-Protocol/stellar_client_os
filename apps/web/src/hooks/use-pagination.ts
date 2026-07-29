@@ -13,13 +13,20 @@ type UsePaginationParams = {
 const range = (start: number, end: number) =>
   Array.from({ length: end - start + 1 }, (_, index) => start + index);
 
+export const clampPageCount = (pageCount: number): number => {
+  if (!pageCount || Number.isNaN(pageCount) || pageCount < 1) {
+    return 1;
+  }
+  return Math.ceil(pageCount);
+};
+
 export const getPaginationRange = ({
   currentPage,
   pageCount,
   siblingCount = 2,
 }: UsePaginationParams): PaginationRangeItem[] => {
-  const safePageCount = Math.max(1, pageCount);
-  const safeCurrentPage = Math.min(Math.max(1, currentPage), safePageCount);
+  const safePageCount = clampPageCount(pageCount);
+  const safeCurrentPage = Math.min(Math.max(1, currentPage || 1), safePageCount);
   const windowSize = siblingCount * 2 + 1;
 
   if (safePageCount <= 7) {

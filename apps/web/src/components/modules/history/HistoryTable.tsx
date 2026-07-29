@@ -26,6 +26,7 @@ import { validPageLimits } from "@/lib/constants";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import SlidingPagination from "@/components/molecules/SlidingPagination";
+import { clampPageCount } from "@/hooks/use-pagination";
 import ActionsCell from "./ActionsCell";
 import { format } from "date-fns";
 
@@ -57,16 +58,16 @@ const HistoryTable = ({
     onExport,
     isLoading = false,
 }: HistoryTableProps) => {
+    const pageCount = clampPageCount(Math.ceil(totalCount / limit));
+
     const table = useReactTable({
         data,
         columns,
         getCoreRowModel: getCoreRowModel(),
         getPaginationRowModel: getPaginationRowModel(),
         manualPagination: true,
-        pageCount: Math.ceil(totalCount / limit),
+        pageCount,
     });
-
-    const pageCount = Math.ceil(totalCount / limit);
 
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
