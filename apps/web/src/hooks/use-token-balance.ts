@@ -57,7 +57,7 @@ export function useTokenBalance(tokenCode: string | undefined) {
   if (!tokenCode || isLoading) return { balance: null, isLoading };
 
   const entry = balances.find(
-    (b) => b.assetCode.toUpperCase() === tokenCode.toUpperCase()
+    (b) => b?.assetCode?.toUpperCase() === tokenCode.toUpperCase()
   );
 
   return { balance: entry?.balance ?? null, isLoading };
