@@ -1,7 +1,3 @@
-"use client";
-
-import { useMemo } from "react";
-
 export type PaginationRangeItem =
   | { type: "page"; page: number }
   | { type: "ellipsis"; key: "left" | "right" };
@@ -90,8 +86,5 @@ export const usePagination = ({
   currentPage = 1,
   pageCount = 1,
   siblingCount = 2,
-}: Partial<UsePaginationParams> = {}) =>
-  useMemo(
-    () => getPaginationRange({ currentPage, pageCount, siblingCount }),
-    [currentPage, pageCount, siblingCount]
-  );
+}: Partial<UsePaginationParams> = {}): PaginationRangeItem[] =>
+  getPaginationRange({ currentPage, pageCount, siblingCount });
