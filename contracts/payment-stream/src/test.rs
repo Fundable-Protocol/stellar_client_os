@@ -2364,6 +2364,49 @@ fn test_withdraw_after_pause_and_resume() {
     #[test]
     fn test_fee_tier_max_rate_boundary() {
         // A tier with fee_rate exactly at MAX_FEE (500 bps) must be accepted
+        // when the general rate is also 500 (non-increasing invariant satisfied).
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        // Initialize with general_rate == MAX_FEE so the tier is non-increasing.
+        client.initialize(&admin, &fee_collector, &500u32);
+
+        let mut tiers = soroban_sdk::Vec::new(&env);
+        tiers.push_back(crate::FeeTier { min_volume: 0, fee_rate: 500 }); // exactly MAX_FEE
+        // This should succeed without error
+        client.set_fee_tiers(&tiers);
+        assert_eq!(client.get_fee_tiers().get(0).unwrap().fee_rate, 500);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #17)")]
+    fn test_set_fee_tiers_rate_exceeds_general_rate() {
+        // A tier whose fee_rate is higher than the general rate must be rejected
+        // so that high-volume senders are never penalised relative to low-volume ones.
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &30u32); // general rate = 30 bps
+
+        let mut tiers = soroban_sdk::Vec::new(&env);
+        // 50 bps > 30 bps (general rate) → must be rejected
+        tiers.push_back(crate::FeeTier { min_volume: 0, fee_rate: 50 });
+        client.set_fee_tiers(&tiers);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #17)")]
+    fn test_set_fee_tiers_second_tier_exceeds_first() {
+        // Tiers must have non-increasing fee rates; a later tier cannot charge
+        // more than an earlier one even if both are below the general rate.
         let env = Env::default();
         env.mock_all_auths();
 
@@ -2374,10 +2417,54 @@ fn test_withdraw_after_pause_and_resume() {
         client.initialize(&admin, &fee_collector, &30u32);
 
         let mut tiers = soroban_sdk::Vec::new(&env);
-        tiers.push_back(crate::FeeTier { min_volume: 0, fee_rate: 500 }); // exactly MAX_FEE
-        // This should succeed without error
+        tiers.push_back(crate::FeeTier { min_volume: 100_000, fee_rate: 20 }); // valid
+        tiers.push_back(crate::FeeTier { min_volume: 500_000, fee_rate: 25 }); // 25 > 20 → invalid
         client.set_fee_tiers(&tiers);
-        assert_eq!(client.get_fee_tiers().get(0).unwrap().fee_rate, 500);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #17)")]
+    fn test_set_protocol_fee_rate_below_first_tier_rejected() {
+        // Lowering the base rate below an existing tier's fee_rate would violate
+        // the non-increasing invariant and make high-volume senders pay more.
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &30u32);
+
+        // First tier charges 20 bps — valid relative to general rate of 30 bps.
+        let mut tiers = soroban_sdk::Vec::new(&env);
+        tiers.push_back(crate::FeeTier { min_volume: 100_000, fee_rate: 20 });
+        client.set_fee_tiers(&tiers);
+
+        // Trying to lower the general rate to 15 bps would put it below the
+        // tier's 20 bps, breaking the invariant — must be rejected.
+        client.set_protocol_fee_rate(&15u32);
+    }
+
+    #[test]
+    fn test_set_protocol_fee_rate_equal_to_first_tier_accepted() {
+        // Setting the base rate exactly equal to the first tier's rate is valid.
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &30u32);
+
+        let mut tiers = soroban_sdk::Vec::new(&env);
+        tiers.push_back(crate::FeeTier { min_volume: 100_000, fee_rate: 20 });
+        client.set_fee_tiers(&tiers);
+
+        // Lowering to exactly the tier rate (20) is allowed.
+        client.set_protocol_fee_rate(&20u32);
+        assert_eq!(client.get_protocol_fee_rate(), 20);
     }
 
     #[test]

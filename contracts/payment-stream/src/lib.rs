@@ -794,12 +794,35 @@ impl PaymentStreamContract {
     }
 
     /// Set the protocol fee rate
+    ///
+    /// The new rate must not be lower than the first configured tier's `fee_rate`.
+    /// Tiers are required to have non-increasing rates relative to the general
+    /// rate, so lowering the base below an existing tier would violate that
+    /// invariant and cause high-volume senders to pay more than low-volume ones.
+    ///
+    /// # Errors
+    /// - `FeeTooHigh` - new_fee_rate exceeds MAX_FEE (500 bps).
+    /// - `InvalidTier` - new_fee_rate is below the first configured tier rate.
     pub fn set_protocol_fee_rate(env: Env, new_fee_rate: u32) {
         let admin: Address = env.storage().instance().get(&Symbol::new(&env, "admin")).unwrap();
         admin.require_auth();
 
         if new_fee_rate > MAX_FEE {
             panic_with_error!(&env, Error::FeeTooHigh);
+        }
+
+        // Preserve the non-increasing fee-rate invariant: the general rate must
+        // be >= every configured tier rate.  The first tier has the highest
+        // fee_rate among all tiers (since tiers are stored non-increasing), so
+        // checking only the first tier is sufficient.
+        let tiers: Vec<FeeTier> = env.storage().instance()
+            .get(&Symbol::new(&env, "fee_tiers"))
+            .unwrap_or_else(|| Vec::new(&env));
+        if !tiers.is_empty() {
+            let first_tier = tiers.get(0).unwrap();
+            if new_fee_rate < first_tier.fee_rate {
+                panic_with_error!(&env, Error::InvalidTier);
+            }
         }
 
         env.storage().instance().set(&Symbol::new(&env, "general_protocol_fee_rate"), &new_fee_rate);
@@ -857,18 +880,31 @@ impl PaymentStreamContract {
             panic_with_error!(&env, Error::TooManyTiers);
         }
 
-        // Validate each tier and enforce strictly ascending sort on min_volume
+        // Validate each tier:
+        //   - fee_rate must not exceed MAX_FEE
+        //   - fee_rate must be non-increasing (each tier must be <= the preceding
+        //     effective rate, starting from general_protocol_fee_rate) so that
+        //     higher-volume senders are never charged more than lower-volume ones
+        //   - min_volume must be strictly ascending
+        let general_rate: u32 = env.storage().instance()
+            .get(&Symbol::new(&env, "general_protocol_fee_rate"))
+            .unwrap_or(0);
         let mut prev_min_volume: i128 = -1_i128;
+        let mut prev_fee_rate: u32 = general_rate;
         let len = tiers.len();
         for i in 0..len {
             let tier = tiers.get(i).unwrap();
             if tier.fee_rate > MAX_FEE {
                 panic_with_error!(&env, Error::InvalidTier);
             }
+            if tier.fee_rate > prev_fee_rate {
+                panic_with_error!(&env, Error::InvalidTier);
+            }
             if tier.min_volume <= prev_min_volume {
                 panic_with_error!(&env, Error::InvalidTier);
             }
             prev_min_volume = tier.min_volume;
+            prev_fee_rate = tier.fee_rate;
         }
 
         env.storage().instance().set(&Symbol::new(&env, "fee_tiers"), &tiers);
