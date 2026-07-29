@@ -2354,9 +2354,9 @@ fn test_withdraw_after_pause_and_resume() {
         client.create_stream(&sender, &recipient, &token, &500_000, &500_000, &0, &10_000);
         assert_eq!(client.get_applicable_fee_rate(&sender), 30); // still general
 
-        // Second stream: pushes total volume to 1_500_000 (above threshold)
+        // Second stream: pushes escrowed volume to 1_000_000 (at threshold)
         client.create_stream(&sender, &recipient, &token, &500_000, &500_000, &20_000, &30_000);
-        // Check volume
+        // Check volume (tracks initial_amount, not total_amount)
         assert_eq!(client.get_sender_volume(&sender), 1_000_000);
         assert_eq!(client.get_applicable_fee_rate(&sender), 10); // now discounted
     }

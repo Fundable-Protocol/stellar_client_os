@@ -241,13 +241,14 @@ impl PaymentStreamContract {
         };
 
         // Track sender's cumulative stream volume for fee tier eligibility.
-        // Updated at stream creation so withdrawals automatically apply the
-        // correct tier rate without requiring additional state lookups.
+        // Only funds actually escrowed (initial_amount) are counted here to
+        // prevent tier-gaming via zero-deposit streams.  Additional deposits
+        // via deposit() also increment this counter.
         let sender_vol_key = (Symbol::new(&env, "sv"), sender.clone());
         let current_vol: i128 = env.storage().persistent()
             .get(&sender_vol_key)
             .unwrap_or(0);
-        let new_vol = current_vol.saturating_add(total_amount);
+        let new_vol = current_vol.saturating_add(initial_amount);
         env.storage().persistent().set(&sender_vol_key, &new_vol);
         env.storage().persistent().extend_ttl(&sender_vol_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
@@ -307,6 +308,18 @@ impl PaymentStreamContract {
         // Transfer tokens from sender to contract
         let token_client = token::Client::new(&env, &stream.token);
         token_client.transfer(&stream.sender, &env.current_contract_address(), &amount);
+
+        // Update sender's cumulative volume for fee tier eligibility.
+        // deposit() actually moves tokens into escrow, so each deposited
+        // amount counts toward the sender's volume just as initial_amount
+        // does at stream creation.
+        let sender_vol_key = (Symbol::new(&env, "sv"), stream.sender.clone());
+        let current_vol: i128 = env.storage().persistent()
+            .get(&sender_vol_key)
+            .unwrap_or(0);
+        let new_vol = current_vol.saturating_add(amount);
+        env.storage().persistent().set(&sender_vol_key, &new_vol);
+        env.storage().persistent().extend_ttl(&sender_vol_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update balance
         stream.balance = new_balance;
@@ -483,11 +496,16 @@ impl PaymentStreamContract {
             return general_rate;
         }
 
-        // Look up the sender's cumulative lifetime stream volume
+        // Look up the sender's cumulative lifetime stream volume.
+        // Extend TTL on every read so long-lived streams don't risk the
+        // shared per-sender entry being archived between stream creations.
         let sender_vol_key = (Symbol::new(env, "sv"), sender.clone());
         let volume: i128 = env.storage().persistent()
             .get(&sender_vol_key)
             .unwrap_or(0);
+        if volume > 0 {
+            env.storage().persistent().extend_ttl(&sender_vol_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
 
         // Start with the general rate; upgrade to each qualifying tier
         let mut applicable_rate = general_rate;
@@ -867,10 +885,13 @@ impl PaymentStreamContract {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
-    /// Return the cumulative stream volume for a sender address.
+    /// Return the cumulative escrowed volume for a sender address.
     ///
-    /// This is the sum of total_amount across all streams ever created by
-    /// the sender and determines their position in the fee tier hierarchy.
+    /// This is the sum of all tokens the sender has actually transferred into
+    /// escrow: the `initial_amount` at stream creation plus any subsequent
+    /// `deposit()` calls.  It determines their position in the fee tier
+    /// hierarchy and cannot be gamed by declaring a large `total_amount`
+    /// without depositing funds.
     pub fn get_sender_volume(env: Env, sender: Address) -> i128 {
         let sender_vol_key = (Symbol::new(&env, "sv"), sender);
         env.storage().persistent()
