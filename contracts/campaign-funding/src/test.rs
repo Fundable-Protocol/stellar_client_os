@@ -15,7 +15,7 @@ mod test {
         (token_address, token_client, token_admin)
     }
 
-    fn setup(env: &Env) -> (CampaignFundingContractClient, Address) {
+    fn setup(env: &Env) -> (CampaignFundingContractClient<'_>, Address) {
         let contract_id = env.register(CampaignFundingContract, ());
         let client = CampaignFundingContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
@@ -167,7 +167,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #8)")]
+    #[should_panic(expected = "Error(Contract, #7)")]
     fn test_contribute_after_deadline() {
         let env = Env::default();
         env.mock_all_auths();
@@ -622,5 +622,86 @@ mod test {
 
         let events = env.events().all();
         assert!(events.len() >= 2);
+    }
+
+    #[test]
+    fn test_refund_sets_campaign_status_to_expired() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _contract_id) = setup(&env);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &creator);
+
+        token_admin.mint(&contributor, &500);
+
+        let deadline = env.ledger().timestamp() + 1000;
+        let campaign_id = client.create_campaign(&creator, &token_address, &1000, &deadline);
+
+        client.contribute(&campaign_id, &contributor, &500);
+
+        env.ledger().set_timestamp(deadline + 1);
+
+        assert_eq!(client.get_campaign(&campaign_id).status, CampaignStatus::Active);
+
+        client.refund(&campaign_id, &contributor);
+
+        assert_eq!(client.get_campaign(&campaign_id).status, CampaignStatus::Expired);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #7)")]
+    fn test_contribute_to_expired_campaign_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _contract_id) = setup(&env);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        let other = Address::generate(&env);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &creator);
+
+        token_admin.mint(&contributor, &500);
+        token_admin.mint(&other, &500);
+
+        let deadline = env.ledger().timestamp() + 1000;
+        let campaign_id = client.create_campaign(&creator, &token_address, &1000, &deadline);
+
+        client.contribute(&campaign_id, &contributor, &500);
+
+        env.ledger().set_timestamp(deadline + 1);
+
+        client.refund(&campaign_id, &contributor);
+
+        // Campaign is now Expired — any further contribution should fail
+        client.contribute(&campaign_id, &other, &500);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #2)")]
+    fn test_create_campaign_without_init_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(CampaignFundingContract, ());
+        let client = CampaignFundingContractClient::new(&env, &contract_id);
+        let creator = Address::generate(&env);
+        let token_address = Address::generate(&env);
+
+        client.create_campaign(&creator, &token_address, &1000, &1000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #2)")]
+    fn test_contribute_without_init_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(CampaignFundingContract, ());
+        let client = CampaignFundingContractClient::new(&env, &contract_id);
+        let contributor = Address::generate(&env);
+
+        client.contribute(&1, &contributor, &100);
     }
 }

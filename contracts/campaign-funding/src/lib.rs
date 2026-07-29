@@ -77,6 +77,13 @@ pub struct CampaignClaimedEvent {
 
 #[contracttype]
 #[derive(Clone)]
+pub struct CampaignExpiredEvent {
+    pub campaign_id: u64,
+    pub deadline: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
 pub struct RefundEvent {
     pub campaign_id: u64,
     pub contributor: Address,
@@ -85,6 +92,8 @@ pub struct RefundEvent {
 
 const LEDGER_THRESHOLD: u32 = 518400;
 const LEDGER_BUMP: u32 = 535680;
+const MAX_TTL: u32 = 6312000;
+const SECONDS_PER_LEDGER: u64 = 5;
 
 #[contract]
 pub struct CampaignFundingContract;
@@ -92,6 +101,8 @@ pub struct CampaignFundingContract;
 #[contractimpl]
 impl CampaignFundingContract {
 
+    /// Initialise the contract with an admin address.
+    /// Must be called exactly once before any other operations.
     pub fn initialize(env: Env, admin: Address) {
         if env.storage().instance().has(&Symbol::new(&env, "admin")) {
             panic_with_error!(&env, Error::AlreadyInitialized);
@@ -103,6 +114,31 @@ impl CampaignFundingContract {
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
+    /// Ensure the contract has been initialised before accessing shared state.
+    fn require_initialized(env: &Env) {
+        if !env.storage().instance().has(&Symbol::new(env, "admin")) {
+            panic_with_error!(env, Error::NotInitialized);
+        }
+    }
+
+    /// Compute a TTL (threshold, bump) pair proportional to the campaign deadline.
+    /// Short campaigns get at least the minimum LEDGER_THRESHOLD/LEDGER_BUMP;
+    /// long campaigns scale up so the entry survives until the deadline plus a margin.
+    fn campaign_ttl(env: &Env, deadline: u64) -> (u32, u32) {
+        let current_time = env.ledger().timestamp();
+        let duration = deadline.saturating_sub(current_time);
+        let deadline_ledgers = (duration / SECONDS_PER_LEDGER) as u32;
+        let threshold = deadline_ledgers.saturating_add(LEDGER_THRESHOLD).min(MAX_TTL - LEDGER_BUMP);
+        let bump = threshold.saturating_add(LEDGER_BUMP).min(MAX_TTL);
+        (threshold, bump)
+    }
+
+    /// Create a new campaign.
+    /// `creator` is the address that will receive funds if the goal is met.
+    /// `token` is the Stellar asset used for contributions.
+    /// `goal_amount` is the minimum amount (in token units) that must be raised before the deadline.
+    /// `deadline` is the Unix timestamp after which the campaign closes.
+    /// Returns the newly created campaign ID.
     pub fn create_campaign(
         env: Env,
         creator: Address,
@@ -110,6 +146,7 @@ impl CampaignFundingContract {
         goal_amount: i128,
         deadline: u64,
     ) -> u64 {
+        Self::require_initialized(&env);
         creator.require_auth();
 
         if goal_amount <= 0 {
@@ -140,8 +177,9 @@ impl CampaignFundingContract {
             withdrawn: false,
         };
 
+        let (ttl, bump) = Self::campaign_ttl(&env, deadline);
         env.storage().persistent().set(&campaign_id, &campaign);
-        env.storage().persistent().extend_ttl(&campaign_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&campaign_id, ttl, bump);
 
         env.events().publish(
             (Symbol::new(&env, "campaign_created"), campaign_id),
@@ -157,7 +195,11 @@ impl CampaignFundingContract {
         campaign_id
     }
 
+    /// Contribute `amount` tokens to an active campaign.
+    /// Transfers tokens from `contributor` to the contract escrow.
+    /// Reverts if the campaign has already ended (deadline passed or status changed).
     pub fn contribute(env: Env, campaign_id: u64, contributor: Address, amount: i128) {
+        Self::require_initialized(&env);
         contributor.require_auth();
 
         if amount <= 0 {
@@ -174,7 +216,7 @@ impl CampaignFundingContract {
 
         let current_time = env.ledger().timestamp();
         if current_time >= campaign.deadline {
-            panic_with_error!(&env, Error::DeadlineNotReached);
+            panic_with_error!(&env, Error::CampaignNotActive);
         }
 
         let token_client = token::Client::new(&env, &campaign.token);
@@ -192,11 +234,12 @@ impl CampaignFundingContract {
         campaign.total_raised = campaign.total_raised.checked_add(amount)
             .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
 
+        let (ttl, bump) = Self::campaign_ttl(&env, campaign.deadline);
         env.storage().persistent().set(&contribution_key, &contribution);
-        env.storage().persistent().extend_ttl(&contribution_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&contribution_key, ttl, bump);
 
         env.storage().persistent().set(&campaign_id, &campaign);
-        env.storage().persistent().extend_ttl(&campaign_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&campaign_id, ttl, bump);
 
         env.events().publish(
             (Symbol::new(&env, "contribution"), campaign_id),
@@ -208,7 +251,11 @@ impl CampaignFundingContract {
         );
     }
 
+    /// Claim the funds as the campaign creator.
+    /// Only succeeds after the deadline if `total_raised >= goal_amount`.
+    /// Transfers the entire escrowed balance to the creator.
     pub fn claim(env: Env, campaign_id: u64) {
+        Self::require_initialized(&env);
         let mut campaign: Campaign = env.storage().persistent()
             .get(&campaign_id)
             .unwrap_or_else(|| panic_with_error!(&env, Error::CampaignNotFound));
@@ -244,8 +291,9 @@ impl CampaignFundingContract {
         campaign.status = CampaignStatus::Success;
         campaign.withdrawn = true;
 
+        let (ttl, bump) = Self::campaign_ttl(&env, campaign.deadline);
         env.storage().persistent().set(&campaign_id, &campaign);
-        env.storage().persistent().extend_ttl(&campaign_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&campaign_id, ttl, bump);
 
         env.events().publish(
             (Symbol::new(&env, "campaign_claimed"), campaign_id),
@@ -257,8 +305,12 @@ impl CampaignFundingContract {
         );
     }
 
+    /// Request a refund for a specific `contributor`.
+    /// Anyone may call this — no authorisation is required from the contributor.
+    /// Refunds are only available after the deadline when `total_raised < goal_amount`.
     pub fn refund(env: Env, campaign_id: u64, contributor: Address) {
-        let campaign: Campaign = env.storage().persistent()
+        Self::require_initialized(&env);
+        let mut campaign: Campaign = env.storage().persistent()
             .get(&campaign_id)
             .unwrap_or_else(|| panic_with_error!(&env, Error::CampaignNotFound));
 
@@ -269,6 +321,23 @@ impl CampaignFundingContract {
 
         if campaign.total_raised >= campaign.goal_amount {
             panic_with_error!(&env, Error::GoalAlreadyMet);
+        }
+
+        // Mark the campaign as expired so consumers see the definitive state
+        if campaign.status == CampaignStatus::Active {
+            campaign.status = CampaignStatus::Expired;
+
+            let (ttl, bump) = Self::campaign_ttl(&env, campaign.deadline);
+            env.storage().persistent().set(&campaign_id, &campaign);
+            env.storage().persistent().extend_ttl(&campaign_id, ttl, bump);
+
+            env.events().publish(
+                (Symbol::new(&env, "campaign_expired"), campaign_id),
+                CampaignExpiredEvent {
+                    campaign_id,
+                    deadline: campaign.deadline,
+                },
+            );
         }
 
         let contribution_key = (campaign_id, contributor.clone());
@@ -293,8 +362,9 @@ impl CampaignFundingContract {
 
         contribution.refunded = true;
 
+        let (ttl, bump) = Self::campaign_ttl(&env, campaign.deadline);
         env.storage().persistent().set(&contribution_key, &contribution);
-        env.storage().persistent().extend_ttl(&contribution_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&contribution_key, ttl, bump);
 
         env.events().publish(
             (Symbol::new(&env, "refund"), campaign_id),
@@ -306,17 +376,21 @@ impl CampaignFundingContract {
         );
     }
 
+    /// Return the full `Campaign` struct for `campaign_id`.
+    /// Panics with `CampaignNotFound` if no such campaign exists.
     pub fn get_campaign(env: Env, campaign_id: u64) -> Campaign {
         env.storage().persistent()
             .get(&campaign_id)
             .unwrap_or_else(|| panic_with_error!(&env, Error::CampaignNotFound))
     }
 
+    /// Return the `Contribution` for `(campaign_id, contributor)`, or `None`.
     pub fn get_contribution(env: Env, campaign_id: u64, contributor: Address) -> Option<Contribution> {
         env.storage().persistent()
             .get(&(campaign_id, contributor))
     }
 
+    /// Return the admin address, or `None` if the contract is not initialised.
     pub fn get_admin(env: Env) -> Option<Address> {
         env.storage().instance().get(&Symbol::new(&env, "admin"))
     }
