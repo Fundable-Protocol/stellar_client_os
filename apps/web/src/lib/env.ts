@@ -33,6 +33,9 @@ const envSchema = z.object({
     })
     .default("testnet"),
 
+  // Optional: RPC authentication header for private endpoints
+  NEXT_PUBLIC_SOROBAN_RPC_HEADER: z.string().optional().or(z.literal("")),
+
   // Optional: App metadata
   NEXT_PUBLIC_URL: z.string().url().optional(),
   NEXT_PUBLIC_APP_NAME: z.string().optional(),
@@ -66,6 +69,7 @@ export function validateEnv(): Env {
     NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID: process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID,
     NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID: process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID,
     NEXT_PUBLIC_SOROBAN_RPC_URL: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL,
+    NEXT_PUBLIC_SOROBAN_RPC_HEADER: process.env.NEXT_PUBLIC_SOROBAN_RPC_HEADER,
     NEXT_PUBLIC_NETWORK_PASSPHRASE: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE,
     NEXT_PUBLIC_STELLAR_NETWORK: process.env.NEXT_PUBLIC_STELLAR_NETWORK,
     NEXT_PUBLIC_URL: process.env.NEXT_PUBLIC_URL,
@@ -109,6 +113,7 @@ export const env = process.env.NODE_ENV === 'test'
       NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID: process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID ?? 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
       NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID: process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID ?? 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
       NEXT_PUBLIC_SOROBAN_RPC_URL: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? 'https://soroban-testnet.stellar.org',
+      NEXT_PUBLIC_SOROBAN_RPC_HEADER: process.env.NEXT_PUBLIC_SOROBAN_RPC_HEADER,
       NEXT_PUBLIC_NETWORK_PASSPHRASE: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015',
       NEXT_PUBLIC_STELLAR_NETWORK: (process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? 'testnet') as 'testnet' | 'mainnet',
       NEXT_PUBLIC_STELLAR_HORIZON_URL: process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
