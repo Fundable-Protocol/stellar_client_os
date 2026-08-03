@@ -6,6 +6,7 @@ members = [
     "distributor",
     "nft-stream",
     "campaign-funding"
+    "soulbound-badge"
 ]
 
 [workspace.package]
@@ -15,7 +16,7 @@ license = "MIT"
 repository = "https://github.com/Fundable-Protocol/stellar_client"
 
 [workspace.dependencies]
-soroban-sdk = "22.0.0"
+soroban-sdk = "=25.3.2"
 
 [profile.release]
 opt-level = "z"

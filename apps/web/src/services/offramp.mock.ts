@@ -5,6 +5,7 @@ import type {
   CreateOfframpResponse,
   OfframpCountry,
   ProviderRate,
+  ProviderLimitsResponse,
   QuoteStatusResponse,
   UserLimitsResponse,
   VerifyBankAccountResponse,
@@ -340,6 +341,28 @@ export const mockOfframpService = {
         dailyUsed: mockDailyUsed,
         remainingDaily: mockDailyLimit - mockDailyUsed,
         tier: "standard",
+      },
+    };
+  },
+
+  async getProviderLimits(
+    params: {
+      token: string;
+      country: string;
+      network: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<ProviderLimitsResponse> {
+    await sleep(getMockDelay("sync"), signal);
+    const minimumAmount = params.country === "NG" ? 10 : 5;
+    return {
+      success: true,
+      data: {
+        minimumAmount,
+        providers: [
+          { providerId: "cashwyre", minimumAmount },
+          { providerId: "autoramp", minimumAmount },
+        ],
       },
     };
   },

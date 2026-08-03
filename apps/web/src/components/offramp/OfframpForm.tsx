@@ -20,9 +20,18 @@ interface OfframpFormProps {
     onChange: (field: keyof OfframpFormState, value: string) => void;
     maxBalance?: string;
     onMaxClick?: () => void;
+    minimumAmount: number;
+    isLoadingMinimum?: boolean;
 }
 
-export function OfframpForm({ formState, onChange, maxBalance, onMaxClick }: OfframpFormProps) {
+export function OfframpForm({
+    formState,
+    onChange,
+    maxBalance,
+    onMaxClick,
+    minimumAmount,
+    isLoadingMinimum = false,
+}: OfframpFormProps) {
     const [isKycNoticeVisible, setIsKycNoticeVisible] = useState(true);
 
     return (
@@ -86,10 +95,9 @@ export function OfframpForm({ formState, onChange, maxBalance, onMaxClick }: Off
                 <div className="space-y-2">
                     <Label htmlFor="amount" className="text-fundable-light-grey text-sm">
                         Amount
-                        {(() => {
-                            const selectedToken = SUPPORTED_OFFRAMP_TOKENS.find(t => t.symbol === formState.token);
-                            return selectedToken ? ` (Minimum: ${selectedToken.minimumAmount} ${selectedToken.symbol})` : '';
-                        })()}
+                        {isLoadingMinimum
+                            ? " (Loading provider minimum...)"
+                            : ` (Minimum: ${minimumAmount} ${formState.token})`}
                     </Label>
                     <div className="relative">
                         <Input

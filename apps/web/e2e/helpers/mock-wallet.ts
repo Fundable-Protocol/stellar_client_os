@@ -9,7 +9,7 @@ export const MOCK_ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 export async function injectConnectedWallet(page: Page, address = MOCK_ADDRESS) {
   await page.addInitScript((addr) => {
     localStorage.setItem('stellar_wallet_address', addr);
-    localStorage.setItem('stellar_wallet_id', 'freighter');
+    localStorage.setItem('@fundable/web:selected_wallet', 'freighter');
     localStorage.setItem('stellar_wallet_network', 'Test SDF Network ; September 2015');
   }, address);
 }
@@ -20,7 +20,7 @@ export async function injectConnectedWallet(page: Page, address = MOCK_ADDRESS) 
 export async function clearWalletState(page: Page) {
   await page.addInitScript(() => {
     localStorage.removeItem('stellar_wallet_address');
-    localStorage.removeItem('stellar_wallet_id');
+    localStorage.removeItem('@fundable/web:selected_wallet');
     localStorage.removeItem('stellar_wallet_network');
   });
 }

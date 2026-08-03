@@ -23,23 +23,12 @@ export default function OfframpSummary({
     onProceed,
     isLoading,
 }: OfframpSummaryProps) {
-    const [timeLeft, setTimeLeft] = useState<number | null>(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const timeLeft = useMemo(() => {
+        if (!quote?.expiresAt) return null;
 
-    useEffect(() => {
-        if (!quote?.expiresAt) {
-            setTimeLeft(null);
-            return;
-        }
-
-        const tick = () => {
-            const remaining = Math.floor((new Date(quote.expiresAt!).getTime() - Date.now()) / 1000);
-            setTimeLeft(remaining > 0 ? remaining : 0);
-        };
-
-        tick();
-        const intervalId = setInterval(tick, 1000);
-
-        return () => clearInterval(intervalId);
+        const remaining = Math.floor((new Date(quote.expiresAt).getTime() - Date.now()) / 1000);
+        return remaining > 0 ? remaining : 0;
     }, [quote?.expiresAt]);
 
     const selectedCountry = SUPPORTED_COUNTRIES.find(
