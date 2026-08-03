@@ -1,9 +1,9 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useState, useRef, useEffect } from "react";
-import { LogOut } from "lucide-react";
 import { useWallet } from "@/providers/StellarWalletProvider";
+import { UserMenu } from "@/components/molecules/UserMenu";
 
 const ArrowDownIcon = ({
   className = "text-white/70",
@@ -92,30 +92,12 @@ export function ConnectButton() {
           </div>
         </motion.button>
 
-        <AnimatePresence>
-          {dropdownOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: 10, scale: 0.95 }}
-              animate={{ opacity: 1, y: 5, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
-              className="absolute top-full right-0 mt-3 w-48 bg-[#0F1621]/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50 p-2"
-              role="menu"
-              aria-label="Wallet options"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                aria-label="Disconnect wallet"
-                onClick={handleDisconnect}
-                className="flex items-center gap-3 w-full px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl transition-all text-sm font-bold"
-              >
-                <LogOut className="w-4 h-4" />
-                Disconnect
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <UserMenu
+          address={address}
+          formattedAddress={formatAddress(address)}
+          isOpen={dropdownOpen}
+          onDisconnect={handleDisconnect}
+        />
       </div>
     );
   }
