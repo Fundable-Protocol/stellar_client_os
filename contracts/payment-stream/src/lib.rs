@@ -102,6 +102,15 @@ pub struct StreamResumedEvent {
     pub paused_duration: u64,
 }
 
+/// Fee tier threshold and fee rate pair
+/// Represents: "if cumulative volume >= threshold, apply fee_rate"
+#[contracttype]
+#[derive(Clone)]
+pub struct FeeTier {
+    pub threshold: i128,  // Minimum cumulative volume to qualify for this tier
+    pub fee_rate: u32,    // Fee rate in basis points (e.g., 250 = 2.5%)
+}
+
 /// Custom errors for the contract
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -123,6 +132,8 @@ pub enum Error {
     DepositExceedsTotal = 14,
     ArithmeticOverflow = 15,
     InvalidDelegate = 16,
+    InvalidTierConfiguration = 17,
+    TierFeeNotMonotonic = 18,
 }
 
 // Constants
@@ -149,6 +160,19 @@ impl PaymentStreamContract {
         env.storage().instance().set(&Symbol::new(&env, "stream_count"), &0u64);
         env.storage().instance().set(&Symbol::new(&env, "fee_collector"), &fee_collector);
         env.storage().instance().set(&Symbol::new(&env, "general_protocol_fee_rate"), &general_fee_rate);
+        
+        // Initialize default fee tiers
+        // Tier 0 (below 50,000): 500 bps (5.0%)
+        // Tier 1 (50,000 to 500,000): 250 bps (2.5%)
+        // Tier 2 (500,000+): 100 bps (1.0%)
+        let default_tiers: soroban_sdk::Vec<FeeTier> = {
+            let mut v = soroban_sdk::Vec::new(&env);
+            v.push_back(FeeTier { threshold: 0, fee_rate: 500 });
+            v.push_back(FeeTier { threshold: 50_000, fee_rate: 250 });
+            v.push_back(FeeTier { threshold: 500_000, fee_rate: 100 });
+            v
+        };
+        env.storage().instance().set(&Symbol::new(&env, "fee_tiers"), &default_tiers);
         
         // Initialize protocol metrics
         let initial_metrics = ProtocolMetrics {
@@ -226,6 +250,14 @@ impl PaymentStreamContract {
         env.storage().persistent().set(&(stream_id, Symbol::new(&env, "metrics")), &stream_metrics);
         env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
         env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "metrics")), LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        // Update donor cumulative volume for fee tier calculation
+        let donor_volume_key = (Symbol::new(&env, "donor_volume"), sender.clone());
+        let current_volume: i128 = env.storage().persistent().get(&donor_volume_key).unwrap_or(0);
+        let new_volume = current_volume.checked_add(total_amount)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        env.storage().persistent().set(&donor_volume_key, &new_volume);
+        env.storage().persistent().extend_ttl(&donor_volume_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update protocol metrics
         let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
@@ -434,17 +466,75 @@ impl PaymentStreamContract {
         env.storage().persistent().get(&(stream_id, Symbol::new(&env, "delegate")))
     }
 
-    /// Calculate the protocol fee for a given amount
-    fn calculate_protocol_fee(env: &Env, amount: i128) -> i128 {
-        let fee_rate: u32 = env.storage().instance().get(&Symbol::new(env, "general_protocol_fee_rate")).unwrap_or(0);
-
-        if fee_rate == 0 || amount <= 0 {
+    /// Calculate the protocol fee for a given amount based on donor's cumulative volume
+    /// 
+    /// # Overview
+    /// This function implements a dynamic fee tier system where protocol fees decrease
+    /// as a donor's cumulative stream volume increases across all their streams.
+    ///
+    /// # Volume Tracking
+    /// Volume is tracked as **all-time cumulative volume per donor** across the entire
+    /// contract history. This means:
+    /// - Volume accumulates when a stream is created (counted as the stream's total_amount)
+    /// - Volume persists across stream lifecycle (active, completed, canceled, etc.)
+    /// - Volume never decreases (even if a stream is canceled, that stream's amount
+    ///   counted toward the tier remains in the cumulative total)
+    /// - This approach is conservative and resists gaming: a donor cannot inflate their
+    ///   tier by creating many small uncommitted streams, since volume is counted at
+    ///   creation time based on the actual committed amount
+    ///
+    /// # Tier Selection
+    /// The function looks up the donor's cumulative volume and determines which fee tier
+    /// applies. Tiers are defined as (threshold, fee_rate) pairs, where:
+    /// - threshold: minimum cumulative volume to qualify for this tier
+    /// - fee_rate: fee percentage in basis points
+    /// The highest threshold that doesn't exceed the donor's volume determines their fee tier.
+    ///
+    /// # Fee Calculation
+    /// Once the tier is determined, the fee is calculated as:
+    /// fee = (amount * fee_rate) / 10000, with integer rounding
+    ///
+    /// # Parameters
+    /// - `env`: The Soroban environment
+    /// - `donor`: The donor (stream sender) address
+    /// - `amount`: The amount being withdrawn, on which the fee is calculated
+    ///
+    /// # Returns
+    /// The fee amount in the same token denomination as the amount parameter
+    fn calculate_protocol_fee(env: &Env, donor: &Address, amount: i128) -> i128 {
+        if amount <= 0 {
             return 0;
         }
 
-        // fee = (amount * fee_rate) / 10000
-        // Split calculation to avoid overflow while preserving precision
-        let rate = fee_rate as i128;
+        // Get donor's cumulative volume
+        let donor_volume_key = (Symbol::new(env, "donor_volume"), donor.clone());
+        let cumulative_volume: i128 = env.storage().persistent().get(&donor_volume_key).unwrap_or(0);
+
+        // Get fee tiers (fallback to flat fee if tiers not configured)
+        let tiers: soroban_sdk::Vec<FeeTier> = match env.storage().instance().get(&Symbol::new(env, "fee_tiers")) {
+            Some(tiers) => tiers,
+            None => {
+                // Fallback: use general fee rate if tiers not set up
+                let fee_rate: u32 = env.storage().instance().get(&Symbol::new(env, "general_protocol_fee_rate")).unwrap_or(0);
+                let rate = fee_rate as i128;
+                return (amount / 10000) * rate + ((amount % 10000) * rate) / 10000;
+            }
+        };
+
+        // Determine applicable tier
+        let mut applicable_fee_rate: u32 = 0;
+        for tier in tiers.iter() {
+            if cumulative_volume >= tier.threshold {
+                applicable_fee_rate = tier.fee_rate;
+            }
+        }
+
+        // Calculate fee with the determined rate
+        if applicable_fee_rate == 0 {
+            return 0;
+        }
+
+        let rate = applicable_fee_rate as i128;
         let fee = (amount / 10000) * rate + ((amount % 10000) * rate) / 10000;
         fee.max(0)
     }
@@ -500,8 +590,8 @@ impl PaymentStreamContract {
             panic_with_error!(&env, Error::InsufficientWithdrawable);
         }
 
-        // Calculate protocol fee
-        let fee = Self::calculate_protocol_fee(&env, amount);
+        // Calculate protocol fee based on donor's cumulative volume
+        let fee = Self::calculate_protocol_fee(&env, &stream.sender, amount);
         let net_amount = amount - fee;
 
         stream.withdrawn_amount += amount;
@@ -758,6 +848,111 @@ impl PaymentStreamContract {
                 total_streams_created: 0,
                 total_delegations: 0,
             })
+    }
+
+    /// Set the fee tier configuration for the protocol
+    /// 
+    /// # Overview
+    /// Allows the admin to configure the dynamic fee tier structure. Fee tiers must
+    /// be ordered by increasing threshold and must have monotonically non-increasing
+    /// fee rates (fees may only stay the same or decrease, never increase, as volume increases).
+    ///
+    /// # Parameters
+    /// - `tiers`: A vector of FeeTier structs, each containing:
+    ///   - `threshold`: The minimum cumulative volume to qualify for this tier
+    ///   - `fee_rate`: The fee rate in basis points (e.g., 250 = 2.5%)
+    ///
+    /// # Validation
+    /// The function validates that:
+    /// 1. All thresholds are non-negative
+    /// 2. Thresholds are strictly increasing (to avoid ambiguous tier ordering)
+    /// 3. Fee rates are monotonically non-increasing (a donor's fee only goes down
+    ///    or stays the same as their volume increases, never up)
+    /// 4. The first tier has threshold 0 (to ensure all donors have a valid base tier)
+    /// 5. All fee rates are within the MAX_FEE limit
+    ///
+    /// # Authorization
+    /// Requires authentication from the contract admin address.
+    ///
+    /// # Errors
+    /// - `Unauthorized`: If called by a non-admin address
+    /// - `InvalidTierConfiguration`: If thresholds are not strictly increasing or
+    ///   if the first tier threshold is not 0
+    /// - `TierFeeNotMonotonic`: If fee rates are not monotonically non-increasing
+    /// - `FeeTooHigh`: If any fee rate exceeds MAX_FEE
+    pub fn set_fee_tiers(env: Env, tiers: soroban_sdk::Vec<FeeTier>) {
+        let admin: Address = env.storage().instance().get(&Symbol::new(&env, "admin")).unwrap();
+        admin.require_auth();
+
+        // Validate that tiers is not empty
+        if tiers.is_empty() {
+            panic_with_error!(&env, Error::InvalidTierConfiguration);
+        }
+
+        // Validate first tier has threshold 0
+        if let Some(first_tier) = tiers.first() {
+            if first_tier.threshold != 0 {
+                panic_with_error!(&env, Error::InvalidTierConfiguration);
+            }
+        }
+
+        // Validate thresholds are strictly increasing
+        let mut prev_threshold: i128 = -1;
+        for tier in tiers.iter() {
+            if tier.threshold <= prev_threshold {
+                panic_with_error!(&env, Error::InvalidTierConfiguration);
+            }
+            prev_threshold = tier.threshold;
+        }
+
+        // Validate fee rates are monotonically non-increasing and within MAX_FEE
+        let mut prev_fee_rate: u32 = u32::MAX;
+        for tier in tiers.iter() {
+            if tier.fee_rate > prev_fee_rate {
+                panic_with_error!(&env, Error::TierFeeNotMonotonic);
+            }
+            if tier.fee_rate > MAX_FEE {
+                panic_with_error!(&env, Error::FeeTooHigh);
+            }
+            prev_fee_rate = tier.fee_rate;
+        }
+
+        // Store the new tier configuration
+        env.storage().instance().set(&Symbol::new(&env, "fee_tiers"), &tiers);
+        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    /// Get the current fee tier configuration
+    ///
+    /// # Returns
+    /// A vector of FeeTier structs representing the current tier configuration,
+    /// ordered by increasing threshold.
+    pub fn get_fee_tiers(env: Env) -> soroban_sdk::Vec<FeeTier> {
+        match env.storage().instance().get(&Symbol::new(&env, "fee_tiers")) {
+            Some(tiers) => tiers,
+            None => {
+                // Return empty vector if tiers not configured (shouldn't happen after init)
+                soroban_sdk::Vec::new(&env)
+            }
+        }
+    }
+
+    /// Get the cumulative stream volume for a donor
+    ///
+    /// # Overview
+    /// Returns the total cumulative volume (sum of all stream total_amounts) for a
+    /// given donor across their entire history on this contract. This is used
+    /// internally to determine the fee tier applied to their withdrawals.
+    ///
+    /// # Parameters
+    /// - `donor`: The address of the donor (stream sender)
+    ///
+    /// # Returns
+    /// The donor's cumulative volume in the contract's base token denomination.
+    /// Returns 0 if the donor has no streams.
+    pub fn get_donor_cumulative_volume(env: Env, donor: Address) -> i128 {
+        let donor_volume_key = (Symbol::new(&env, "donor_volume"), donor);
+        env.storage().persistent().get(&donor_volume_key).unwrap_or(0)
     }
 }
 
