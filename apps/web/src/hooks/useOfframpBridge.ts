@@ -81,6 +81,10 @@ interface UseOfframpBridgeReturn {
     userLimits: UserOfframpLimits | null;
     isLoadingLimits: boolean;
 
+    // Provider minimum
+    providerMinimumAmount: number;
+    isLoadingProviderMinimum: boolean;
+
     // Controls
     reset: () => void;
     goBack: () => void;
@@ -120,6 +124,10 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
     // User Limits State
     const [userLimits, setUserLimits] = useState<UserOfframpLimits | null>(null);
     const [isLoadingLimits, setIsLoadingLimits] = useState(false);
+    const [providerMinimumAmount, setProviderMinimumAmount] = useState(
+        SUPPORTED_OFFRAMP_TOKENS.find((token) => token.symbol === "USDC")?.minimumAmount ?? 0
+    );
+    const [isLoadingProviderMinimum, setIsLoadingProviderMinimum] = useState(false);
 
     // Polling refs
     const payoutPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -166,6 +174,46 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
         fetchLimits();
         return () => controller.abort();
     }, [isConnected, address]);
+
+    // ---------- Effects: Provider Minimum ----------
+
+    useEffect(() => {
+        const fallbackMinimum =
+            SUPPORTED_OFFRAMP_TOKENS.find((token) => token.symbol === formState.token)
+                ?.minimumAmount ?? 0;
+        const controller = new AbortController();
+
+        setProviderMinimumAmount(fallbackMinimum);
+        setIsLoadingProviderMinimum(true);
+
+        const fetchProviderMinimum = async () => {
+            try {
+                const result = await offrampService.getProviderLimits(
+                    {
+                        token: formState.token,
+                        country: formState.country,
+                        network: "polygon",
+                    },
+                    controller.signal
+                );
+
+                if (controller.signal.aborted) return;
+                if (result.success && result.data) {
+                    setProviderMinimumAmount(result.data.minimumAmount);
+                } else {
+                    console.warn("Failed to fetch provider offramp limits:", result.error);
+                }
+            } catch (error) {
+                if (controller.signal.aborted) return;
+                console.warn("Error fetching provider offramp limits:", error);
+            } finally {
+                if (!controller.signal.aborted) setIsLoadingProviderMinimum(false);
+            }
+        };
+
+        fetchProviderMinimum();
+        return () => controller.abort();
+    }, [formState.token, formState.country]);
 
     // ---------- Handlers ----------
 
@@ -332,11 +380,14 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
                 setError("No valid quote available. Please check your input.");
                 return;
             }
+            if (isLoadingProviderMinimum) {
+                setError("Provider minimum is still loading. Please try again.");
+                return;
+            }
 
             const amount = parseFloat(form.amount);
-            const selectedToken = SUPPORTED_OFFRAMP_TOKENS.find(t => t.symbol === form.token);
-            if (selectedToken && amount < selectedToken.minimumAmount) {
-                setError(`Amount must be at least ${selectedToken.minimumAmount} ${selectedToken.symbol}`);
+            if (amount < providerMinimumAmount) {
+                setError(`Amount must be at least ${providerMinimumAmount} ${form.token}`);
                 return;
             }
 
@@ -391,7 +442,14 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
                 if (!controller.signal.aborted) setIsLoading(false);
             }
         },
-        [isConnected, address, quote, userLimits]
+        [
+            isConnected,
+            address,
+            quote,
+            userLimits,
+            providerMinimumAmount,
+            isLoadingProviderMinimum,
+        ]
     );
 
     // ---------- Confirm & Process ----------
@@ -499,5 +557,7 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
         isLoadingBanks,
         userLimits,
         isLoadingLimits,
+        providerMinimumAmount,
+        isLoadingProviderMinimum,
     };
 }

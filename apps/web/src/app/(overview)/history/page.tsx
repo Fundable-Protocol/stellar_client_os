@@ -11,7 +11,7 @@ import { columns } from "@/components/modules/history/columns";
 import { HistoryRecord } from "@/services/types";
 import AppSelect from "@/components/molecules/AppSelect";
 import { createTestnetService } from "@/services";
-import { DISTRIBUTOR_CONTRACT_ID, PAYMENT_STREAM_CONTRACT_ID } from "@/lib/constants";
+import { DISTRIBUTOR_CONTRACT_ID, PAYMENT_STREAM_CONTRACT_ID } from "@/lib/env";
 import { withAbortSignal } from "@/utils/retry";
 import { useDebouncedCallback } from "@/hooks/use-debounce-callback";
 

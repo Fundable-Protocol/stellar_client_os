@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { StrKey } from "@stellar/stellar-sdk";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,9 +24,8 @@ interface ManageDelegateModalProps {
     currentDelegate?: string;
 }
 
-const EVM_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
-
 function truncateAddress(address: string): string {
+    if (address.length <= 12) return address;
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
@@ -53,8 +53,8 @@ export function ManageDelegateModal({ isOpen, onClose, streamId, currentDelegate
         setValidationError(null);
         setActionError(null);
 
-        if (!EVM_ADDRESS_REGEX.test(trimmedDelegate)) {
-            setValidationError("Please enter a valid EVM wallet address.");
+        if (!StrKey.isValidEd25519PublicKey(trimmedDelegate)) {
+            setValidationError("Please enter a valid Stellar public key (G...).");
             return;
         }
 
@@ -110,7 +110,7 @@ export function ManageDelegateModal({ isOpen, onClose, streamId, currentDelegate
                                     setValidationError(null);
                                 }
                             }}
-                            placeholder="0x..."
+                            placeholder="G..."
                             disabled={isPending}
                             aria-invalid={Boolean(validationError)}
                             aria-describedby={validationError ? "delegate-address-error" : undefined}

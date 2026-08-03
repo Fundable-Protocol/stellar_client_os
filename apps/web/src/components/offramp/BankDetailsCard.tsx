@@ -172,7 +172,8 @@ export default function BankDetailsCard({
                             placeholder="Enter account number"
                             value={formState.accountNumber}
                             onChange={(e) => {
-                                const value = e.target.value.replace(/\D/g, "").slice(0, maxLen);
+                                const inputWithoutWhitespace = e.target.value.replace(/\s/g, "");
+                                const value = inputWithoutWhitespace.replace(/\D/g, "").slice(0, maxLen);
                                 onChange("accountNumber", value);
                             }}
                             className="bg-fundable-dark border-gray-700 text-white h-12"
@@ -209,4 +210,3 @@ export default function BankDetailsCard({
         </div>
     );
 }
-

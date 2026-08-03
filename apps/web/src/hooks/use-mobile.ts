@@ -17,3 +17,15 @@ export function useIsMobile() {
 
   return !!isMobile
 }
+
+export function useSidebar() {
+  return {
+    isMobile: useIsMobile(),
+    state: "expanded" as const,
+    open: true,
+    setOpen: () => {},
+    openMobile: false,
+    setOpenMobile: () => {},
+    toggleSidebar: () => {},
+  }
+}

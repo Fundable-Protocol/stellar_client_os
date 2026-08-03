@@ -14,11 +14,14 @@ export function useUnsavedChanges(isDirty: boolean, message: string = DEFAULT_WA
     }
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return;
       event.preventDefault();
       event.returnValue = '';
     };
 
     const handleDocumentClick = (event: MouseEvent) => {
+      if (!isDirty) return;
+
       const target = event.target as Element | null;
       const anchor = target?.closest('a[href]') as HTMLAnchorElement | null;
 
@@ -59,6 +62,7 @@ export function useUnsavedChanges(isDirty: boolean, message: string = DEFAULT_WA
     };
 
     const handlePopState = () => {
+      if (!isDirty) return;
       if (!window.confirm(message)) {
         window.history.go(1);
       }

@@ -24,6 +24,8 @@ vi.mock("@/services/offramp.service", () => ({
         getAggregatedRates: vi.fn(),
         createOfframp: vi.fn(),
         getQuoteStatus: vi.fn(),
+        getUserLimits: vi.fn(),
+        getProviderLimits: vi.fn(),
     },
 }));
 
@@ -54,6 +56,19 @@ describe("useOfframpBridge rate limit handling", () => {
         vi.mocked(offrampService.getBankList).mockResolvedValue({
             success: true,
             data: [],
+        });
+        vi.mocked(offrampService.getUserLimits).mockResolvedValue({
+            success: true,
+            data: {
+                dailyLimit: 1000,
+                dailyUsed: 0,
+                remainingDaily: 1000,
+                tier: "standard",
+            },
+        });
+        vi.mocked(offrampService.getProviderLimits).mockResolvedValue({
+            success: true,
+            data: { minimumAmount: 10, providers: [] },
         });
     });
 

@@ -6,6 +6,7 @@ import InputWithLabel from "@/components/molecules/InputWithLabel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Lock, AlertCircle, Calendar } from "lucide-react";
+import { useWallet } from "@/providers/StellarWalletProvider";
 import {
   validateEndTime,
   calculateEndTime,
@@ -46,10 +47,16 @@ export function PaymentStreamForm({
   balanceError,
   insufficientBalance,
 }: StreamFormProps) {
+  const { address } = useWallet();
+
   const booleanOptions = [
     { label: "Yes", value: "true" },
     { label: "No", value: "false" },
   ];
+
+  const isSelfRecipient = Boolean(
+    address && streamData.recipient && streamData.recipient.trim() === address
+  );
 
   const handleStreamDataChange = (
     key: keyof StreamFormData,
@@ -80,6 +87,7 @@ export function PaymentStreamForm({
   const isFormValid =
     !isSubmitting &&
     !insufficientBalance &&
+    !isSelfRecipient &&
     streamData.name &&
     streamData.durationValue &&
     streamData.recipient &&
@@ -149,6 +157,11 @@ export function PaymentStreamForm({
             onChange={(e) =>
               handleStreamDataChange("recipient", e.target.value)
             }
+            errorMessage={
+              isSelfRecipient
+                ? "Recipient cannot be sender address"
+                : undefined
+            }
           />
         </div>
 
@@ -162,7 +175,6 @@ export function PaymentStreamForm({
                 className={`border-zinc-700 bg-zinc-800 rounded h-12 placeholder:text-zinc-500 text-white ${
                   endTimeValidation.error ? "border-red-500" : ""
                 }`}
-                maxLength={streamData.duration === "hour" ? 1 : 3}
                 placeholder="Value eg. 1"
                 value={streamData.durationValue}
                 onChange={(e) =>
@@ -171,19 +183,28 @@ export function PaymentStreamForm({
               />
               <AppSelect
                 className="h-12"
-                setValue={(value) => handleStreamDataChange("duration", value)}
+                setValue={(value) => {
+                  setStreamData((prev) => ({
+                    ...prev,
+                    duration: value,
+                    durationValue: prev.durationValue,
+                  }));
+                }}
+                value={streamData.duration}
                 options={durationOptions}
                 placeholder={streamData.duration || "Pick a duration"}
               />
             </div>
 
-            {/* End Time Validation Error */}
-            {endTimeValidation.error && (
-              <div className="mt-2 flex items-start gap-2 text-red-400 text-sm">
-                <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                <span>{endTimeValidation.error}</span>
-              </div>
-            )}
+            <div aria-live="polite" aria-atomic="true">
+              {/* End Time Validation Error */}
+              {endTimeValidation.error && (
+                <div className="mt-2 flex items-start gap-2 text-red-400 text-sm">
+                  <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                  <span>{endTimeValidation.error}</span>
+                </div>
+              )}
+            </div>
 
             {/* End Time Preview */}
             {endTimeValidation.isValid && endTimeValidation.endTime && (

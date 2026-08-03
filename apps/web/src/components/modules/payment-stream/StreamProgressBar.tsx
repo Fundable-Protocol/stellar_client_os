@@ -20,7 +20,7 @@ const StreamProgressBar: React.FC<StreamProgressBarProps> = ({
     status,
     tokenSymbol,
 }) => {
-    const [currentTime, setCurrentTime] = useState(Date.now());
+    const [currentTime, setCurrentTime] = useState(() => Date.now());
 
     useEffect(() => {
         if (status.toLowerCase() !== "active") return;

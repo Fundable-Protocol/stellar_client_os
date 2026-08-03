@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { StellarService } from "./stellar"
+import { validateContractId } from "./stream-validation"
 
 // Stream record type for display
 export interface StreamRecord {
@@ -12,21 +13,32 @@ export interface StreamRecord {
   withdrawnAmount: string
   startTime: number
   endTime: number
-  status: "Active" | "Paused" | "Canceled" | "Completed"
+  /**
+   * The on-chain lifecycle status of this stream.
+   * "Confirming" is a transient client-side state used while the creation
+   * transaction is still pending confirmation on the Stellar network.
+   */
+  status: "Active" | "Paused" | "Canceled" | "Completed" | "Confirming"
   cancelable: boolean
   transferable: boolean
   delegateAddress?: string | null
 }
 
+export const TOKEN_AMOUNT_REGEX = /^\d+(\.\d{1,7})?$/
+
 export const paymentStreamSchema = z.object({
   recipientAddress: z
     .string()
     .min(1, "Recipient address is required")
-    .refine((address) => StellarService.validateStellarAddress(address), "Invalid Stellar address format"),
+    .refine((address) => StellarService.validateStellarAddress(address), "Please enter a valid Stellar public key"),
   
   token: z
     .string()
-    .min(1, "Token selection is required"),
+    .min(1, "Token selection is required")
+    .refine(
+      (val) => val === "native" || validateContractId(val),
+      "Invalid token: must be 'native' or a valid Stellar contract ID"
+    ),
   
   totalAmount: z
     .string()
@@ -34,7 +46,8 @@ export const paymentStreamSchema = z.object({
     .refine((val) => {
       const num = parseFloat(val)
       return !isNaN(num) && num > 0
-    }, "Amount must be a positive number"),
+    }, "Amount must be a positive number")
+    .refine((val) => TOKEN_AMOUNT_REGEX.test(val), "Amount cannot exceed 7 decimal places"),
   
   duration: z
     .string()
@@ -65,7 +78,8 @@ export const withdrawStreamSchema = z.object({
     .refine((val) => {
       const num = parseFloat(val)
       return !isNaN(num) && num > 0
-    }, "Amount must be a positive number"),
+    }, "Amount must be a positive number")
+    .refine((val) => TOKEN_AMOUNT_REGEX.test(val), "Amount cannot exceed 7 decimal places"),
   
   withdrawTo: z
     .string()
@@ -85,7 +99,8 @@ export const depositStreamSchema = z.object({
     .refine((val) => {
       const num = parseFloat(val)
       return !isNaN(num) && num > 0
-    }, "Amount must be a positive number"),
+    }, "Amount must be a positive number")
+    .refine((val) => TOKEN_AMOUNT_REGEX.test(val), "Amount cannot exceed 7 decimal places"),
 })
 
 export type DepositStreamFormData = z.infer<typeof depositStreamSchema>

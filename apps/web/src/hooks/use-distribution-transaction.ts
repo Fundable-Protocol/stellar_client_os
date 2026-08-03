@@ -2,10 +2,11 @@
 
 import { useState, useCallback } from 'react';
 import { Horizon } from '@stellar/stellar-sdk';
-import { DistributorClient } from '../../../../packages/sdk/src/DistributorClient';
+import { DistributorClient } from '@fundable/sdk';
 import { useWallet } from '@/providers/StellarWalletProvider';
 import { notify } from '@/utils/notification';
-import { DISTRIBUTOR_CONTRACT_ID, SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
+import { DISTRIBUTOR_CONTRACT_ID } from '@/lib/env';
+import { SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
 import { amountToStroops } from '@/utils/amount-validation';
 import { getStellarServerOptions } from '@/utils/rpc-connection-options';
 import type { DistributionState } from '@/types/distribution';

@@ -7,4 +7,5 @@
  */
 
 export { TokenBalance } from "./TokenBalance";
+export { TokenBalanceCard } from "./TokenBalanceCard";
 export { TokenBalanceList } from "./TokenBalanceList";
