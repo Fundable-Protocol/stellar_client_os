@@ -1,12 +1,26 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod test {
-    use super::*;
-    use soroban_sdk::testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke};
-    use soroban_sdk::{token, Address, Env, IntoVal};
     use crate::{PaymentStreamContract, PaymentStreamContractClient, StreamStatus};
+    use soroban_sdk::testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke};
+    use soroban_sdk::{contract, contractimpl, token, Address, Env, IntoVal};
 
+    #[contract]
+    struct ReentrantToken;
 
-    
+    #[contractimpl]
+    impl ReentrantToken {
+        pub fn initialize(env: Env, target: Address) {
+            env.storage().instance().set(&0u32, &target);
+        }
+
+        pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+            let target: Address = env.storage().instance().get(&0u32).unwrap();
+            let client = PaymentStreamContractClient::new(&env, &target);
+            let _ = (from, to, amount);
+            client.set_protocol_fee_rate(&0);
+        }
+    }
     #[test]
     fn test_create_stream() {
         let env = Env::default();
@@ -672,7 +686,7 @@ fn test_delegate_withdraw() {
 
         // Verify event was emitted (at least one event should exist)
         let events = env.events().all();
-        assert!(events.len() > 0);
+        assert!(!events.is_empty());
 }
 
 #[test]
@@ -1828,6 +1842,50 @@ fn test_withdraw_after_pause_and_resume() {
     let recipient_balance = token_client.balance(&recipient);
     assert!(recipient_balance > 0);
     assert_eq!(recipient_balance, 600); // 100 + 500
+}
+
+#[test]
+fn test_reentrant_token_callback_is_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let contract_id = env.register(PaymentStreamContract, ());
+    let client = PaymentStreamContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0);
+
+    let reentrant_token_id = env.register(ReentrantToken, ());
+    let reentrant_token = ReentrantTokenClient::new(&env, &reentrant_token_id);
+    reentrant_token.initialize(&contract_id);
+
+    let result = client.try_create_stream(
+        &sender,
+        &recipient,
+        &reentrant_token_id,
+        &1_000,
+        &1_000,
+        &0,
+        &100,
+    );
+    assert!(result.is_err());
+
+    let asset = env.register_stellar_asset_contract_v2(admin.clone());
+    let token = asset.address();
+    token::StellarAssetClient::new(&env, &token).mint(&sender, &1_000);
+
+    let stream_id = client.create_stream(
+        &sender,
+        &recipient,
+        &token,
+        &1_000,
+        &1_000,
+        &0,
+        &100,
+    );
+    assert_eq!(stream_id, 1);
 }
     
 }

@@ -1,4 +1,5 @@
 #![no_std]
+use contract_common::ReentrancyGuard;
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env, Symbol};
 
 /// Stream status enum
@@ -123,6 +124,7 @@ pub enum Error {
     DepositExceedsTotal = 14,
     ArithmeticOverflow = 15,
     InvalidDelegate = 16,
+    ReentrantCall = 17,
 }
 
 // Constants
@@ -137,6 +139,8 @@ pub struct PaymentStreamContract;
 impl PaymentStreamContract {
     /// Initialize the contract
     pub fn initialize(env: Env, admin: Address, fee_collector: Address, general_fee_rate: u32) {
+        let _guard = Self::acquire_guard(&env);
+
         if env.storage().instance().has(&Symbol::new(&env, "admin")) {
             panic_with_error!(&env, Error::AlreadyInitialized);
         }
@@ -163,6 +167,7 @@ impl PaymentStreamContract {
     }
 
     /// Create a new payment stream
+    #[allow(clippy::too_many_arguments)]
     pub fn create_stream(
         env: Env,
         sender: Address,
@@ -173,6 +178,8 @@ impl PaymentStreamContract {
         start_time: u64,
         end_time: u64,
     ) -> u64 {
+        let _guard = Self::acquire_guard(&env);
+
         sender.require_auth();
 
         // Validate inputs
@@ -255,6 +262,8 @@ impl PaymentStreamContract {
 
     /// Deposit tokens to an existing stream
     pub fn deposit(env: Env, stream_id: u64, amount: i128) {
+        let _guard = Self::acquire_guard(&env);
+
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         if matches!(stream.status, StreamStatus::Canceled | StreamStatus::Completed) {
@@ -339,6 +348,8 @@ impl PaymentStreamContract {
 
     /// Set a delegate for withdrawal rights on a stream
     pub fn set_delegate(env: Env, stream_id: u64, delegate: Address) {
+        let _guard = Self::acquire_guard(&env);
+
         let stream: Stream = Self::get_stream(env.clone(), stream_id);
         stream.recipient.require_auth();
     
@@ -397,6 +408,8 @@ impl PaymentStreamContract {
 
     /// Revoke the delegate for a stream
     pub fn revoke_delegate(env: Env, stream_id: u64) {
+        let _guard = Self::acquire_guard(&env);
+
         let stream: Stream = Self::get_stream(env.clone(), stream_id);
         stream.recipient.require_auth();
 
@@ -491,6 +504,11 @@ impl PaymentStreamContract {
 
     /// Withdraw from a stream
     pub fn withdraw(env: Env, stream_id: u64, amount: i128) {
+        let _guard = Self::acquire_guard(&env);
+        Self::withdraw_internal(env, stream_id, amount);
+    }
+
+    fn withdraw_internal(env: Env, stream_id: u64, amount: i128) {
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         Self::assert_is_recipient_or_delegate(&env, stream_id);
@@ -547,15 +565,19 @@ impl PaymentStreamContract {
 
     /// Withdraw the maximum available amount from a stream
     pub fn withdraw_max(env: Env, stream_id: u64) {
+        let _guard = Self::acquire_guard(&env);
+
         let available = Self::withdrawable_amount(env.clone(), stream_id);
         if available <= 0 {
             panic_with_error!(&env, Error::InsufficientWithdrawable);
         }
-        Self::withdraw(env, stream_id, available);
+        Self::withdraw_internal(env, stream_id, available);
     }
 
     /// Pause a stream (sender only)
     pub fn pause_stream(env: Env, stream_id: u64) {
+        let _guard = Self::acquire_guard(&env);
+
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         stream.sender.require_auth();
@@ -603,6 +625,8 @@ impl PaymentStreamContract {
 
     /// Resume a paused stream (sender only)
     pub fn resume_stream(env: Env, stream_id: u64) {
+        let _guard = Self::acquire_guard(&env);
+
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         stream.sender.require_auth();
@@ -663,6 +687,8 @@ impl PaymentStreamContract {
 
     /// Cancel a stream
     pub fn cancel_stream(env: Env, stream_id: u64) {
+        let _guard = Self::acquire_guard(&env);
+
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         stream.sender.require_auth();
@@ -707,6 +733,8 @@ impl PaymentStreamContract {
 
     /// Set the protocol fee rate
     pub fn set_protocol_fee_rate(env: Env, new_fee_rate: u32) {
+        let _guard = Self::acquire_guard(&env);
+
         let admin: Address = env.storage().instance().get(&Symbol::new(&env, "admin")).unwrap();
         admin.require_auth();
 
@@ -720,6 +748,8 @@ impl PaymentStreamContract {
 
     /// Set the fee collector address
     pub fn set_fee_collector(env: Env, new_fee_collector: Address) {
+        let _guard = Self::acquire_guard(&env);
+
         let admin: Address = env.storage().instance().get(&Symbol::new(&env, "admin")).unwrap();
         admin.require_auth();
 
@@ -758,6 +788,11 @@ impl PaymentStreamContract {
                 total_streams_created: 0,
                 total_delegations: 0,
             })
+    }
+
+    fn acquire_guard(env: &Env) -> ReentrancyGuard {
+        ReentrancyGuard::acquire(env)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ReentrantCall))
     }
 }
 

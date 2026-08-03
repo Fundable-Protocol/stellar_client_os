@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, Env, Map, Symbol, Vec,
+    contract, contractimpl, contracttype, token, Address, Env, Symbol, Vec,
 };
 
 #[contract]
@@ -69,7 +69,6 @@ impl DistributorContract {
         
        
         let protocol_fee = Self::calculate_fee(&env, total_amount);
-        let total_with_fee = total_amount + protocol_fee;
         
         if protocol_fee > 0 {
             let fee_address: Address = env.storage().instance()
@@ -101,7 +100,7 @@ impl DistributorContract {
         sender.require_auth();
         
         assert!(recipients.len() == amounts.len(), "Recipients and amounts must match");
-        assert!(recipients.len() > 0, "No recipients provided");
+        assert!(!recipients.is_empty(), "No recipients provided");
         
         let token_client = token::Client::new(&env, &token);
         
@@ -139,19 +138,19 @@ impl DistributorContract {
    
     fn update_global_stats(env: &Env, amount: i128) {
         let storage = env.storage().instance();
-        let mut total_dist: u64 = storage.get(&Symbol::new(&env, "tot_dist")).unwrap_or(0);
-        let mut total_amt: i128 = storage.get(&Symbol::new(&env, "tot_amt")).unwrap_or(0);
+        let mut total_dist: u64 = storage.get(&Symbol::new(env, "tot_dist")).unwrap_or(0);
+        let mut total_amt: i128 = storage.get(&Symbol::new(env, "tot_amt")).unwrap_or(0);
         
         total_dist += 1;
         total_amt += amount;
         
-        storage.set(&Symbol::new(&env, "tot_dist"), &total_dist);
-        storage.set(&Symbol::new(&env, "tot_amt"), &total_amt);
+        storage.set(&Symbol::new(env, "tot_dist"), &total_dist);
+        storage.set(&Symbol::new(env, "tot_amt"), &total_amt);
     }
 
-    fn update_token_stats(env: &Env, token: &Address, amount: i128, recipient_count: u32) {
+    fn update_token_stats(env: &Env, token: &Address, amount: i128, _recipient_count: u32) {
         let storage = env.storage().persistent();
-        let key = (Symbol::new(&env, "tok_stats"), token);
+        let key = (Symbol::new(env, "tok_stats"), token);
         
         let mut stats: TokenStats = storage.get(&key).unwrap_or(TokenStats {
             total_amount: 0,
@@ -170,7 +169,7 @@ impl DistributorContract {
 
     fn update_user_stats(env: &Env, user: &Address, amount: i128) {
         let storage = env.storage().persistent();
-        let key = (Symbol::new(&env, "usr_stats"), user);
+        let key = (Symbol::new(env, "usr_stats"), user);
         
         let mut stats: UserStats = storage.get(&key).unwrap_or(UserStats {
             distributions_initiated: 0,
@@ -186,7 +185,7 @@ impl DistributorContract {
     fn record_history(env: &Env, sender: Address, token: Address, amount: i128, recipient_count: u32) {
         let storage = env.storage().persistent();
         let mut count: u64 = env.storage().instance()
-            .get(&Symbol::new(&env, "hist_cnt"))
+            .get(&Symbol::new(env, "hist_cnt"))
             .unwrap_or(0);
         
         let history = DistributionHistory {
@@ -197,14 +196,14 @@ impl DistributorContract {
             timestamp: env.ledger().timestamp(),
         };
         
-        storage.set(&(Symbol::new(&env, "history"), count), &history);
+        storage.set(&(Symbol::new(env, "history"), count), &history);
         count += 1;
-        env.storage().instance().set(&Symbol::new(&env, "hist_cnt"), &count);
+        env.storage().instance().set(&Symbol::new(env, "hist_cnt"), &count);
     }
 
     fn calculate_fee(env: &Env, amount: i128) -> i128 {
         let fee_percent: u32 = env.storage().instance()
-            .get(&Symbol::new(&env, "fee_pct"))
+            .get(&Symbol::new(env, "fee_pct"))
             .unwrap_or(0);
         (amount * fee_percent as i128) / 10000
     }
@@ -270,19 +269,21 @@ mod test {
         env: &Env,
         admin: &Address,
     ) -> (Address, TokenClient<'a>, StellarAssetClient<'a>) {
-        let token_address = env.register_stellar_asset_contract(admin.clone());
+        let token_address = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
         let token_client = TokenClient::new(env, &token_address);
         let token_admin_client = StellarAssetClient::new(env, &token_address);
         (token_address, token_client, token_admin_client)
     }
 
      
-    fn setup_distributor(env: &Env) -> (Address, DistributorContractClient, Address, Address) {
+    fn setup_distributor(env: &Env) -> (Address, DistributorContractClient<'_>, Address, Address) {
         let contract_id = env.register(DistributorContract, ());
-        let client = DistributorContractClient::new(&env, &contract_id);
+        let client = DistributorContractClient::new(env, &contract_id);
         
-        let admin = Address::generate(&env);
-        let fee_address = Address::generate(&env);
+        let admin = Address::generate(env);
+        let fee_address = Address::generate(env);
         
         client.initialize(&admin, &250, &fee_address); 
         
@@ -475,7 +476,7 @@ mod test {
         env.mock_all_auths();
 
         let admin = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
         let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
 
         let sender = Address::generate(&env);
@@ -525,7 +526,7 @@ mod test {
         env.mock_all_auths();
 
         let admin = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
         let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
 
         let sender = Address::generate(&env);
@@ -557,7 +558,7 @@ mod test {
         env.mock_all_auths();
 
         let admin = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
         let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
 
         let sender = Address::generate(&env);
@@ -602,7 +603,7 @@ mod test {
         });
 
         let admin = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
         let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
 
         let sender = Address::generate(&env);

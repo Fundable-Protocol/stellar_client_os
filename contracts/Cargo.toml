@@ -4,7 +4,8 @@ resolver = "2"
 members = [
     "payment-stream",
     "distributor",
-    "nft-stream"
+    "nft-stream",
+    "libs/common"
 ]
 
 [workspace.package]
@@ -15,6 +16,7 @@ repository = "https://github.com/Fundable-Protocol/stellar_client"
 
 [workspace.dependencies]
 soroban-sdk = "22.0.0"
+contract-common = { path = "libs/common" }
 
 [profile.release]
 opt-level = "z"
