@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useEffect, useRef } from "react";
 import { useTokenBalance } from "./use-token-balance";
 
@@ -15,7 +17,7 @@ export function useBalanceValidation(
 ) {
   const { balance, isLoading } = useTokenBalance(tokenCode);
   const [error, setError] = useState<string | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // Clear immediately when input is empty
