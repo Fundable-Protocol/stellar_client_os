@@ -32,6 +32,43 @@ export const RecipientTable = memo(function RecipientTable({
   isLoading = false,
 }: RecipientTableProps) {
   const [showUpload, setShowUpload] = React.useState(false);
+  const [pendingFocusRecipientId, setPendingFocusRecipientId] = React.useState<string | null>(null);
+  const inputRefs = React.useRef(new Map<string, HTMLInputElement>());
+
+  const setAddressInputRef = useCallback((id: string) => (element: HTMLInputElement | null) => {
+    if (element) {
+      inputRefs.current.set(id, element);
+    } else {
+      inputRefs.current.delete(id);
+    }
+  }, []);
+
+  const handleRemoveRecipient = useCallback((id: string, index: number) => {
+    const nextRecipient = recipients[index + 1] ?? recipients[index - 1];
+
+    if (nextRecipient) {
+      setPendingFocusRecipientId(nextRecipient.id);
+    }
+
+    onRemoveRecipient(id);
+  }, [onRemoveRecipient, recipients]);
+
+  React.useEffect(() => {
+    if (!pendingFocusRecipientId) {
+      return;
+    }
+
+    const targetId = pendingFocusRecipientId;
+
+    requestAnimationFrame(() => {
+      const nextInput = inputRefs.current.get(targetId);
+      if (nextInput) {
+        nextInput.focus();
+      }
+    });
+
+    setPendingFocusRecipientId(null);
+  }, [pendingFocusRecipientId]);
 
   const handleBulkImport = useCallback((newRecipients: Recipient[]) => {
     onBulkImport(newRecipients);
@@ -65,10 +102,11 @@ export const RecipientTable = memo(function RecipientTable({
         recipient={recipient}
         distributionType={distributionType}
         onChange={(updates) => onUpdateRecipient(recipient.id, updates)}
-        onRemove={() => onRemoveRecipient(recipient.id)}
+        onRemove={() => handleRemoveRecipient(recipient.id, index)}
+        addressInputRef={setAddressInputRef(recipient.id)}
       />
     )),
-    [recipients, distributionType, onUpdateRecipient, onRemoveRecipient]
+    [recipients, distributionType, onUpdateRecipient, handleRemoveRecipient, setAddressInputRef]
   );
 
   return (

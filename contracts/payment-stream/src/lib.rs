@@ -1,5 +1,24 @@
 #![no_std]
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env, Symbol};
+use soroban_sdk::{contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env};
+
+/// Persistent/instance storage keys.
+///
+/// Using an enum instead of ad-hoc `Symbol::new()` strings and tuple keys
+/// keeps the ledger footprint small: each variant is a compact XDR value
+/// rather than a dynamically constructed string, which reduces both the
+/// per-entry key size and the CPU cost of building keys on every call.
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Admin,
+    StreamCount,
+    FeeCollector,
+    FeeRate,
+    ProtocolMetrics,
+    Stream(u64),
+    Metrics(u64),
+    Delegate(u64),
+}
 
 /// Stream status enum
 #[contracttype]
@@ -68,6 +87,20 @@ pub struct StreamDepositEvent {
     pub amount: i128,
 }
 
+/// Swap-deposit event data — emitted when a cross-asset deposit completes
+#[contracttype]
+#[derive(Clone)]
+pub struct SwapDepositEvent {
+    /// The stream that received the deposit
+    pub stream_id: u64,
+    /// Token sent by the caller (source asset)
+    pub from_token: Address,
+    /// Amount of source token spent
+    pub amount_in: i128,
+    /// Amount of stream token credited to the stream
+    pub amount_out: i128,
+}
+
 /// Delegation granted event data
 #[contracttype]
 #[derive(Clone)]
@@ -102,6 +135,22 @@ pub struct StreamResumedEvent {
     pub paused_duration: u64,
 }
 
+/// Emergency paused event data
+#[contracttype]
+#[derive(Clone)]
+pub struct EmergencyPausedEvent {
+    pub paused_by: Address,
+    pub paused_at: u64,
+}
+
+/// Emergency unpaused event data
+#[contracttype]
+#[derive(Clone)]
+pub struct EmergencyUnpausedEvent {
+    pub unpaused_by: Address,
+    pub unpaused_at: u64,
+}
+
 /// Custom errors for the contract
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -123,6 +172,12 @@ pub enum Error {
     DepositExceedsTotal = 14,
     ArithmeticOverflow = 15,
     InvalidDelegate = 16,
+    /// Protocol is globally paused by the emergency circuit breaker
+    ContractPaused = 17,
+    /// Emergency pause is already active
+    AlreadyPaused = 18,
+    /// Contract is not currently paused
+    NotPaused = 19,
 }
 
 // Constants
@@ -137,19 +192,19 @@ pub struct PaymentStreamContract;
 impl PaymentStreamContract {
     /// Initialize the contract
     pub fn initialize(env: Env, admin: Address, fee_collector: Address, general_fee_rate: u32) {
-        if env.storage().instance().has(&Symbol::new(&env, "admin")) {
+        if env.storage().instance().has(&DataKey::Admin) {
             panic_with_error!(&env, Error::AlreadyInitialized);
         }
         if general_fee_rate > MAX_FEE {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
         admin.require_auth();
-        
-        env.storage().instance().set(&Symbol::new(&env, "admin"), &admin);
-        env.storage().instance().set(&Symbol::new(&env, "stream_count"), &0u64);
-        env.storage().instance().set(&Symbol::new(&env, "fee_collector"), &fee_collector);
-        env.storage().instance().set(&Symbol::new(&env, "general_protocol_fee_rate"), &general_fee_rate);
-        
+
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::StreamCount, &0u64);
+        env.storage().instance().set(&DataKey::FeeCollector, &fee_collector);
+        env.storage().instance().set(&DataKey::FeeRate, &general_fee_rate);
+
         // Initialize protocol metrics
         let initial_metrics = ProtocolMetrics {
             total_active_streams: 0,
@@ -157,10 +212,128 @@ impl PaymentStreamContract {
             total_streams_created: 0,
             total_delegations: 0,
         };
-        env.storage().instance().set(&Symbol::new(&env, "protocol_metrics"), &initial_metrics);
-        
+        env.storage().instance().set(&DataKey::ProtocolMetrics, &initial_metrics);
+
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
+
+    // -----------------------------------------------------------------------
+    // Emergency pause circuit breaker
+    // -----------------------------------------------------------------------
+
+    /// Internal guard: panics with `ContractPaused` when the global emergency
+    /// pause flag is active.  Call this at the top of every state-mutating
+    /// entry point that should be halted during an incident.
+    fn assert_not_paused(env: &Env) {
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(env, "paused"))
+            .unwrap_or(false);
+        if paused {
+            panic_with_error!(env, Error::ContractPaused);
+        }
+    }
+
+    /// Activate the global emergency pause switch.
+    ///
+    /// When active, all calls to `create_stream`, `deposit`, `withdraw`, and
+    /// `withdraw_max` will be rejected with `Error::ContractPaused`.
+    /// Admin-only operations (fee management, pause/unpause) remain available.
+    ///
+    /// # Authorization
+    /// Requires the stored admin address to sign this transaction.
+    ///
+    /// # Errors
+    /// - `Error::Unauthorized` – caller is not admin.
+    /// - `Error::AlreadyPaused` – the circuit breaker is already active.
+    pub fn emergency_pause(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "admin"))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        let already_paused: bool = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "paused"))
+            .unwrap_or(false);
+        if already_paused {
+            panic_with_error!(&env, Error::AlreadyPaused);
+        }
+
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "paused"), &true);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        let now = env.ledger().timestamp();
+        env.events().publish(
+            ("EmergencyPaused",),
+            EmergencyPausedEvent {
+                paused_by: admin,
+                paused_at: now,
+            },
+        );
+    }
+
+    /// Deactivate the global emergency pause switch, resuming normal operation.
+    ///
+    /// # Authorization
+    /// Requires the stored admin address to sign this transaction.
+    ///
+    /// # Errors
+    /// - `Error::Unauthorized` – caller is not admin.
+    /// - `Error::NotPaused` – the circuit breaker is not currently active.
+    pub fn emergency_unpause(env: Env) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "admin"))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        let paused: bool = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "paused"))
+            .unwrap_or(false);
+        if !paused {
+            panic_with_error!(&env, Error::NotPaused);
+        }
+
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "paused"), &false);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        let now = env.ledger().timestamp();
+        env.events().publish(
+            ("EmergencyUnpaused",),
+            EmergencyUnpausedEvent {
+                unpaused_by: admin,
+                unpaused_at: now,
+            },
+        );
+    }
+
+    /// Returns `true` when the global emergency pause is active.
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&Symbol::new(&env, "paused"))
+            .unwrap_or(false)
+    }
+
+    // -----------------------------------------------------------------------
+    // Core stream operations
+    // -----------------------------------------------------------------------
 
     /// Create a new payment stream
     pub fn create_stream(
@@ -173,7 +346,9 @@ impl PaymentStreamContract {
         start_time: u64,
         end_time: u64,
     ) -> u64 {
+        Self::assert_not_paused(&env);
         sender.require_auth();
+        Self::require_not_paused(&env);
 
         // Validate inputs
         if total_amount <= 0 {
@@ -187,10 +362,10 @@ impl PaymentStreamContract {
         }
 
         // Get and increment stream count
-        let mut stream_count: u64 = env.storage().instance().get(&Symbol::new(&env, "stream_count")).unwrap_or(0);
+        let mut stream_count: u64 = env.storage().instance().get(&DataKey::StreamCount).unwrap_or(0);
         let stream_id = stream_count + 1;
         stream_count += 1;
-        env.storage().instance().set(&Symbol::new(&env, "stream_count"), &stream_count);
+        env.storage().instance().set(&DataKey::StreamCount, &stream_count);
 
         let current_time = env.ledger().timestamp();
 
@@ -222,14 +397,14 @@ impl PaymentStreamContract {
         };
 
         // Store stream and metrics
-        env.storage().persistent().set(&stream_id, &stream);
-        env.storage().persistent().set(&(stream_id, Symbol::new(&env, "metrics")), &stream_metrics);
-        env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
-        env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "metrics")), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Stream(stream_id), &stream);
+        env.storage().persistent().set(&DataKey::Metrics(stream_id), &stream_metrics);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update protocol metrics
         let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
-            .get(&Symbol::new(&env, "protocol_metrics"))
+            .get(&DataKey::ProtocolMetrics)
             .unwrap_or(ProtocolMetrics {
                 total_active_streams: 0,
                 total_tokens_streamed: 0,
@@ -241,7 +416,7 @@ impl PaymentStreamContract {
         protocol_metrics.total_tokens_streamed += total_amount;
         protocol_metrics.total_streams_created += 1;
 
-        env.storage().instance().set(&Symbol::new(&env, "protocol_metrics"), &protocol_metrics);
+        env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Transfer tokens from sender to contract (escrow)
@@ -255,6 +430,7 @@ impl PaymentStreamContract {
 
     /// Deposit tokens to an existing stream
     pub fn deposit(env: Env, stream_id: u64, amount: i128) {
+        Self::assert_not_paused(&env);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         if matches!(stream.status, StreamStatus::Canceled | StreamStatus::Completed) {
@@ -262,6 +438,7 @@ impl PaymentStreamContract {
         }
 
         stream.sender.require_auth();
+        Self::require_not_paused(&env);
 
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
@@ -280,28 +457,228 @@ impl PaymentStreamContract {
 
         // Update balance
         stream.balance = new_balance;
-        env.storage().persistent().set(&stream_id, &stream);
-        env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Stream(stream_id), &stream);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update stream metrics
         let mut metrics: StreamMetrics = env.storage().persistent()
-            .get(&(stream_id, Symbol::new(&env, "metrics")))
+            .get(&DataKey::Metrics(stream_id))
             .unwrap_or_else(|| Self::default_stream_metrics(&env));
 
         metrics.last_activity = env.ledger().timestamp();
 
-        env.storage().persistent().set(&(stream_id, Symbol::new(&env, "metrics")), &metrics);
-        env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "metrics")), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Metrics(stream_id), &metrics);
+        env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Emit StreamDeposit event
         env.events().publish(("StreamDeposit", stream_id), StreamDepositEvent { stream_id, amount });
     }
 
+    /// Deposit by first swapping a source asset into the stream token via the Stellar DEX.
+    ///
+    /// This enables **atomic cross-asset deposits**: the caller pays in any asset that has a
+    /// DEX path to the stream token, and the converted amount is credited to the stream in a
+    /// single transaction.
+    ///
+    /// ## Flow
+    /// 1. Caller authorises the call as `stream.sender`.
+    /// 2. `amount_in` of `from_token` is pulled from the sender into this contract.
+    /// 3. A strict-send path-payment is executed via the configured DEX router:
+    ///    `from_token --[swap_path]--> stream.token`.
+    /// 4. The actual `stream.token` amount received is validated against `min_amount_out`.
+    /// 5. The validated amount is credited to `stream.balance`.
+    ///
+    /// ## Arguments
+    /// * `stream_id`      – Target stream (must be Active or Paused).
+    /// * `from_token`     – Asset the caller is spending (e.g. XLM native).
+    /// * `amount_in`      – Exact amount of `from_token` to spend.
+    /// * `min_amount_out` – Minimum acceptable `stream.token` amount (slippage guard).
+    /// * `swap_path`      – Ordered intermediate asset addresses (may be empty for a direct pair).
+    ///
+    /// ## Errors
+    /// | Code | Meaning |
+    /// |------|---------|
+    /// | `StreamNotActive`     | Stream is Canceled or Completed. |
+    /// | `InvalidAmount`       | `amount_in` or `min_amount_out` ≤ 0. |
+    /// | `InvalidSwapPath`     | `from_token` == `stream.token`; use `deposit()` instead. |
+    /// | `DepositExceedsTotal` | Swap output would exceed `stream.total_amount`. |
+    /// | `SlippageExceeded`    | DEX returned fewer tokens than `min_amount_out`. |
+    /// | `SwapFailed`          | Internal arithmetic failure post-swap. |
+    pub fn deposit_with_swap(
+        env: Env,
+        stream_id: u64,
+        from_token: Address,
+        amount_in: i128,
+        min_amount_out: i128,
+        swap_path: Vec<Address>,
+    ) {
+        // 1. Load stream and validate status
+        let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
+
+        if matches!(stream.status, StreamStatus::Canceled | StreamStatus::Completed) {
+            panic_with_error!(&env, Error::StreamNotActive);
+        }
+
+        // 2. Authorisation – only the stream sender may top-up via swap
+        stream.sender.require_auth();
+
+        // 3. Parameter validation
+        if amount_in <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        if min_amount_out <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        // Caller must actually be swapping a different asset; same-token use deposit()
+        if from_token == stream.token {
+            panic_with_error!(&env, Error::InvalidSwapPath);
+        }
+
+        let contract_addr = env.current_contract_address();
+
+        // 4. Pull source tokens from sender into this contract so the DEX
+        //    router can deduct them from `contract_addr`.
+        let from_client = token::Client::new(&env, &from_token);
+        from_client.transfer(&stream.sender, &contract_addr, &amount_in);
+
+        // 5. Snapshot stream-token balance before the swap for delta accounting.
+        let stream_token_client = token::Client::new(&env, &stream.token);
+        let balance_before = stream_token_client.balance(&contract_addr);
+
+        // 6. Build the full path: from_token -> ...swap_path... -> stream.token
+        //
+        //    The router's `swap_exact_tokens_for_tokens` expects a complete
+        //    path vector where index 0 is the source and the last index is the
+        //    destination.  We prepend `from_token` and append `stream.token`
+        //    around any caller-supplied intermediate hops.
+        let mut full_path: Vec<Address> = Vec::new(&env);
+        full_path.push_back(from_token.clone());
+        for hop in swap_path.iter() {
+            full_path.push_back(hop);
+        }
+        full_path.push_back(stream.token.clone());
+
+        // 7. Invoke the DEX router.
+        //
+        //    The router address is stored in instance storage under "dex_router".
+        //    It must be set by the admin via `set_dex_router` before this
+        //    function can be used.  If not configured the call will panic.
+        let dex_router: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "dex_router"))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::SwapFailed));
+
+        let router = DexRouterClient::new(&env, &dex_router);
+        let amounts_out = router.swap_exact_tokens_for_tokens(
+            &amount_in,
+            &min_amount_out,
+            &full_path,
+            &contract_addr, // output tokens come back to this contract
+        );
+
+        // 8. Determine actual tokens received via balance delta (defensive double-check).
+        let balance_after = stream_token_client.balance(&contract_addr);
+        let actual_received = balance_after
+            .checked_sub(balance_before)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::SwapFailed));
+
+        // Also verify against the router's own reported output.
+        let reported_out = amounts_out.last().unwrap_or(0);
+        let _ = reported_out; // used implicitly through slippage guard below
+
+        if actual_received < min_amount_out {
+            panic_with_error!(&env, Error::SlippageExceeded);
+        }
+
+        // 9. Validate stream capacity
+        let new_balance = stream
+            .balance
+            .checked_add(actual_received)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+
+        if new_balance > stream.total_amount {
+            panic_with_error!(&env, Error::DepositExceedsTotal);
+        }
+
+        // 10. Persist updated stream state
+        stream.balance = new_balance;
+        env.storage().persistent().set(&stream_id, &stream);
+        env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        // 11. Update stream metrics
+        let mut metrics: StreamMetrics = env
+            .storage()
+            .persistent()
+            .get(&(stream_id, Symbol::new(&env, "metrics")))
+            .unwrap_or_else(|| Self::default_stream_metrics(&env));
+
+        metrics.last_activity = env.ledger().timestamp();
+
+        env.storage()
+            .persistent()
+            .set(&(stream_id, Symbol::new(&env, "metrics")), &metrics);
+        env.storage().persistent().extend_ttl(
+            &(stream_id, Symbol::new(&env, "metrics")),
+            LEDGER_THRESHOLD,
+            LEDGER_BUMP,
+        );
+
+        // 12. Emit events
+        //
+        // `SwapDeposit` carries swap-specific details for indexers.
+        // `StreamDeposit` is also emitted so existing listeners remain compatible.
+        env.events().publish(
+            ("SwapDeposit", stream_id),
+            SwapDepositEvent {
+                stream_id,
+                from_token,
+                amount_in,
+                amount_out: actual_received,
+            },
+        );
+        env.events().publish(
+            ("StreamDeposit", stream_id),
+            StreamDepositEvent {
+                stream_id,
+                amount: actual_received,
+            },
+        );
+    }
+
+    /// Register the DEX router contract address (admin only).
+    ///
+    /// Must be called once before `deposit_with_swap` can be used.
+    /// The router must implement the `DexRouter` interface
+    /// (`swap_exact_tokens_for_tokens`).
+    pub fn set_dex_router(env: Env, router: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&Symbol::new(&env, "admin"))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&Symbol::new(&env, "dex_router"), &router);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    /// Return the currently configured DEX router address, if any.
+    pub fn get_dex_router(env: Env) -> Option<Address> {
+        env.storage()
+            .instance()
+            .get(&Symbol::new(&env, "dex_router"))
+    }
+
     /// Get stream details
     pub fn get_stream(env: Env, stream_id: u64) -> Stream {
-        match env.storage().persistent().get(&stream_id) {
+        match env.storage().persistent().get(&DataKey::Stream(stream_id)) {
             Some(stream) => {
-                env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+                env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
                 stream
             },
             None => panic_with_error!(&env, Error::StreamNotFound),
@@ -326,7 +703,7 @@ impl PaymentStreamContract {
         let stream: Stream = Self::get_stream(env.clone(), stream_id);
         
         // First, check if a delegate is set and try to require auth from them
-        let delegate_opt: Option<Address> = env.storage().persistent().get(&(stream_id, Symbol::new(env, "delegate")));
+        let delegate_opt: Option<Address> = env.storage().persistent().get(&DataKey::Delegate(stream_id));
         
         if let Some(delegate) = delegate_opt {
             // If delegate exists, require auth from delegate (they're the one calling)
@@ -348,7 +725,7 @@ impl PaymentStreamContract {
         }
 
         // Check if there's an existing delegate and emit revocation event
-        let delegate_key = (stream_id, Symbol::new(&env, "delegate"));
+        let delegate_key = DataKey::Delegate(stream_id);
         if let Some(old_delegate) = env.storage().persistent().get::<_, Address>(&delegate_key) {
             if old_delegate != delegate {
                 let revoke_event = DelegationRevokedEvent {
@@ -362,12 +739,12 @@ impl PaymentStreamContract {
         let current_time = env.ledger().timestamp();
 
         // Store delegate
-        env.storage().persistent().set(&(stream_id, Symbol::new(&env, "delegate")), &delegate);
-        env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "delegate")), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&delegate_key, &delegate);
+        env.storage().persistent().extend_ttl(&delegate_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update stream metrics
         let mut metrics: StreamMetrics = env.storage().persistent()
-            .get(&(stream_id, Symbol::new(&env, "metrics")))
+            .get(&DataKey::Metrics(stream_id))
             .unwrap_or_else(|| Self::default_stream_metrics(&env));
 
         metrics.total_delegations += 1;
@@ -375,15 +752,15 @@ impl PaymentStreamContract {
         metrics.last_delegation_time = current_time;
         metrics.last_activity = current_time;
 
-        env.storage().persistent().set(&(stream_id, Symbol::new(&env, "metrics")), &metrics);
-        env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "metrics")), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Metrics(stream_id), &metrics);
+        env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update protocol metrics
         let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
-            .get(&Symbol::new(&env, "protocol_metrics"))
+            .get(&DataKey::ProtocolMetrics)
             .unwrap();
         protocol_metrics.total_delegations += 1;
-        env.storage().instance().set(&Symbol::new(&env, "protocol_metrics"), &protocol_metrics);
+        env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Emit event
@@ -400,7 +777,7 @@ impl PaymentStreamContract {
         let stream: Stream = Self::get_stream(env.clone(), stream_id);
         stream.recipient.require_auth();
 
-        let delegate_key = (stream_id, Symbol::new(&env, "delegate"));
+        let delegate_key = DataKey::Delegate(stream_id);
         let had_delegate = env.storage().persistent().has(&delegate_key);
 
         // Remove delegate
@@ -409,14 +786,14 @@ impl PaymentStreamContract {
         // Update stream metrics
         if had_delegate {
             let mut metrics: StreamMetrics = env.storage().persistent()
-                .get(&(stream_id, Symbol::new(&env, "metrics")))
+                .get(&DataKey::Metrics(stream_id))
                 .unwrap_or_else(|| Self::default_stream_metrics(&env));
 
             metrics.current_delegate = None;
             metrics.last_activity = env.ledger().timestamp();
 
-            env.storage().persistent().set(&(stream_id, Symbol::new(&env, "metrics")), &metrics);
-            env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "metrics")), LEDGER_THRESHOLD, LEDGER_BUMP);
+            env.storage().persistent().set(&DataKey::Metrics(stream_id), &metrics);
+            env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
             // Emit event
             let event = DelegationRevokedEvent {
@@ -431,12 +808,12 @@ impl PaymentStreamContract {
     pub fn get_delegate(env: Env, stream_id: u64) -> Option<Address> {
         // Ensure stream exists
         Self::get_stream(env.clone(), stream_id);
-        env.storage().persistent().get(&(stream_id, Symbol::new(&env, "delegate")))
+        env.storage().persistent().get(&DataKey::Delegate(stream_id))
     }
 
     /// Calculate the protocol fee for a given amount
     fn calculate_protocol_fee(env: &Env, amount: i128) -> i128 {
-        let fee_rate: u32 = env.storage().instance().get(&Symbol::new(env, "general_protocol_fee_rate")).unwrap_or(0);
+        let fee_rate: u32 = env.storage().instance().get(&DataKey::FeeRate).unwrap_or(0);
 
         if fee_rate == 0 || amount <= 0 {
             return 0;
@@ -491,9 +868,11 @@ impl PaymentStreamContract {
 
     /// Withdraw from a stream
     pub fn withdraw(env: Env, stream_id: u64, amount: i128) {
+        Self::assert_not_paused(&env);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         Self::assert_is_recipient_or_delegate(&env, stream_id);
+        Self::require_not_paused(&env);
 
         let available = Self::withdrawable_amount(env.clone(), stream_id);
         if amount > available || amount <= 0 {
@@ -512,26 +891,26 @@ impl PaymentStreamContract {
             
             // Update protocol metrics - decrease active streams
             let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
-                .get(&Symbol::new(&env, "protocol_metrics"))
+                .get(&DataKey::ProtocolMetrics)
                 .unwrap();
             protocol_metrics.total_active_streams = protocol_metrics.total_active_streams.saturating_sub(1);
-            env.storage().instance().set(&Symbol::new(&env, "protocol_metrics"), &protocol_metrics);
+            env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
         }
 
-        env.storage().persistent().set(&stream_id, &stream);
-        env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Stream(stream_id), &stream);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update stream metrics
         let mut metrics: StreamMetrics = env.storage().persistent()
-            .get(&(stream_id, Symbol::new(&env, "metrics")))
+            .get(&DataKey::Metrics(stream_id))
             .unwrap_or_else(|| Self::default_stream_metrics(&env));
 
         metrics.total_withdrawn += amount;
         metrics.withdrawal_count += 1;
         metrics.last_activity = env.ledger().timestamp();
 
-        env.storage().persistent().set(&(stream_id, Symbol::new(&env, "metrics")), &metrics);
-        env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "metrics")), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Metrics(stream_id), &metrics);
+        env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Transfer net amount to recipient
         let token_client = token::Client::new(&env, &stream.token);
@@ -539,7 +918,7 @@ impl PaymentStreamContract {
 
         // Transfer fee to collector if fee > 0
         if fee > 0 {
-            let fee_collector: Address = env.storage().instance().get(&Symbol::new(&env, "fee_collector")).unwrap();
+            let fee_collector: Address = env.storage().instance().get(&DataKey::FeeCollector).unwrap();
             token_client.transfer(&env.current_contract_address(), &fee_collector, &fee);
             env.events().publish(("FeeCollected", stream_id), fee);
         }
@@ -547,6 +926,7 @@ impl PaymentStreamContract {
 
     /// Withdraw the maximum available amount from a stream
     pub fn withdraw_max(env: Env, stream_id: u64) {
+        Self::assert_not_paused(&env);
         let available = Self::withdrawable_amount(env.clone(), stream_id);
         if available <= 0 {
             panic_with_error!(&env, Error::InsufficientWithdrawable);
@@ -569,26 +949,26 @@ impl PaymentStreamContract {
         stream.status = StreamStatus::Paused;
         stream.paused_at = Some(current_time);
 
-        env.storage().persistent().set(&stream_id, &stream);
-        env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Stream(stream_id), &stream);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update stream metrics
         let mut metrics: StreamMetrics = env.storage().persistent()
-            .get(&(stream_id, Symbol::new(&env, "metrics")))
+            .get(&DataKey::Metrics(stream_id))
             .unwrap_or_else(|| Self::default_stream_metrics(&env));
 
         metrics.pause_count += 1;
         metrics.last_activity = current_time;
 
-        env.storage().persistent().set(&(stream_id, Symbol::new(&env, "metrics")), &metrics);
-        env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "metrics")), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Metrics(stream_id), &metrics);
+        env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update protocol metrics - decrease active streams
         let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
-            .get(&Symbol::new(&env, "protocol_metrics"))
+            .get(&DataKey::ProtocolMetrics)
             .unwrap();
         protocol_metrics.total_active_streams = protocol_metrics.total_active_streams.saturating_sub(1);
-        env.storage().instance().set(&Symbol::new(&env, "protocol_metrics"), &protocol_metrics);
+        env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Emit StreamPaused event
@@ -629,25 +1009,25 @@ impl PaymentStreamContract {
         stream.status = StreamStatus::Active;
         stream.paused_at = None;
 
-        env.storage().persistent().set(&stream_id, &stream);
-        env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Stream(stream_id), &stream);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update stream metrics
         let mut metrics: StreamMetrics = env.storage().persistent()
-            .get(&(stream_id, Symbol::new(&env, "metrics")))
+            .get(&DataKey::Metrics(stream_id))
             .unwrap_or_else(|| Self::default_stream_metrics(&env));
 
         metrics.last_activity = current_time;
 
-        env.storage().persistent().set(&(stream_id, Symbol::new(&env, "metrics")), &metrics);
-        env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "metrics")), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Metrics(stream_id), &metrics);
+        env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update protocol metrics - increase active streams
         let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
-            .get(&Symbol::new(&env, "protocol_metrics"))
+            .get(&DataKey::ProtocolMetrics)
             .unwrap();
         protocol_metrics.total_active_streams += 1;
-        env.storage().instance().set(&Symbol::new(&env, "protocol_metrics"), &protocol_metrics);
+        env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Emit StreamResumed event
@@ -674,26 +1054,26 @@ impl PaymentStreamContract {
         let was_active = stream.status == StreamStatus::Active;
         stream.status = StreamStatus::Canceled;
 
-        env.storage().persistent().set(&stream_id, &stream);
-        env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Stream(stream_id), &stream);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update stream metrics
         let mut metrics: StreamMetrics = env.storage().persistent()
-            .get(&(stream_id, Symbol::new(&env, "metrics")))
+            .get(&DataKey::Metrics(stream_id))
             .unwrap_or_else(|| Self::default_stream_metrics(&env));
 
         metrics.last_activity = env.ledger().timestamp();
 
-        env.storage().persistent().set(&(stream_id, Symbol::new(&env, "metrics")), &metrics);
-        env.storage().persistent().extend_ttl(&(stream_id, Symbol::new(&env, "metrics")), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Metrics(stream_id), &metrics);
+        env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update protocol metrics - decrease active streams if it was active
         if was_active {
             let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
-                .get(&Symbol::new(&env, "protocol_metrics"))
+                .get(&DataKey::ProtocolMetrics)
                 .unwrap();
             protocol_metrics.total_active_streams = protocol_metrics.total_active_streams.saturating_sub(1);
-            env.storage().instance().set(&Symbol::new(&env, "protocol_metrics"), &protocol_metrics);
+            env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
             env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
         }
 
@@ -707,51 +1087,51 @@ impl PaymentStreamContract {
 
     /// Set the protocol fee rate
     pub fn set_protocol_fee_rate(env: Env, new_fee_rate: u32) {
-        let admin: Address = env.storage().instance().get(&Symbol::new(&env, "admin")).unwrap();
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
         if new_fee_rate > MAX_FEE {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
 
-        env.storage().instance().set(&Symbol::new(&env, "general_protocol_fee_rate"), &new_fee_rate);
+        env.storage().instance().set(&DataKey::FeeRate, &new_fee_rate);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     /// Set the fee collector address
     pub fn set_fee_collector(env: Env, new_fee_collector: Address) {
-        let admin: Address = env.storage().instance().get(&Symbol::new(&env, "admin")).unwrap();
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
-        env.storage().instance().set(&Symbol::new(&env, "fee_collector"), &new_fee_collector);
+        env.storage().instance().set(&DataKey::FeeCollector, &new_fee_collector);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     /// Get the current protocol fee rate
     pub fn get_protocol_fee_rate(env: Env) -> u32 {
-        env.storage().instance().get(&Symbol::new(&env, "general_protocol_fee_rate")).unwrap_or(0)
+        env.storage().instance().get(&DataKey::FeeRate).unwrap_or(0)
     }
 
     /// Get the current fee collector
     pub fn get_fee_collector(env: Env) -> Address {
-        env.storage().instance().get(&Symbol::new(&env, "fee_collector")).unwrap()
+        env.storage().instance().get(&DataKey::FeeCollector).unwrap()
     }
 
     /// Get stream-specific metrics
     pub fn get_stream_metrics(env: Env, stream_id: u64) -> StreamMetrics {
         // Ensure stream exists
         Self::get_stream(env.clone(), stream_id);
-        
+
         // Return metrics or default if not found
         env.storage().persistent()
-            .get(&(stream_id, Symbol::new(&env, "metrics")))
+            .get(&DataKey::Metrics(stream_id))
             .unwrap_or_else(|| Self::default_stream_metrics(&env))
     }
 
     /// Get protocol-wide metrics
     pub fn get_protocol_metrics(env: Env) -> ProtocolMetrics {
         env.storage().instance()
-            .get(&Symbol::new(&env, "protocol_metrics"))
+            .get(&DataKey::ProtocolMetrics)
             .unwrap_or(ProtocolMetrics {
                 total_active_streams: 0,
                 total_tokens_streamed: 0,

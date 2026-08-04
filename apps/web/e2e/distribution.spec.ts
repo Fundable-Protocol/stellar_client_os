@@ -52,6 +52,23 @@ test.describe('Distribution', () => {
       await expect(page.locator('tbody tr')).toHaveCount(2);
     });
 
+    test('delete button shifts focus to adjacent address input', async ({ page }) => {
+      await page.goto('/distribution');
+      await page.getByRole('button', { name: /add row/i }).click();
+      await expect(page.locator('tbody tr')).toHaveCount(3);
+
+      const firstDeleteButton = page.locator('tbody tr').first().getByRole('button', { name: /remove recipient 1/i });
+      await firstDeleteButton.click();
+
+      const rowsAfterFirstClick = await page.locator('tbody tr').count();
+      if (rowsAfterFirstClick === 3) {
+        await page.locator('tbody tr').first().getByRole('button', { name: /remove recipient 1/i }).click();
+      }
+
+      await expect(page.locator('tbody tr')).toHaveCount(2);
+      await expect(page.locator('tbody tr').first().getByRole('textbox', { name: /Recipient 1 address/i })).toBeFocused();
+    });
+
     test('can switch between Equal and Weighted distribution types', async ({ page }) => {
       await page.goto('/distribution');
 

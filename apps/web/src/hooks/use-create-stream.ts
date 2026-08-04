@@ -3,7 +3,9 @@ import toast from 'react-hot-toast';
 import { createStream } from '@/lib/api';
 import { useWallet } from '@/providers/StellarWalletProvider';
 
-type CreateStreamInput = Parameters<typeof createStream>[0];
+type CreateStreamInput = Omit<Parameters<typeof createStream>[0], 'sender' | 'signTransaction'> & {
+    sender?: string;
+};
 
 interface CreateStreamMutationContext {
     previousStreams: Array<[QueryKey, unknown]>;

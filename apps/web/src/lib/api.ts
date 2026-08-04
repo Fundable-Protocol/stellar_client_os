@@ -1,10 +1,10 @@
 import type { AssembledTransaction } from '@stellar/stellar-sdk/contract';
-import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID, SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
+import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID } from '@/lib/env';
+import { SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
 import { env } from '@/lib/env';
 import { throwIfAborted } from '@/utils/retry';
 import { StellarService, type Stream as ServiceStream, type AccountInfo } from '@/services';
-import { PaymentStreamClient } from '../../../../packages/sdk/src/PaymentStreamClient';
-import { DistributorClient } from '../../../../packages/sdk/src/DistributorClient';
+import { PaymentStreamClient, DistributorClient, createBatches } from '@fundable/sdk';
 import { Stream, StreamStatus } from '../types';
 
 type WalletSigner = (xdr: string) => Promise<string>;
@@ -47,11 +47,8 @@ function mapServiceStream(stream: ServiceStream): Stream {
     };
 }
 
-function ensureSafeNumber(value: bigint): number {
-    if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new Error('Returned stream id exceeds JavaScript safe integer range');
-    }
-    return Number(value);
+function serializeStreamId(value: bigint): string {
+    return value.toString();
 }
 
 async function signAndSendTx<T>(
@@ -109,7 +106,7 @@ export async function createStream(params: {
     startTime: number;
     endTime: number;
     signTransaction?: WalletSigner;
-}): Promise<number> {
+}): Promise<string> {
     const client = createPaymentStreamClient(params.sender);
     const tx = await client.createStream({
         sender: params.sender,
@@ -127,7 +124,7 @@ export async function createStream(params: {
     if (typeof streamId !== 'bigint') {
         throw new Error('Contract did not return a stream id');
     }
-    return ensureSafeNumber(streamId);
+    return serializeStreamId(streamId);
 }
 
 export async function withdraw(params: {
@@ -150,8 +147,6 @@ export async function withdraw(params: {
     const tx = await client.withdraw(BigInt(params.streamId), params.amount);
     await signAndSendTx(tx, params.signTransaction);
 }
-
-import { createBatches } from '../../../../packages/sdk/src/utils/batchDistribution';
 
 export async function distribute(params: {
     sender: string;

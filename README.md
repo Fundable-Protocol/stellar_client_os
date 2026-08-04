@@ -20,6 +20,7 @@ stellar_client/
 ├── docs/                      # Project documentation
 │   ├── architecture.md
 │   ├── getting-started.md     # Project setup documentation
+│   ├── webhooks.md            # Webhook system documentation
 │   ├── contracts/             # Contracts documentation
 │   │   ├── distributor.md
 │   │   └── payment-stream.md
@@ -152,6 +153,36 @@ async function createNewStream() {
   console.log(`Stream ID: ${result.result}`);
 }
 ```
+
+### 🔐 S3 Presigned Uploads (Milestone Proof Photos)
+
+`POST /api/presign-upload` generates a short-lived AWS S3 pre-signed PUT URL so clients can upload milestone proof photos directly to a **private** evidence bucket without exposing credentials. Signing uses AWS Signature V4 and is implemented dependency-free in `apps/web/src/lib/s3`.
+
+Request:
+
+```bash
+curl -X POST http://localhost:3000/api/presign-upload \
+  -H "Content-Type: application/json" \
+  -d '{"campaignId":"42","milestoneId":"1","contentType":"image/jpeg"}'
+```
+
+Response (`200`):
+
+```json
+{
+  "url": "https://fundable-evidence.s3.us-east-1.amazonaws.com/evidence/42/1/<uuid>.jpg?X-Amz-Algorithm=...&X-Amz-Signature=...",
+  "key": "evidence/42/1/<uuid>.jpg",
+  "contentType": "image/jpeg",
+  "expiresAt": 1712000000,
+  "requestId": "..."
+}
+```
+
+Then `PUT` the file bytes to `url` with `Content-Type: image/jpeg`. URLs expire after `S3_PRESIGN_EXPIRES_SECONDS` (default `300`).
+
+Allowed content types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `application/pdf`.
+
+Required environment variables (see `.env.example`): `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; optional `AWS_SESSION_TOKEN` (temporary STS credentials) and `S3_PRESIGN_EXPIRES_SECONDS` (60–900). The IAM user needs only `s3:PutObject` on the evidence bucket.
 
 ## 📦 Packages
 

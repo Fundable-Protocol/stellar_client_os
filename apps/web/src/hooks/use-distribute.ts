@@ -2,7 +2,7 @@ import { QueryClient, QueryKey, useMutation, useQueryClient } from '@tanstack/re
 import toast from 'react-hot-toast';
 import { distribute } from '@/lib/api';
 import { useWallet } from '@/providers/StellarWalletProvider';
-import { createBatches } from '../../../../packages/sdk/src/utils/batchDistribution';
+import { createBatches } from '@fundable/sdk';
 
 type DistributeInput = Parameters<typeof distribute>[0];
 

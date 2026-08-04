@@ -672,7 +672,7 @@ fn test_delegate_withdraw() {
 
         // Verify event was emitted (at least one event should exist)
         let events = env.events().all();
-        assert!(events.len() > 0);
+        assert!(!events.events().is_empty());
 }
 
 #[test]
@@ -843,7 +843,7 @@ fn test_revoke_nonexistent_delegate() {
 
     // Check event - no event emitted when revoking non-existent delegate
     let events = env.events().all();
-    assert_eq!(events.len(), 0);
+    assert!(events.events().is_empty());
 }
 
 #[test]
@@ -1829,5 +1829,371 @@ fn test_withdraw_after_pause_and_resume() {
     assert!(recipient_balance > 0);
     assert_eq!(recipient_balance, 600); // 100 + 500
 }
+
+    // -----------------------------------------------------------------------
+    // Emergency pause circuit breaker tests
+    // -----------------------------------------------------------------------
+
+    /// Helper: initialise a contract and return (client, contract_id, admin,
+    /// fee_collector, sender, recipient, token).
+    fn setup_paused_contract(
+        env: &Env,
+    ) -> (
+        PaymentStreamContractClient,
+        Address, // contract_id
+        Address, // admin
+        Address, // fee_collector
+        Address, // sender
+        Address, // recipient
+        Address, // token
+    ) {
+        let admin = Address::generate(env);
+        let fee_collector = Address::generate(env);
+        let sender = Address::generate(env);
+        let recipient = Address::generate(env);
+
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(env, &contract_id);
+
+        client.initialize(&admin, &fee_collector, &0);
+
+        // Mint tokens to sender
+        let token_admin = token::StellarAssetClient::new(env, &token);
+        token_admin.mint(&sender, &2000);
+
+        (client, contract_id, admin, fee_collector, sender, recipient, token)
+    }
+
+    /// Contract starts unpaused.
+    #[test]
+    fn test_is_paused_default_false() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, _, _, _) = setup_paused_contract(&env);
+
+        assert!(!client.is_paused());
+    }
+
+    /// Admin can activate the emergency pause.
+    #[test]
+    fn test_emergency_pause_sets_flag() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, _, _, _) = setup_paused_contract(&env);
+
+        assert!(!client.is_paused());
+        client.emergency_pause();
+        assert!(client.is_paused());
+    }
+
+    /// Admin can deactivate the emergency pause.
+    #[test]
+    fn test_emergency_unpause_clears_flag() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, _, _, _) = setup_paused_contract(&env);
+
+        client.emergency_pause();
+        assert!(client.is_paused());
+
+        client.emergency_unpause();
+        assert!(!client.is_paused());
+    }
+
+    /// `emergency_pause` emits the correct event.
+    #[test]
+    fn test_emergency_pause_emits_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, _, _, _) = setup_paused_contract(&env);
+        client.emergency_pause();
+
+        let events = env.events().all();
+        assert!(events.len() > 0);
+    }
+
+    /// `emergency_unpause` emits the correct event.
+    #[test]
+    fn test_emergency_unpause_emits_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, _, _, _) = setup_paused_contract(&env);
+        client.emergency_pause();
+        client.emergency_unpause();
+
+        let events = env.events().all();
+        assert!(events.len() > 0);
+    }
+
+    /// Double-pause is rejected with `AlreadyPaused` (error code 18).
+    #[test]
+    #[should_panic(expected = "Error(Contract, #18)")]
+    fn test_emergency_pause_already_paused() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, _, _, _) = setup_paused_contract(&env);
+
+        client.emergency_pause();
+        client.emergency_pause(); // should panic
+    }
+
+    /// Unpausing when not paused is rejected with `NotPaused` (error code 19).
+    #[test]
+    #[should_panic(expected = "Error(Contract, #19)")]
+    fn test_emergency_unpause_when_not_paused() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, _, _, _) = setup_paused_contract(&env);
+
+        client.emergency_unpause(); // should panic
+    }
+
+    /// `create_stream` is blocked while the circuit breaker is active.
+    #[test]
+    #[should_panic(expected = "Error(Contract, #17)")]
+    fn test_create_stream_blocked_when_paused() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, sender, recipient, token) = setup_paused_contract(&env);
+
+        client.emergency_pause();
+
+        // This call should panic with ContractPaused (17)
+        client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+    }
+
+    /// `withdraw` is blocked while the circuit breaker is active.
+    #[test]
+    #[should_panic(expected = "Error(Contract, #17)")]
+    fn test_withdraw_blocked_when_paused() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, sender, recipient, token) = setup_paused_contract(&env);
+
+        // Create a stream before pausing
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        env.ledger().set_timestamp(50);
+
+        client.emergency_pause();
+
+        // Should be blocked
+        client.withdraw(&stream_id, &500);
+    }
+
+    /// `withdraw_max` is blocked while the circuit breaker is active.
+    #[test]
+    #[should_panic(expected = "Error(Contract, #17)")]
+    fn test_withdraw_max_blocked_when_paused() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, sender, recipient, token) = setup_paused_contract(&env);
+
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        env.ledger().set_timestamp(50);
+
+        client.emergency_pause();
+
+        // Should be blocked
+        client.withdraw_max(&stream_id);
+    }
+
+    /// `deposit` is blocked while the circuit breaker is active.
+    #[test]
+    #[should_panic(expected = "Error(Contract, #17)")]
+    fn test_deposit_blocked_when_paused() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, sender, recipient, token) = setup_paused_contract(&env);
+
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &0, &0, &100);
+
+        client.emergency_pause();
+
+        // Should be blocked
+        client.deposit(&stream_id, &500);
+    }
+
+    /// All operations resume normally after emergency_unpause.
+    #[test]
+    fn test_operations_resume_after_unpause() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, sender, recipient, token) = setup_paused_contract(&env);
+
+        // Create stream, then pause
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        client.emergency_pause();
+        assert!(client.is_paused());
+
+        // Unpause and verify operations work again
+        client.emergency_unpause();
+        assert!(!client.is_paused());
+
+        env.ledger().set_timestamp(50);
+        let available = client.withdrawable_amount(&stream_id);
+        assert_eq!(available, 500);
+
+        // Withdraw should succeed
+        client.withdraw(&stream_id, &200);
+        let stream = client.get_stream(&stream_id);
+        assert_eq!(stream.withdrawn_amount, 200);
+    }
+
+    /// Pause/unpause can be cycled multiple times.
+    #[test]
+    fn test_pause_unpause_cycle() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, _, _, _) = setup_paused_contract(&env);
+
+        for _ in 0..3 {
+            assert!(!client.is_paused());
+            client.emergency_pause();
+            assert!(client.is_paused());
+            client.emergency_unpause();
+            assert!(!client.is_paused());
+        }
+    }
+
+    /// Non-admin callers cannot activate emergency pause.
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_non_admin_cannot_emergency_pause() {
+        let env = Env::default();
+
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let attacker = Address::generate(&env);
+
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let _token = sac.address();
+
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+
+        env.mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "initialize",
+                args: (&admin, &fee_collector, &0u32).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+        client.initialize(&admin, &fee_collector, &0);
+
+        // Now mock only the attacker's auth — admin auth is NOT provided for emergency_pause
+        env.mock_auths(&[MockAuth {
+            address: &attacker,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "emergency_pause",
+                args: ().into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+
+        // Should panic because admin.require_auth() won't be satisfied
+        client.emergency_pause();
+    }
+
+    /// Non-admin callers cannot deactivate emergency pause.
+    #[test]
+    #[should_panic(expected = "Unauthorized")]
+    fn test_non_admin_cannot_emergency_unpause() {
+        let env = Env::default();
+
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let attacker = Address::generate(&env);
+
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let _token = sac.address();
+
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+
+        // Initialize and pause using real admin auth
+        env.mock_auths(&[
+            MockAuth {
+                address: &admin,
+                invoke: &MockAuthInvoke {
+                    contract: &contract_id,
+                    fn_name: "initialize",
+                    args: (&admin, &fee_collector, &0u32).into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+            MockAuth {
+                address: &admin,
+                invoke: &MockAuthInvoke {
+                    contract: &contract_id,
+                    fn_name: "emergency_pause",
+                    args: ().into_val(&env),
+                    sub_invokes: &[],
+                },
+            },
+        ]);
+        client.initialize(&admin, &fee_collector, &0);
+        client.emergency_pause();
+
+        // Try to unpause as attacker
+        env.mock_auths(&[MockAuth {
+            address: &attacker,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "emergency_unpause",
+                args: ().into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
+
+        client.emergency_unpause(); // should panic
+    }
+
+    /// Read-only functions remain available while paused.
+    #[test]
+    fn test_read_operations_work_while_paused() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _, _, _, sender, recipient, token) = setup_paused_contract(&env);
+
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        env.ledger().set_timestamp(50);
+
+        client.emergency_pause();
+
+        // Read-only calls must not be blocked
+        let stream = client.get_stream(&stream_id);
+        assert_eq!(stream.id, stream_id);
+
+        let metrics = client.get_stream_metrics(&stream_id);
+        assert_eq!(metrics.withdrawal_count, 0);
+
+        let proto = client.get_protocol_metrics();
+        assert_eq!(proto.total_streams_created, 1);
+
+        let withdrawable = client.withdrawable_amount(&stream_id);
+        assert_eq!(withdrawable, 500);
+
+        assert!(client.is_paused());
+    }
     
 }

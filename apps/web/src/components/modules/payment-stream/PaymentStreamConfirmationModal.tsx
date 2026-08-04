@@ -38,9 +38,19 @@ export function PaymentStreamConfirmationModal({
     onConfirm(data)
   }
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !isSubmitting) {
+      e.preventDefault()
+      handleConfirm()
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[94vw] max-w-2xl sm:w-full max-h-[85vh] overflow-y-auto p-4 sm:p-6">
+      <DialogContent 
+        className="w-[94vw] max-w-2xl sm:w-full max-h-[85vh] overflow-y-auto p-4 sm:p-6"
+        onKeyDown={handleKeyDown}
+      >
         <DialogHeader>
           <DialogTitle>Confirm Payment Stream</DialogTitle>
           <DialogDescription>

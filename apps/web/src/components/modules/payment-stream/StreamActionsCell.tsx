@@ -16,10 +16,16 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuPortal,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { StreamRecord } from "@/lib/validations";
 import { STELLAR_EXPERT_URL } from "@/lib/constants";
 import { WithdrawStreamModal } from "./WithdrawStreamModal";
@@ -77,6 +83,18 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
         }
     };
 
+    /**
+     * Calculates vesting progress using floating point progression before BigInt conversion
+     * to avoid integer floor division jitter on short streams (#415).
+     */
+    const calculateVestingProgress = (startTime: number, endTime: number, now: number = Date.now()): number => {
+        const totalDuration = endTime - startTime;
+        if (totalDuration <= 0) return 100;
+        const elapsed = Math.max(0, now - startTime);
+        const progressRatio = Math.min(1, Math.max(0, elapsed / totalDuration));
+        return progressRatio * 100;
+    };
+
     const handleResume = async () => {
         if (!signTransaction) return;
         setIsLoading(true);
@@ -125,6 +143,7 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
                         <MoreHorizontal className="h-4 w-4 text-white" aria-hidden="true" />
                     </Button>
                 </DropdownMenuTrigger>
+                <DropdownMenuPortal>
                 <DropdownMenuContent align="end">
                     {isRecipient && isActive && (
                         <DropdownMenuItem
@@ -166,14 +185,31 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
                         </DropdownMenuItem>
                     )}
 
-                    {isSender && (isActive || isPaused) && stream.cancelable && (
-                        <DropdownMenuItem
-                            className="cursor-pointer text-red-500 focus:text-red-500 focus:bg-red-500/10"
-                            onClick={handleCancel}
-                        >
-                            <XCircle className="mr-2 h-4 w-4" />
-                            Cancel Stream
-                        </DropdownMenuItem>
+                    {isSender && (isActive || isPaused) && (
+                        stream.cancelable ? (
+                            <DropdownMenuItem
+                                className="cursor-pointer text-red-500 focus:text-red-500 focus:bg-red-500/10"
+                                onClick={handleCancel}
+                            >
+                                <XCircle className="mr-2 h-4 w-4" />
+                                Cancel Stream
+                            </DropdownMenuItem>
+                        ) : (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <DropdownMenuItem
+                                        className="text-red-500/50 cursor-not-allowed"
+                                        disabled
+                                    >
+                                        <XCircle className="mr-2 h-4 w-4" />
+                                        Cancel Stream
+                                    </DropdownMenuItem>
+                                </TooltipTrigger>
+                                <TooltipContent side="left">
+                                    This stream was configured as non-cancelable
+                                </TooltipContent>
+                            </Tooltip>
+                        )
                     )}
 
                     {isSender && (
@@ -203,6 +239,7 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
                         Copy Stream ID
                     </DropdownMenuItem>
                 </DropdownMenuContent>
+                </DropdownMenuPortal>
             </DropdownMenu>
 
             <WithdrawStreamModal

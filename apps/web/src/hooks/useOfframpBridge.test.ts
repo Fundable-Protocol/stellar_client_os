@@ -19,6 +19,7 @@ vi.mock("@/services/offramp.service", () => ({
         updateQuoteTxHash: vi.fn(),
         getQuoteStatus: vi.fn(),
         getUserLimits: vi.fn(),
+        getProviderLimits: vi.fn(),
     },
 }));
 
@@ -43,7 +44,7 @@ const mockSignTransaction = vi.fn().mockResolvedValue("signed-xdr");
 const mockWallet = {
     address: "GABC123",
     isConnected: true,
-    signTransaction: mockSignTransaction,
+    signTransaction: vi.fn().mockResolvedValue("signed-xdr"),
     network: "testnet",
 };
 
@@ -77,11 +78,12 @@ function createWrapper() {
     const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },
     });
-    return ({ children }: { children: React.ReactNode }) =>
+    const Wrapper = ({ children }: { children: React.ReactNode }) =>
         createElement(QueryClientProvider, { client: queryClient }, children);
+    Wrapper.displayName = "QueryClientWrapper";
+    return Wrapper;
 }
 
-/** Drain all fake timers and flush microtasks */
 async function drainTimers() {
     await act(async () => {
         await vi.runAllTimersAsync();
@@ -108,6 +110,16 @@ describe("useOfframpBridge", () => {
                 dailyUsed: 0,
                 remainingDaily: 1000,
                 tier: "standard",
+            },
+        });
+        (offrampService.getProviderLimits as ReturnType<typeof vi.fn>).mockResolvedValue({
+            success: true,
+            data: {
+                minimumAmount: 10,
+                providers: [
+                    { providerId: "cashwyre", minimumAmount: 10 },
+                    { providerId: "autoramp", minimumAmount: 10 },
+                ],
             },
         });
     });
@@ -161,12 +173,10 @@ describe("useOfframpBridge", () => {
     it("handleFormChange clears quote and quoteError when amount changes", async () => {
         const { result } = renderHook(() => useOfframpBridge(), { wrapper: createWrapper() });
 
-        // Trigger quote fetch and drain debounce + async
         act(() => { result.current.handleFormChange("amount", "10"); });
         await drainTimers();
         expect(result.current.quote).toEqual(mockQuote);
 
-        // Changing amount clears quote immediately
         act(() => { result.current.handleFormChange("amount", "20"); });
         expect(result.current.quote).toBeNull();
         expect(result.current.quoteError).toBeNull();
@@ -210,6 +220,32 @@ describe("useOfframpBridge", () => {
         await drainTimers();
 
         expect(result.current.quoteError).toBe("Failed to fetch rates");
+    });
+
+    it("rejects an amount below the provider minimum", async () => {
+        const { result } = renderHook(() => useOfframpBridge(), { wrapper: createWrapper() });
+
+        act(() => { result.current.handleFormChange("amount", "5"); });
+        await drainTimers();
+
+        expect(result.current.providerMinimumAmount).toBe(10);
+        await act(async () => { await result.current.getQuote({ ...result.current.formState }); });
+
+        expect(result.current.error).toBe("Amount must be at least 10 USDC");
+        expect(offrampService.createOfframp).not.toHaveBeenCalled();
+    });
+
+    it("falls back to the token minimum when provider limits are unavailable", async () => {
+        (offrampService.getProviderLimits as ReturnType<typeof vi.fn>).mockResolvedValue({
+            success: false,
+            error: "Provider limits unavailable",
+        });
+        const { result } = renderHook(() => useOfframpBridge(), { wrapper: createWrapper() });
+
+        await drainTimers();
+
+        expect(result.current.providerMinimumAmount).toBe(1);
+        expect(result.current.isLoadingProviderMinimum).toBe(false);
     });
 
     // --- getQuote (form → quote step) ---
@@ -352,6 +388,7 @@ describe("useOfframpBridge", () => {
         await setupToQuoteStep(result);
 
         await act(async () => { await result.current.confirmAndBridge(); });
+        expect(result.current.step).toBe("processing");
 
         expect(result.current.step).toBe("processing");
     });
@@ -361,16 +398,18 @@ describe("useOfframpBridge", () => {
 
         await act(async () => { await result.current.confirmAndBridge(); });
 
-        expect(result.current.error).toBe("Missing required data");
+        // Advance timers again — polling should have stopped, no additional calls
+        const callCount = (offrampService.getQuoteStatus as ReturnType<typeof vi.fn>).mock.calls.length;
+        await act(async () => { vi.advanceTimersByTime(30000); });
+        await act(async () => { await Promise.resolve(); });
+        expect((offrampService.getQuoteStatus as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callCount);
     });
 
-    // --- Payout polling ---
-
-    it("payout polling transitions to 'completed'", async () => {
+    it("payout polling transitions to 'completed' on 'confirmed' status", async () => {
         (offrampService.createOfframp as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true, data: mockOfframpData });
         (offrampService.getQuoteStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
             success: true,
-            data: { status: "completed", providerMessage: "Done" },
+            data: { status: "confirmed", providerMessage: "Confirmed" },
         });
 
         const { result } = renderHook(() => useOfframpBridge(), { wrapper: createWrapper() });
@@ -378,13 +417,12 @@ describe("useOfframpBridge", () => {
         await act(async () => { await result.current.confirmAndBridge(); });
         expect(result.current.step).toBe("processing");
 
-        // Fire payout poll interval (10s) → completed
         await act(async () => { vi.advanceTimersByTime(10000); });
         await act(async () => { await Promise.resolve(); });
         expect(result.current.step).toBe("completed");
     });
 
-    it("payout polling transitions to 'failed'", async () => {
+    it("payout polling transitions to 'failed' and stops polling", async () => {
         (offrampService.createOfframp as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true, data: mockOfframpData });
         (offrampService.getQuoteStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
             success: true,
@@ -393,12 +431,16 @@ describe("useOfframpBridge", () => {
 
         const { result } = renderHook(() => useOfframpBridge(), { wrapper: createWrapper() });
         await setupToQuoteStep(result);
-        await act(async () => { await result.current.confirmAndBridge(); });
 
         await act(async () => { vi.advanceTimersByTime(10000); });
         await act(async () => { await Promise.resolve(); });
         expect(result.current.step).toBe("failed");
         expect(result.current.error).toBe("Payout rejected");
+
+        const callCount = (offrampService.getQuoteStatus as ReturnType<typeof vi.fn>).mock.calls.length;
+        await act(async () => { vi.advanceTimersByTime(30000); });
+        await act(async () => { await Promise.resolve(); });
+        expect((offrampService.getQuoteStatus as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callCount);
     });
 
     // --- goBack ---

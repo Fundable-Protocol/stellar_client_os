@@ -31,7 +31,12 @@ import {
 import { Button } from "@/components/ui/button";
 
 export type WalletId = string;
-export type ConnectionStatus = "idle" | "connecting" | "connected" | "disconnecting";
+export type ConnectionStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "disconnecting"
+  | "locked";
 
 /**
  * Maps each WalletNetwork enum value to its canonical Stellar network passphrase.
@@ -61,6 +66,7 @@ interface WalletContextType {
   address: string | null;
   isConnected: boolean;
   isConnecting: boolean;
+  isLocked: boolean;
   connectionStatus: ConnectionStatus;
   selectedWalletId: string | null;
   network: WalletNetwork;
@@ -102,7 +108,7 @@ export const StellarWalletProvider = ({
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() => {
     if (typeof window === 'undefined') return "idle";
     const savedAddress = safeGetItem("stellar_wallet_address");
-    const savedWalletId = safeGetItem("stellar_wallet_id");
+    const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
     const savedNetwork = safeGetItem("stellar_wallet_network");
     console.log('Lazy init connectionStatus:', { savedAddress, savedWalletId, savedNetwork });
     if (savedAddress && isValidStellarAddress(savedAddress) && savedWalletId && savedNetwork === WalletNetwork.TESTNET) {
@@ -113,7 +119,7 @@ export const StellarWalletProvider = ({
   const [selectedWalletId, setSelectedWalletId] = useState<WalletId | null>(() => {
     if (typeof window === 'undefined') return null;
     const savedAddress = safeGetItem("stellar_wallet_address");
-    const savedWalletId = safeGetItem("stellar_wallet_id");
+    const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
     const savedNetwork = safeGetItem("stellar_wallet_network");
     console.log('Lazy init selectedWalletId:', { savedWalletId, savedNetwork });
     if (savedNetwork === WalletNetwork.TESTNET && savedAddress && isValidStellarAddress(savedAddress)) {
@@ -153,14 +159,14 @@ export const StellarWalletProvider = ({
 
     // RESTORE SESSION
     const savedAddress = safeGetItem("stellar_wallet_address");
-    const savedWalletId = safeGetItem("stellar_wallet_id");
+    const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
     const savedNetwork = safeGetItem("stellar_wallet_network");
 
     if (savedAddress && savedWalletId && savedNetwork === network) {
       if (!isValidStellarAddress(savedAddress)) {
         // Tampered or invalid address — clear storage and force reconnect
         safeRemoveItem("stellar_wallet_address");
-        safeRemoveItem("stellar_wallet_id");
+        safeRemoveItem("@fundable/web:selected_wallet");
         safeRemoveItem("stellar_wallet_network");
         setAddress(null);
         setSelectedWalletId(null);
@@ -172,6 +178,13 @@ export const StellarWalletProvider = ({
       // Sync with backend on session restoration
       offrampService.syncWallet(savedAddress);
     }
+
+    // Cleanup: disconnect the kit when the component unmounts or network changes
+    return () => {
+      walletKit.disconnect().catch(() => {
+        // Silently swallow disconnect errors during cleanup
+      });
+    };
   }, [network]);
 
   const disconnect = useCallback(async () => {
@@ -181,16 +194,26 @@ export const StellarWalletProvider = ({
       connectionAbortRef.current = null;
     }
 
+    // Clean up wallet kit event listeners (e.g. WalletConnect sessions,
+    // module-level polling, etc.) before resetting state
+    if (kit) {
+      try {
+        await kit.disconnect();
+      } catch {
+        // Silently swallow disconnect errors — state is cleared regardless
+      }
+    }
+
     setConnectionStatus("disconnecting");
     setAddress(null);
     setSelectedWalletId(null);
     setNetworkMismatch(false);
     setWalletNetworkName("");
     safeRemoveItem("stellar_wallet_address");
-    safeRemoveItem("stellar_wallet_id");
+    safeRemoveItem("@fundable/web:selected_wallet");
     safeRemoveItem("stellar_wallet_network");
     setConnectionStatus("idle");
-  }, []);
+  }, [kit]);
 
   const setNetwork = useCallback(
     async (newNetwork: WalletNetwork) => {
@@ -212,6 +235,7 @@ export const StellarWalletProvider = ({
   const supportedWallets: { id: WalletId; name: string; icon: string }[] = [
     { id: "freighter", name: "Freighter", icon: "/icons/freighter.png" },
     { id: "albedo", name: "Albedo", icon: "/icons/albedo.png" },
+    { id: "rango", name: "Rango", icon: "/icons/rango.png" },
     { id: "xbull", name: "xBull", icon: "/icons/xbull.png" },
     { id: "rabet", name: "Rabet", icon: "/icons/rabet.png" },
     { id: "lobstr", name: "Lobstr", icon: "/icons/lobstr.png" },
@@ -223,6 +247,7 @@ export const StellarWalletProvider = ({
     rabet: "https://rabet.io/",
     albedo: "https://albedo.link/",
     lobstr: "https://lobstr.co/",
+    rango: "https://app.rango.exchange/",
   };
 
   /**
@@ -340,7 +365,7 @@ export const StellarWalletProvider = ({
       setSelectedWalletId(walletId);
       setConnectionStatus("connected");
       safeSetItem("stellar_wallet_address", resolvedAddress);
-      safeSetItem("stellar_wallet_id", walletId);
+      safeSetItem("@fundable/web:selected_wallet", walletId);
       safeSetItem("stellar_wallet_network", network);
 
       // Sync with backend on new connection
@@ -354,6 +379,14 @@ export const StellarWalletProvider = ({
       else if (typeof error === "string") errorMessage = error;
       else if (error && typeof error === "object" && "message" in error)
         errorMessage = String((error as { message: unknown }).message);
+
+      if (isLockedWalletError(error) || isLockedWalletError({ message: errorMessage })) {
+        notify.error(
+          "Your wallet extension is locked. Unlock it and try connecting again.",
+        );
+        setConnectionStatus("locked");
+        return;
+      }
 
       if (errorMessage.toLowerCase().includes("not installed")) {
         const installHref = WALLET_INSTALL_URL[walletId];
@@ -412,12 +445,21 @@ export const StellarWalletProvider = ({
         );
       }
       // ──────────────────────────────────────────────────────────────────────
+      let timeoutId: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error("Sign transaction timed out after 60 seconds. Please unlock your wallet and try again."));
+        }, 60000);
+      });
 
       try {
-        const { signedTxXdr } = await kit.signTransaction(xdr);
+        const { signedTxXdr } = await Promise.race([
+          kit.signTransaction(xdr),
+          timeoutPromise,
+        ]);
         return signedTxXdr;
-      } catch (error) {
-        throw error;
+      } finally {
+        clearTimeout(timeoutId!);
       }
     },
     [kit, address, network, walletNetworkName, checkNetworkPassphrase],
@@ -456,6 +498,7 @@ export const StellarWalletProvider = ({
         address,
         isConnected: connectionStatus === "connected",
         isConnecting: connectionStatus === "connecting",
+        isLocked: connectionStatus === "locked",
         connectionStatus,
         selectedWalletId,
         network,
