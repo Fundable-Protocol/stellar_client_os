@@ -120,9 +120,9 @@ export async function createStream(params: {
 
     await signAndSendTx(tx, params.signTransaction);
 
-    const streamId = tx.result;
-    if (typeof streamId !== 'bigint') {
-        throw new Error('Contract did not return a stream id');
+    const streamId = extractBigInt(tx.result) ?? extractStreamIdFromTxEvents(tx);
+    if (streamId === undefined) {
+        throw new Error('Contract did not return a valid stream id');
     }
     return serializeStreamId(streamId);
 }
