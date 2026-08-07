@@ -227,24 +227,19 @@ describe('StellarService — edge cases', () => {
 
   // ── getAccount ─────────────────────────────────────────────────────────────
   describe('getAccount', () => {
-    it('throws AccountNotFoundError on 404 response', async () => {
+    it('returns null on 404 response (unfunded account)', async () => {
       mockLoadAccount.mockRejectedValue(
         Object.assign(new Error('Not Found'), { response: { status: 404 } })
       );
-      await expect(service.getAccount(VALID_ADDRESS)).rejects.toThrow(AccountNotFoundError);
+      await expect(service.getAccount(VALID_ADDRESS)).resolves.toBeNull();
     });
 
-    it('AccountNotFoundError carries the account ID', async () => {
+    it('calling getAccount on 404 does not throw', async () => {
       mockLoadAccount.mockRejectedValue(
         Object.assign(new Error('Not Found'), { response: { status: 404 } })
       );
-      try {
-        await service.getAccount(VALID_ADDRESS);
-        expect.fail('should have thrown');
-      } catch (err) {
-        expect(err).toBeInstanceOf(AccountNotFoundError);
-        expect((err as AccountNotFoundError).accountId).toBe(VALID_ADDRESS);
-      }
+      const result = await service.getAccount(VALID_ADDRESS);
+      expect(result).toBeNull();
     });
 
     it('throws StellarError on ECONNREFUSED', async () => {

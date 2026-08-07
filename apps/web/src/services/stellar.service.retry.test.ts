@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Networks, Keypair } from '@stellar/stellar-sdk';
 import { StellarService } from './stellar.service';
 import type { StellarServiceConfig } from './types';
-import { Server as RpcServer, Api } from '@stellar/stellar-sdk/rpc';
 
 // Mock the Stellar SDK modules
 vi.mock('@stellar/stellar-sdk/rpc', async () => {
@@ -67,8 +66,14 @@ describe('StellarService Retry Logic', () => {
     });
 
     it('should retry getTransaction when it returns NOT_FOUND', async () => {
-        const mockGetTransaction = (service as any).rpcServer.getTransaction;
-        
+        const rpcMock = service as unknown as {
+            rpcServer: {
+                getTransaction: ReturnType<typeof vi.fn>;
+                getAccount: ReturnType<typeof vi.fn>;
+            };
+        };
+        const mockGetTransaction = rpcMock.rpcServer.getTransaction;
+
         mockGetTransaction
             .mockResolvedValueOnce({ status: 'NOT_FOUND' })
             .mockResolvedValueOnce({ status: 'NOT_FOUND' })
@@ -79,7 +84,7 @@ describe('StellarService Retry Logic', () => {
 
         // Use any method that uses submitAndWait, e.g., createStream
         // Need to mock getAccount for createStream simulation/submission
-        (service as any).rpcServer.getAccount.mockResolvedValue({
+        rpcMock.rpcServer.getAccount.mockResolvedValue({
             sequenceNumber: () => '1',
             accountId: () => 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
         });

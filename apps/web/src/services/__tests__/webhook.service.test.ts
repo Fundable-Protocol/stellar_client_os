@@ -10,7 +10,7 @@ const deadLetterPath = path.join(testDir, 'dead_letter.json');
 
 describe('WebhookService', () => {
   let service: WebhookService;
-  let mockFetch: any;
+  let mockFetch: ReturnType<typeof vi.fn>;
 
   beforeEach(async () => {
     // Ensure clean state

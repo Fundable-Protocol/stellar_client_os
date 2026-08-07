@@ -75,7 +75,7 @@ const StreamProgressBar: React.FC<StreamProgressBarProps> = ({
         const withdrawnPercent = Math.min(100, Math.max(0, (withdrawnSizeClamped / total) * 100));
         const vestedNotWithdrawnSize = Math.max(0, currentVested - withdrawnSizeClamped);
         const vestedPercent = Math.min(100 - withdrawnPercent, Math.max(0, (vestedNotWithdrawnSize / total) * 100));
-        const remainingPercent = Math.max(0, 100 - withdrawnPercent - vestedPercent);
+        const remainingPercent = Math.min(100, Math.max(0, 100 - withdrawnPercent - vestedPercent));
 
         return {
             withdrawnPercent,
@@ -142,7 +142,7 @@ const StreamProgressBar: React.FC<StreamProgressBarProps> = ({
 
             <div className="flex justify-between items-center text-[10px] text-zinc-400 font-mono">
                 <span>{stats.withdrawnPercent.toFixed(1)}% withdrawn</span>
-                <span>{((stats.vestedSize / stats.total) * 100).toFixed(1)}% vested</span>
+                <span>{Math.min(100, Math.max(0, (stats.vestedSize / stats.total) * 100)).toFixed(1)}% vested</span>
             </div>
         </div>
     );

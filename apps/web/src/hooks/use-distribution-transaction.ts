@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { Horizon } from '@stellar/stellar-sdk';
-import { DistributorClient } from '@fundable/sdk';
+import { DistributorClient } from '../../../../packages/sdk/src/DistributorClient';
 import { useWallet } from '@/providers/StellarWalletProvider';
 import { notify } from '@/utils/notification';
 import { DISTRIBUTOR_CONTRACT_ID } from '@/lib/env';
@@ -156,7 +156,6 @@ export function useDistributionTransaction() {
         return false;
       }
 
-      let transactionHash: string;
       // Calculate total amount in stroops (7 decimal places)
       let totalStroops: bigint;
       let amountsStroops: bigint[] = [];

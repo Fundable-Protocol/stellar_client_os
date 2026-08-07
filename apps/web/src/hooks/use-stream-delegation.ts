@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { notify } from '@/utils/notification';
 import { isValidStellarAddress } from '@/utils/stellar-validation';
-import { StellarService } from '@/lib/stellar';
 
 export function useStreamDelegation() {
   const queryClient = useQueryClient();

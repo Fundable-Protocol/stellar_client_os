@@ -1,7 +1,7 @@
 "use client";
  
 import React, { useState, useRef, useEffect } from "react";
-import { CheckCircle2, Copy, ExternalLink, X, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, Copy, ExternalLink, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,

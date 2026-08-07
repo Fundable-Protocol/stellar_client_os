@@ -17,8 +17,9 @@ import {
 } from "@/components/ui/dialog"
 import { withdrawStreamSchema, type WithdrawStreamFormData, type StreamRecord } from "@/lib/validations"
 import { StellarService } from "@/lib/stellar"
-import { isAbortError } from "@/utils/retry"
+import { withdraw, getWithdrawableAmount } from "@/lib/api"
 import { notify } from "@/utils/notification"
+import { useWallet } from "@/providers/StellarWalletProvider"
 
 interface WithdrawStreamModalProps {
   open: boolean
@@ -38,6 +39,8 @@ export function WithdrawStreamModal({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [withdrawableAmount, setWithdrawableAmount] = useState<string>("0")
   const [isLoadingAmount, setIsLoadingAmount] = useState(false)
+
+  const { signTransaction, address, isConnected } = useWallet()
 
   const {
     register,
@@ -62,27 +65,27 @@ export function WithdrawStreamModal({
   useEffect(() => {
     if (!open || !stream.id) return
 
-    const controller = new AbortController()
+    let cancelled = false
     setIsLoadingAmount(true)
 
-    StellarService.getWithdrawableAmount(stream.id, controller.signal)
-      .then(amount => {
-        if (controller.signal.aborted) return
-        setWithdrawableAmount(amount)
+    getWithdrawableAmount({ streamId: stream.contractStreamId })
+      .then((amount) => {
+        if (!cancelled) {
+          setWithdrawableAmount(amount)
+          setIsLoadingAmount(false)
+        }
       })
-      .catch(error => {
-        if (isAbortError(error)) return
-        notify.error("Failed to fetch withdrawable amount")
-        onError?.("Failed to fetch withdrawable amount")
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsLoadingAmount(false)
+      .catch(() => {
+        if (!cancelled) {
+          setWithdrawableAmount("0")
+          setIsLoadingAmount(false)
+        }
       })
 
     return () => {
-      controller.abort()
+      cancelled = true
     }
-  }, [open, stream.id, onError])
+  }, [open, stream.id])
 
   // Update amount when useMax changes
   useEffect(() => {
@@ -122,8 +125,23 @@ export function WithdrawStreamModal({
   const onSubmit = async (data: WithdrawStreamFormData) => {
     setIsSubmitting(true)
     try {
-      const txHash = await StellarService.withdrawFromStream(stream.id, data)
-      onSuccess?.(txHash)
+      const amount = BigInt(Math.floor(parseFloat(data.amount) * 10000000))
+
+      // Use the real SDK-backed withdraw from `@/lib/api`
+      // This handles wallet signing through the StellarWalletProvider
+      if (!isConnected || !signTransaction || !address) {
+        notify.error('Wallet not connected');
+        return;
+      }
+
+      const hash = await withdraw({
+        streamId: stream.contractStreamId,
+        amount,
+        sender: address,
+        signTransaction,
+      });
+
+      onSuccess?.(hash)
       onOpenChange(false)
       reset()
     } catch (error) {

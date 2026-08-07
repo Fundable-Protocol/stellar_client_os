@@ -1,5 +1,10 @@
 #![no_std]
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env, Symbol, Vec};
+#![allow(deprecated)]
+use soroban_sdk::{
+    contract, contractclient, contracterror, contractevent, contractimpl, contracttype,
+    panic_with_error, token, Address, Env, Vec,
+};
 
 /// Persistent/instance storage keys.
 ///
@@ -18,6 +23,16 @@ pub enum DataKey {
     Stream(u64),
     Metrics(u64),
     Delegate(u64),
+    /// Global emergency-pause circuit breaker flag (instance storage).
+    Paused,
+    /// Configured DEX router address used by `deposit_with_swap` (instance storage).
+    DexRouter,
+    /// Running counter used to allocate dispute ids (instance storage).
+    DisputeCount,
+    /// A queued dispute resolution, keyed by dispute id.
+    Dispute(u64),
+    /// The id of the currently active (unresolved) dispute for a stream, if any.
+    ActiveDispute(u64),
 }
 
 /// Stream status enum
@@ -28,6 +43,7 @@ pub enum StreamStatus {
     Paused,
     Canceled,
     Completed,
+    Disputed,
 }
 
 /// Stream data structure
@@ -42,10 +58,27 @@ pub struct Stream {
     pub balance: i128,
     pub withdrawn_amount: i128,
     pub start_time: u64,
+    /// Number of seconds after `start_time` during which nothing is
+    /// withdrawable (linear lockup). `0` means no cliff.
+    pub cliff_duration: u64,
     pub end_time: u64,
     pub status: StreamStatus,
     pub paused_at: Option<u64>,  
     pub total_paused_duration: u64,
+}
+
+/// Per-recipient parameters for `create_batch_streams`.
+#[contracttype]
+#[derive(Clone)]
+pub struct StreamParams {
+    pub recipient: Address,
+    pub token: Address,
+    pub total_amount: i128,
+    pub initial_amount: i128,
+    pub start_time: u64,
+    pub end_time: u64,
+    /// Seconds after `start_time` during which nothing is withdrawable.
+    pub cliff_duration: u64,
 }
 
 /// Per-stream metrics tracking
@@ -71,8 +104,51 @@ pub struct ProtocolMetrics {
     pub total_delegations: u64,       // Total number of delegations across all streams
 }
 
-/// Fee collected event data
+/// A dispute resolution that has been decided but is queued behind a
+/// mandatory timelock before its payout can be executed.
 #[contracttype]
+#[derive(Clone)]
+pub struct QueuedResolution {
+    pub dispute_id: u64,
+    pub stream_id: u64,
+    pub recipient_amount: i128,
+    pub sender_amount: i128,
+    pub execute_after: u64,
+    pub executed: bool,
+    pub previous_status: StreamStatus,
+}
+
+/// Dispute queued event data
+#[contracttype]
+#[derive(Clone)]
+pub struct DisputeQueuedEvent {
+    pub dispute_id: u64,
+    pub stream_id: u64,
+    pub recipient_amount: i128,
+    pub sender_amount: i128,
+    pub execute_after: u64,
+}
+
+/// Dispute executed event data
+#[contracttype]
+#[derive(Clone)]
+pub struct DisputeExecutedEvent {
+    pub dispute_id: u64,
+    pub stream_id: u64,
+    pub recipient_amount: i128,
+    pub sender_amount: i128,
+}
+
+/// Dispute canceled event data
+#[contracttype]
+#[derive(Clone)]
+pub struct DisputeCanceledEvent {
+    pub dispute_id: u64,
+    pub stream_id: u64,
+}
+
+/// Fee collected event data
+#[contractevent(topics = ["FeeCollected"])]
 #[derive(Clone)]
 pub struct FeeCollectedEvent {
     pub stream_id: u64,
@@ -80,7 +156,7 @@ pub struct FeeCollectedEvent {
 }
 
 /// Stream deposit event data
-#[contracttype]
+#[contractevent(topics = ["StreamDeposit"])]
 #[derive(Clone)]
 pub struct StreamDepositEvent {
     pub stream_id: u64,
@@ -88,7 +164,7 @@ pub struct StreamDepositEvent {
 }
 
 /// Swap-deposit event data — emitted when a cross-asset deposit completes
-#[contracttype]
+#[contractevent(topics = ["SwapDeposit"])]
 #[derive(Clone)]
 pub struct SwapDepositEvent {
     /// The stream that received the deposit
@@ -102,7 +178,7 @@ pub struct SwapDepositEvent {
 }
 
 /// Delegation granted event data
-#[contracttype]
+#[contractevent(topics = ["DelegationGranted"])]
 #[derive(Clone)]
 pub struct DelegationGrantedEvent {
     pub stream_id: u64,
@@ -111,7 +187,7 @@ pub struct DelegationGrantedEvent {
 }
 
 /// Delegation revoked event data
-#[contracttype]
+#[contractevent(topics = ["DelegationRevoked"])]
 #[derive(Clone)]
 pub struct DelegationRevokedEvent {
     pub stream_id: u64,
@@ -119,7 +195,7 @@ pub struct DelegationRevokedEvent {
 }
 
 // Stream paused event
-#[contracttype]
+#[contractevent(topics = ["StreamPaused"])]
 #[derive(Clone)]
 pub struct StreamPausedEvent {
     pub stream_id: u64,
@@ -127,7 +203,7 @@ pub struct StreamPausedEvent {
 }
 
 // Stream resumed event
-#[contracttype]
+#[contractevent(topics = ["StreamResumed"])]
 #[derive(Clone)]
 pub struct StreamResumedEvent {
     pub stream_id: u64,
@@ -148,7 +224,7 @@ pub struct FeeTier {
     /// Protocol fee rate in basis points (e.g., 30 = 0.3%, max 500 = 5%)
     pub fee_rate: u32,
 /// Emergency paused event data
-#[contracttype]
+#[contractevent(topics = ["EmergencyPaused"])]
 #[derive(Clone)]
 pub struct EmergencyPausedEvent {
     pub paused_by: Address,
@@ -156,7 +232,7 @@ pub struct EmergencyPausedEvent {
 }
 
 /// Emergency unpaused event data
-#[contracttype]
+#[contractevent(topics = ["EmergencyUnpaused"])]
 #[derive(Clone)]
 pub struct EmergencyUnpausedEvent {
     pub unpaused_by: Address,
@@ -194,6 +270,31 @@ pub enum Error {
     AlreadyPaused = 18,
     /// Contract is not currently paused
     NotPaused = 19,
+    /// Swap path is invalid for cross-asset deposits (from_token == stream.token)
+    InvalidSwapPath = 20,
+    /// DEX returned fewer tokens than the caller's minimum (slippage guard)
+    SlippageExceeded = 21,
+    /// Internal failure while swapping for a deposit
+    SwapFailed = 22,
+    /// Cliff period is not shorter than the total vesting duration
+    InvalidCliff = 23,
+    /// Batch contains more than the maximum number of streams (50)
+    BatchLimitExceeded = 24,
+    /// Batch contains no recipients
+    EmptyBatch = 25,
+    /// A fund-moving/status-changing operation was attempted while a stream
+    /// has a dispute resolution queued
+    DisputeInProgress = 26,
+    /// `resolve_dispute` was called on a stream that already has a dispute queued
+    DisputeAlreadyQueued = 27,
+    /// No queued dispute resolution exists for the given dispute id
+    DisputeNotFound = 28,
+    /// The queued dispute resolution has already been executed
+    DisputeAlreadyExecuted = 29,
+    /// `execute_resolution` was called before the 48-hour timelock elapsed
+    TimelockNotElapsed = 30,
+    /// The recipient/sender resolution amounts are invalid or exceed the stream's escrowed balance
+    InvalidResolutionAmounts = 31,
 }
 
 // Constants
@@ -201,6 +302,22 @@ const MAX_FEE: u32 = 500;   // 5% in basis points
 const MAX_TIERS: u32 = 10;  // Maximum number of configurable fee tiers
 const LEDGER_THRESHOLD: u32 = 518400; // ~30 days at 5s/ledger
 const LEDGER_BUMP: u32 = 535680; // ~31 days
+const DISPUTE_TIMELOCK_DELAY: u64 = 172800; // 48 hours in seconds
+
+/// Client for the external DEX router contract used by `deposit_with_swap`.
+///
+/// The router must expose `swap_exact_tokens_for_tokens`, returning the
+/// amounts actually received per hop of the swap path.
+#[contractclient(name = "DexRouterClient")]
+pub trait DexRouter {
+    fn swap_exact_tokens_for_tokens(
+        env: Env,
+        amount_in: i128,
+        min_amount_out: i128,
+        path: Vec<Address>,
+        to: Address,
+    ) -> Vec<i128>;
+}
 
 #[contract]
 pub struct PaymentStreamContract;
@@ -242,11 +359,7 @@ impl PaymentStreamContract {
     /// pause flag is active.  Call this at the top of every state-mutating
     /// entry point that should be halted during an incident.
     fn assert_not_paused(env: &Env) {
-        let paused: bool = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(env, "paused"))
-            .unwrap_or(false);
+        let paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
         if paused {
             panic_with_error!(env, Error::ContractPaused);
         }
@@ -268,34 +381,26 @@ impl PaymentStreamContract {
         let admin: Address = env
             .storage()
             .instance()
-            .get(&Symbol::new(&env, "admin"))
+            .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
         admin.require_auth();
 
-        let already_paused: bool = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "paused"))
-            .unwrap_or(false);
+        let already_paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
         if already_paused {
             panic_with_error!(&env, Error::AlreadyPaused);
         }
 
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "paused"), &true);
+        env.storage().instance().set(&DataKey::Paused, &true);
         env.storage()
             .instance()
             .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         let now = env.ledger().timestamp();
-        env.events().publish(
-            ("EmergencyPaused",),
-            EmergencyPausedEvent {
-                paused_by: admin,
-                paused_at: now,
-            },
-        );
+        EmergencyPausedEvent {
+            paused_by: admin,
+            paused_at: now,
+        }
+        .publish(&env);
     }
 
     /// Deactivate the global emergency pause switch, resuming normal operation.
@@ -310,49 +415,47 @@ impl PaymentStreamContract {
         let admin: Address = env
             .storage()
             .instance()
-            .get(&Symbol::new(&env, "admin"))
+            .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
         admin.require_auth();
 
-        let paused: bool = env
-            .storage()
-            .instance()
-            .get(&Symbol::new(&env, "paused"))
-            .unwrap_or(false);
+        let paused: bool = env.storage().instance().get(&DataKey::Paused).unwrap_or(false);
         if !paused {
             panic_with_error!(&env, Error::NotPaused);
         }
 
-        env.storage()
-            .instance()
-            .set(&Symbol::new(&env, "paused"), &false);
+        env.storage().instance().set(&DataKey::Paused, &false);
         env.storage()
             .instance()
             .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         let now = env.ledger().timestamp();
-        env.events().publish(
-            ("EmergencyUnpaused",),
-            EmergencyUnpausedEvent {
-                unpaused_by: admin,
-                unpaused_at: now,
-            },
-        );
+        EmergencyUnpausedEvent {
+            unpaused_by: admin,
+            unpaused_at: now,
+        }
+        .publish(&env);
     }
 
     /// Returns `true` when the global emergency pause is active.
     pub fn is_paused(env: Env) -> bool {
-        env.storage()
-            .instance()
-            .get(&Symbol::new(&env, "paused"))
-            .unwrap_or(false)
+        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
     }
 
     // -----------------------------------------------------------------------
     // Core stream operations
     // -----------------------------------------------------------------------
 
-    /// Create a new payment stream
+    /// Create a new payment stream (no cliff period).
+    ///
+    /// See [`create_stream_with_cliff`](Self::create_stream_with_cliff) for a
+    /// variant that adds an initial linear lockup period.
+    ///
+    /// # Authorization
+    /// Requires the `sender` address to sign the call.
+    ///
+    /// # Returns
+    /// The unique `u64` ID of the newly created stream.
     pub fn create_stream(
         env: Env,
         sender: Address,
@@ -363,9 +466,182 @@ impl PaymentStreamContract {
         start_time: u64,
         end_time: u64,
     ) -> u64 {
-        Self::assert_not_paused(&env);
         sender.require_auth();
-        Self::require_not_paused(&env);
+        Self::create_stream_internal(
+            env,
+            sender,
+            recipient,
+            token,
+            total_amount,
+            initial_amount,
+            start_time,
+            end_time,
+            0,
+        )
+    }
+
+    /// Create a new payment stream with a linear cliff (lockup) period.
+    ///
+    /// Nothing is withdrawable during the first `cliff_duration` seconds after
+    /// `start_time`. Once the cliff has elapsed, tokens vest linearly across
+    /// the whole `[start_time, end_time]` window, so the pro-rata share accrued
+    /// during the cliff becomes claimable immediately at the cliff boundary.
+    ///
+    /// # Arguments
+    /// * `sender` - Address funding the stream.
+    /// * `recipient` - Address that will receive the funds.
+    /// * `token` - Token contract being streamed.
+    /// * `total_amount` - Total amount to be streamed.
+    /// * `initial_amount` - Amount transferred into escrow on creation.
+    /// * `start_time` - Ledger timestamp when vesting begins.
+    /// * `end_time` - Ledger timestamp when vesting completes.
+    /// * `cliff_duration` - Seconds after `start_time` during which nothing is withdrawable.
+    ///
+    /// # Authorization
+    /// Requires the `sender` address to sign the call.
+    ///
+    /// # Errors
+    /// - `Error::InvalidAmount` - `total_amount <= 0` or `initial_amount` out of range.
+    /// - `Error::InvalidTimeRange` - `end_time <= start_time`.
+    /// - `Error::InvalidCliff` - `cliff_duration >= end_time - start_time`.
+    /// - `Error::ContractPaused` - the emergency circuit breaker is active.
+    ///
+    /// # Returns
+    /// The unique `u64` ID of the newly created stream.
+    pub fn create_stream_with_cliff(
+        env: Env,
+        sender: Address,
+        recipient: Address,
+        token: Address,
+        total_amount: i128,
+        initial_amount: i128,
+        start_time: u64,
+        end_time: u64,
+        cliff_duration: u64,
+    ) -> u64 {
+        sender.require_auth();
+        Self::create_stream_internal(
+            env,
+            sender,
+            recipient,
+            token,
+            total_amount,
+            initial_amount,
+            start_time,
+            end_time,
+            cliff_duration,
+        )
+    }
+
+    /// Create up to [`MAX_STREAMS_PER_BATCH`] recipient streams in a single
+    /// invocation (batch payroll).
+    ///
+    /// Every recipient's parameters are validated up front so that a single
+    /// invalid entry fails the whole batch atomically — no partial streams are
+    /// created. The `sender` address is authenticated once for the entire
+    /// batch.
+    ///
+    /// # Arguments
+    /// * `sender` - Address funding and authorizing the entire batch.
+    /// * `params` - Per-recipient stream parameters (max `MAX_STREAMS_PER_BATCH` entries).
+    ///
+    /// # Authorization
+    /// Requires the `sender` address to sign the call.
+    ///
+    /// # Errors
+    /// - `Error::EmptyBatch` - `params` is empty.
+    /// - `Error::BatchLimitExceeded` - `params` exceeds `MAX_STREAMS_PER_BATCH` entries.
+    /// - `Error::InvalidAmount` - any entry has `total_amount <= 0` or an out-of-range `initial_amount`.
+    /// - `Error::InvalidTimeRange` - any entry has `end_time <= start_time`.
+    /// - `Error::InvalidCliff` - any entry has `cliff_duration >= end_time - start_time`.
+    /// - `Error::ContractPaused` - the emergency circuit breaker is active.
+    ///
+    /// # Returns
+    /// The stream IDs of the newly created streams, in batch order.
+    pub fn create_batch_streams(
+        env: Env,
+        sender: Address,
+        params: Vec<StreamParams>,
+    ) -> Vec<u64> {
+        Self::assert_not_paused(&env);
+        // The sender authorises the entire batch exactly once.
+        sender.require_auth();
+
+        let count = params.len();
+        if count == 0 {
+            panic_with_error!(&env, Error::EmptyBatch);
+        }
+        if count > MAX_STREAMS_PER_BATCH {
+            panic_with_error!(&env, Error::BatchLimitExceeded);
+        }
+
+        // Validate the entire batch before creating anything so a single bad
+        // entry reverts the whole call (no partial payroll streams).
+        for p in params.iter() {
+            Self::validate_stream_params(
+                &env,
+                p.total_amount,
+                p.initial_amount,
+                p.start_time,
+                p.end_time,
+                p.cliff_duration,
+            );
+        }
+
+        let mut ids: Vec<u64> = Vec::new(&env);
+        for p in params.iter() {
+            let id = Self::create_stream_internal(
+                env.clone(),
+                sender.clone(),
+                p.recipient.clone(),
+                p.token.clone(),
+                p.total_amount,
+                p.initial_amount,
+                p.start_time,
+                p.end_time,
+                p.cliff_duration,
+            );
+            ids.push_back(id);
+        }
+        ids
+    }
+
+    /// Validate a stream parameter set, panicking on any invalid input.
+    fn validate_stream_params(
+        env: &Env,
+        total_amount: i128,
+        initial_amount: i128,
+        start_time: u64,
+        end_time: u64,
+        cliff_duration: u64,
+    ) {
+        if total_amount <= 0 {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+        if initial_amount < 0 || initial_amount > total_amount {
+            panic_with_error!(env, Error::InvalidAmount);
+        }
+        if end_time <= start_time {
+            panic_with_error!(env, Error::InvalidTimeRange);
+        }
+        if cliff_duration >= end_time - start_time {
+            panic_with_error!(env, Error::InvalidCliff);
+        }
+    }
+
+    /// Shared implementation for stream creation.
+    fn create_stream_internal(
+        env: Env,
+        sender: Address,
+        recipient: Address,
+        token: Address,
+        total_amount: i128,
+        initial_amount: i128,
+        start_time: u64,
+        end_time: u64,
+        cliff_duration: u64,
+    ) -> u64 {
+        Self::assert_not_paused(&env);
 
         // Validate inputs
         if total_amount <= 0 {
@@ -376,6 +652,9 @@ impl PaymentStreamContract {
         }
         if end_time <= start_time {
             panic_with_error!(&env, Error::InvalidTimeRange);
+        }
+        if cliff_duration >= end_time - start_time {
+            panic_with_error!(&env, Error::InvalidCliff);
         }
 
         // Get and increment stream count
@@ -396,6 +675,7 @@ impl PaymentStreamContract {
             balance: initial_amount,
             withdrawn_amount: 0,
             start_time,
+            cliff_duration,
             end_time,
             status: StreamStatus::Active,
             paused_at: None,
@@ -465,9 +745,11 @@ impl PaymentStreamContract {
         if matches!(stream.status, StreamStatus::Canceled | StreamStatus::Completed) {
             panic_with_error!(&env, Error::StreamNotActive);
         }
+        if stream.status == StreamStatus::Disputed {
+            panic_with_error!(&env, Error::DisputeInProgress);
+        }
 
         stream.sender.require_auth();
-        Self::require_not_paused(&env);
 
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
@@ -512,7 +794,7 @@ impl PaymentStreamContract {
         env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Emit StreamDeposit event
-        env.events().publish(("StreamDeposit", stream_id), StreamDepositEvent { stream_id, amount });
+        StreamDepositEvent { stream_id, amount }.publish(&env);
     }
 
     /// Deposit by first swapping a source asset into the stream token via the Stellar DEX.
@@ -553,11 +835,17 @@ impl PaymentStreamContract {
         min_amount_out: i128,
         swap_path: Vec<Address>,
     ) {
+        // 0. Emergency circuit breaker — same policy as `deposit`
+        Self::assert_not_paused(&env);
+
         // 1. Load stream and validate status
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         if matches!(stream.status, StreamStatus::Canceled | StreamStatus::Completed) {
             panic_with_error!(&env, Error::StreamNotActive);
+        }
+        if stream.status == StreamStatus::Disputed {
+            panic_with_error!(&env, Error::DisputeInProgress);
         }
 
         // 2. Authorisation – only the stream sender may top-up via swap
@@ -607,7 +895,7 @@ impl PaymentStreamContract {
         let dex_router: Address = env
             .storage()
             .instance()
-            .get(&Symbol::new(&env, "dex_router"))
+            .get(&DataKey::DexRouter)
             .unwrap_or_else(|| panic_with_error!(&env, Error::SwapFailed));
 
         let router = DexRouterClient::new(&env, &dex_router);
@@ -644,23 +932,23 @@ impl PaymentStreamContract {
 
         // 10. Persist updated stream state
         stream.balance = new_balance;
-        env.storage().persistent().set(&stream_id, &stream);
-        env.storage().persistent().extend_ttl(&stream_id, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().set(&DataKey::Stream(stream_id), &stream);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // 11. Update stream metrics
         let mut metrics: StreamMetrics = env
             .storage()
             .persistent()
-            .get(&(stream_id, Symbol::new(&env, "metrics")))
+            .get(&DataKey::Metrics(stream_id))
             .unwrap_or_else(|| Self::default_stream_metrics(&env));
 
         metrics.last_activity = env.ledger().timestamp();
 
         env.storage()
             .persistent()
-            .set(&(stream_id, Symbol::new(&env, "metrics")), &metrics);
+            .set(&DataKey::Metrics(stream_id), &metrics);
         env.storage().persistent().extend_ttl(
-            &(stream_id, Symbol::new(&env, "metrics")),
+            &DataKey::Metrics(stream_id),
             LEDGER_THRESHOLD,
             LEDGER_BUMP,
         );
@@ -669,22 +957,18 @@ impl PaymentStreamContract {
         //
         // `SwapDeposit` carries swap-specific details for indexers.
         // `StreamDeposit` is also emitted so existing listeners remain compatible.
-        env.events().publish(
-            ("SwapDeposit", stream_id),
-            SwapDepositEvent {
-                stream_id,
-                from_token,
-                amount_in,
-                amount_out: actual_received,
-            },
-        );
-        env.events().publish(
-            ("StreamDeposit", stream_id),
-            StreamDepositEvent {
-                stream_id,
-                amount: actual_received,
-            },
-        );
+        SwapDepositEvent {
+            stream_id,
+            from_token,
+            amount_in,
+            amount_out: actual_received,
+        }
+        .publish(&env);
+        StreamDepositEvent {
+            stream_id,
+            amount: actual_received,
+        }
+        .publish(&env);
     }
 
     /// Register the DEX router contract address (admin only).
@@ -696,13 +980,13 @@ impl PaymentStreamContract {
         let admin: Address = env
             .storage()
             .instance()
-            .get(&Symbol::new(&env, "admin"))
+            .get(&DataKey::Admin)
             .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
         admin.require_auth();
 
         env.storage()
             .instance()
-            .set(&Symbol::new(&env, "dex_router"), &router);
+            .set(&DataKey::DexRouter, &router);
         env.storage()
             .instance()
             .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -712,7 +996,7 @@ impl PaymentStreamContract {
     pub fn get_dex_router(env: Env) -> Option<Address> {
         env.storage()
             .instance()
-            .get(&Symbol::new(&env, "dex_router"))
+            .get(&DataKey::DexRouter)
     }
 
     /// Get stream details
@@ -769,11 +1053,11 @@ impl PaymentStreamContract {
         let delegate_key = DataKey::Delegate(stream_id);
         if let Some(old_delegate) = env.storage().persistent().get::<_, Address>(&delegate_key) {
             if old_delegate != delegate {
-                let revoke_event = DelegationRevokedEvent {
+                DelegationRevokedEvent {
                     stream_id,
                     recipient: stream.recipient.clone(),
-                };
-                env.events().publish(("DelegationRevoked", stream_id), revoke_event);
+                }
+                .publish(&env);
             }
         }
 
@@ -805,12 +1089,12 @@ impl PaymentStreamContract {
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Emit event
-        let event = DelegationGrantedEvent {
+        DelegationGrantedEvent {
             stream_id,
             recipient: stream.recipient,
             delegate: delegate.clone(),
-        };
-        env.events().publish(("DelegationGranted", stream_id), event);
+        }
+        .publish(&env);
     }
 
     /// Revoke the delegate for a stream
@@ -837,11 +1121,11 @@ impl PaymentStreamContract {
             env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
             // Emit event
-            let event = DelegationRevokedEvent {
+            DelegationRevokedEvent {
                 stream_id,
                 recipient: stream.recipient,
-            };
-            env.events().publish(("DelegationRevoked", stream_id), event);
+            }
+            .publish(&env);
         }
     }
 
@@ -945,6 +1229,13 @@ impl PaymentStreamContract {
         // Subtract the total paused duration from elapsed time
         let elapsed = raw_elapsed.saturating_sub(stream.total_paused_duration);
 
+        // Cliff: nothing may be withdrawn until the lockup period has elapsed.
+        // Vesting resumes linearly over the full duration afterwards, so the
+        // pro-rata share accrued during the cliff is claimable at the boundary.
+        if elapsed < stream.cliff_duration {
+            return 0;
+        }
+
         let duration = (stream.end_time - stream.start_time).saturating_sub(stream.total_paused_duration);
         if duration == 0 {
             return 0;
@@ -961,7 +1252,6 @@ impl PaymentStreamContract {
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         Self::assert_is_recipient_or_delegate(&env, stream_id);
-        Self::require_not_paused(&env);
 
         let available = Self::withdrawable_amount(env.clone(), stream_id);
         if amount > available || amount <= 0 {
@@ -1009,7 +1299,7 @@ impl PaymentStreamContract {
         if fee > 0 {
             let fee_collector: Address = env.storage().instance().get(&DataKey::FeeCollector).unwrap();
             token_client.transfer(&env.current_contract_address(), &fee_collector, &fee);
-            env.events().publish(("FeeCollected", stream_id), fee);
+            FeeCollectedEvent { stream_id, amount: fee }.publish(&env);
         }
     }
 
@@ -1061,13 +1351,11 @@ impl PaymentStreamContract {
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Emit StreamPaused event
-        env.events().publish(
-            ("StreamPaused", stream_id),
-            StreamPausedEvent {
-                stream_id,
-                paused_at: current_time,
-            },
-        );
+        StreamPausedEvent {
+            stream_id,
+            paused_at: current_time,
+        }
+        .publish(&env);
     }
 
     /// Resume a paused stream (sender only)
@@ -1120,14 +1408,12 @@ impl PaymentStreamContract {
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Emit StreamResumed event
-        env.events().publish(
-            ("StreamResumed", stream_id),
-            StreamResumedEvent {
-                stream_id,
-                resumed_at: current_time,
-                paused_duration,
-            },
-        );
+        StreamResumedEvent {
+            stream_id,
+            resumed_at: current_time,
+            paused_duration,
+        }
+        .publish(&env);
     }
 
     /// Cancel a stream
@@ -1336,6 +1622,225 @@ impl PaymentStreamContract {
                 total_streams_created: 0,
                 total_delegations: 0,
             })
+    }
+
+    /// Record a decided dispute resolution outcome for a stream and queue
+    /// its payout behind a mandatory 48-hour timelock (admin/arbiter only).
+    ///
+    /// The stream is moved into `Disputed` status for the duration of the
+    /// timelock, blocking deposits, withdrawals, pausing, resuming, and
+    /// cancellation until the resolution is either executed via
+    /// [`Self::execute_resolution`] or reversed via
+    /// [`Self::cancel_queued_resolution`]. `recipient_amount` and
+    /// `sender_amount` are drawn from the stream's currently escrowed,
+    /// unwithdrawn balance and must not exceed it.
+    ///
+    /// Returns the id of the queued dispute.
+    pub fn resolve_dispute(
+        env: Env,
+        stream_id: u64,
+        recipient_amount: i128,
+        sender_amount: i128,
+    ) -> u64 {
+        Self::assert_not_paused(&env);
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
+
+        if stream.status == StreamStatus::Disputed {
+            panic_with_error!(&env, Error::DisputeAlreadyQueued);
+        }
+        if stream.status != StreamStatus::Active && stream.status != StreamStatus::Paused {
+            panic_with_error!(&env, Error::StreamNotActive);
+        }
+
+        if recipient_amount < 0 || sender_amount < 0 {
+            panic_with_error!(&env, Error::InvalidResolutionAmounts);
+        }
+
+        let total_resolution = recipient_amount.checked_add(sender_amount)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+
+        let escrowed_balance = stream.balance - stream.withdrawn_amount;
+        if total_resolution <= 0 || total_resolution > escrowed_balance {
+            panic_with_error!(&env, Error::InvalidResolutionAmounts);
+        }
+
+        let previous_status = stream.status;
+        let was_active = stream.status == StreamStatus::Active;
+        stream.status = StreamStatus::Disputed;
+
+        env.storage().persistent().set(&DataKey::Stream(stream_id), &stream);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        if was_active {
+            let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
+                .get(&DataKey::ProtocolMetrics)
+                .unwrap();
+            protocol_metrics.total_active_streams = protocol_metrics.total_active_streams.saturating_sub(1);
+            env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
+            env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+
+        // Allocate a new dispute id
+        let mut dispute_count: u64 = env.storage().instance().get(&DataKey::DisputeCount).unwrap_or(0);
+        dispute_count += 1;
+        let dispute_id = dispute_count;
+        env.storage().instance().set(&DataKey::DisputeCount, &dispute_count);
+        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        let execute_after = env.ledger().timestamp() + DISPUTE_TIMELOCK_DELAY;
+
+        let queued = QueuedResolution {
+            dispute_id,
+            stream_id,
+            recipient_amount,
+            sender_amount,
+            execute_after,
+            executed: false,
+            previous_status,
+        };
+
+        let dispute_key = DataKey::Dispute(dispute_id);
+        env.storage().persistent().set(&dispute_key, &queued);
+        env.storage().persistent().extend_ttl(&dispute_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        let active_dispute_key = DataKey::ActiveDispute(stream_id);
+        env.storage().persistent().set(&active_dispute_key, &dispute_id);
+        env.storage().persistent().extend_ttl(&active_dispute_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.events().publish(
+            ("DisputeQueued", stream_id),
+            DisputeQueuedEvent {
+                dispute_id,
+                stream_id,
+                recipient_amount,
+                sender_amount,
+                execute_after,
+            },
+        );
+
+        dispute_id
+    }
+
+    /// Execute a queued dispute resolution once its 48-hour timelock has
+    /// elapsed. Callable by anyone, since the outcome and amounts were
+    /// already fixed and authorized when the dispute was queued; only the
+    /// passage of time gates execution.
+    pub fn execute_resolution(env: Env, dispute_id: u64) {
+        Self::assert_not_paused(&env);
+
+        let dispute_key = DataKey::Dispute(dispute_id);
+        let mut queued: QueuedResolution = env.storage().persistent()
+            .get(&dispute_key)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::DisputeNotFound));
+
+        if queued.executed {
+            panic_with_error!(&env, Error::DisputeAlreadyExecuted);
+        }
+
+        if env.ledger().timestamp() < queued.execute_after {
+            panic_with_error!(&env, Error::TimelockNotElapsed);
+        }
+
+        let mut stream: Stream = Self::get_stream(env.clone(), queued.stream_id);
+
+        let token_client = token::Client::new(&env, &stream.token);
+        if queued.recipient_amount > 0 {
+            token_client.transfer(&env.current_contract_address(), &stream.recipient, &queued.recipient_amount);
+        }
+        if queued.sender_amount > 0 {
+            token_client.transfer(&env.current_contract_address(), &stream.sender, &queued.sender_amount);
+        }
+
+        // A resolution may allocate less than the full escrowed balance
+        // (e.g. only the disputed portion). Refund whatever is left over to
+        // the sender so completing the stream never strands funds in the
+        // contract with no remaining exit path.
+        let escrowed_before = stream.balance - stream.withdrawn_amount;
+        let residual = escrowed_before - queued.recipient_amount - queued.sender_amount;
+        if residual > 0 {
+            token_client.transfer(&env.current_contract_address(), &stream.sender, &residual);
+        }
+
+        // The entire escrowed balance has now left the contract (split
+        // between recipient, sender, and any residual refund), so mark it
+        // as fully settled rather than just crediting the recipient share.
+        stream.withdrawn_amount = stream.balance;
+        stream.status = StreamStatus::Completed;
+
+        env.storage().persistent().set(&DataKey::Stream(queued.stream_id), &stream);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(queued.stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        queued.executed = true;
+        env.storage().persistent().set(&dispute_key, &queued);
+        env.storage().persistent().extend_ttl(&dispute_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.storage().persistent().remove(&DataKey::ActiveDispute(queued.stream_id));
+
+        env.events().publish(
+            ("DisputeExecuted", queued.stream_id),
+            DisputeExecutedEvent {
+                dispute_id,
+                stream_id: queued.stream_id,
+                recipient_amount: queued.recipient_amount,
+                sender_amount: queued.sender_amount,
+            },
+        );
+    }
+
+    /// Cancel a queued dispute resolution before its timelock elapses
+    /// (admin/arbiter only), restoring the stream to its pre-dispute
+    /// status, e.g. if new evidence emerges during the delay window.
+    pub fn cancel_queued_resolution(env: Env, dispute_id: u64) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let dispute_key = DataKey::Dispute(dispute_id);
+        let queued: QueuedResolution = env.storage().persistent()
+            .get(&dispute_key)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::DisputeNotFound));
+
+        if queued.executed {
+            panic_with_error!(&env, Error::DisputeAlreadyExecuted);
+        }
+
+        let mut stream: Stream = Self::get_stream(env.clone(), queued.stream_id);
+        stream.status = queued.previous_status;
+
+        env.storage().persistent().set(&DataKey::Stream(queued.stream_id), &stream);
+        env.storage().persistent().extend_ttl(&DataKey::Stream(queued.stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        if queued.previous_status == StreamStatus::Active {
+            let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
+                .get(&DataKey::ProtocolMetrics)
+                .unwrap();
+            protocol_metrics.total_active_streams += 1;
+            env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
+            env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+
+        env.storage().persistent().remove(&dispute_key);
+        env.storage().persistent().remove(&DataKey::ActiveDispute(queued.stream_id));
+
+        env.events().publish(
+            ("DisputeCanceled", queued.stream_id),
+            DisputeCanceledEvent {
+                dispute_id,
+                stream_id: queued.stream_id,
+            },
+        );
+    }
+
+    /// Get a queued dispute resolution by id, if it exists
+    pub fn get_queued_resolution(env: Env, dispute_id: u64) -> Option<QueuedResolution> {
+        env.storage().persistent().get(&DataKey::Dispute(dispute_id))
+    }
+
+    /// Get the id of the currently active (unresolved) dispute for a stream, if any
+    pub fn get_active_dispute(env: Env, stream_id: u64) -> Option<u64> {
+        env.storage().persistent().get(&DataKey::ActiveDispute(stream_id))
     }
 }
 

@@ -6,11 +6,11 @@ import { useCallback, useEffect, useRef } from 'react';
  * @param callback The function to debounce
  * @param delay    The delay in milliseconds
  */
-export function useDebouncedCallback<T extends (...args: any[]) => any>(
-  callback: T,
+export function useDebouncedCallback<Args extends unknown[], R>(
+  callback: (...args: Args) => R,
   delay: number
 ) {
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const callbackRef = useRef(callback);
 
   // Remember the latest callback
@@ -28,7 +28,7 @@ export function useDebouncedCallback<T extends (...args: any[]) => any>(
   }, []);
 
   const debouncedCallback = useCallback(
-    (...args: Parameters<T>) => {
+    (...args: Args) => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
@@ -38,14 +38,6 @@ export function useDebouncedCallback<T extends (...args: any[]) => any>(
     },
     [delay]
   );
-
-  const flush = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      // Wait, flush shouldn't just clear it, it should execute it if pending 🤔
-      // To keep it simple, we don't need a complex flush, just the debounced callback
-    }
-  }, []);
 
   return debouncedCallback;
 }

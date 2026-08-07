@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { Suspense, useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useWallet } from "@/providers/StellarWalletProvider";
@@ -272,4 +272,14 @@ const HistoryPage = () => {
     );
 };
 
-export default HistoryPage;
+export default function HistoryPageWithSuspense() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-[400px] flex items-center justify-center text-zinc-500">
+                Loading…
+            </div>
+        }>
+            <HistoryPage />
+        </Suspense>
+    );
+}

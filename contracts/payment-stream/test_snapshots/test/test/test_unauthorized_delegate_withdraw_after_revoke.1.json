@@ -256,7 +256,11 @@
                   "storage": [
                     {
                       "key": {
-                        "symbol": "admin"
+                        "vec": [
+                          {
+                            "symbol": "Admin"
+                          }
+                        ]
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
@@ -264,7 +268,11 @@
                     },
                     {
                       "key": {
-                        "symbol": "fee_collector"
+                        "vec": [
+                          {
+                            "symbol": "FeeCollector"
+                          }
+                        ]
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -272,7 +280,11 @@
                     },
                     {
                       "key": {
-                        "symbol": "general_protocol_fee_rate"
+                        "vec": [
+                          {
+                            "symbol": "FeeRate"
+                          }
+                        ]
                       },
                       "val": {
                         "u32": 0
@@ -280,7 +292,11 @@
                     },
                     {
                       "key": {
-                        "symbol": "protocol_metrics"
+                        "vec": [
+                          {
+                            "symbol": "ProtocolMetrics"
+                          }
+                        ]
                       },
                       "val": {
                         "map": [
@@ -321,7 +337,11 @@
                     },
                     {
                       "key": {
-                        "symbol": "stream_count"
+                        "vec": [
+                          {
+                            "symbol": "StreamCount"
+                          }
+                        ]
                       },
                       "val": {
                         "u64": "0"

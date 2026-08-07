@@ -29,7 +29,7 @@
  * @module geo-cache
  */
 
-import type { RedisClient } from "./redis";
+import { getRedisClient, type RedisClient } from "./redis";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -396,10 +396,7 @@ let _geoCache: GeoCache | null = null;
 export function getGeoCache(redis?: RedisClient | null): GeoCache {
   if (redis !== undefined) return new GeoCache(redis);
   if (!_geoCache) {
-    // Lazily import to avoid circular deps — redis.ts may not be bundled yet
-    const { getRedisClient } = require("./redis") as {
-      getRedisClient: () => RedisClient | null;
-    };
+    // redis.ts has no import of this module, so a top-level import is safe.
     _geoCache = new GeoCache(getRedisClient());
   }
   return _geoCache;

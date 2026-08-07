@@ -16,7 +16,6 @@ import { SUPPORTED_TOKENS } from '@/lib/validations';
 import ProtectedRoute from '@/components/layouts/ProtectedRoute';
 import { CSVErrorDisplay } from '@/components/molecules/CSVErrorDisplay';
 import { CSVError, CSVWarning } from '@/types/distribution';
-import { notify } from '@/utils/notification';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
 import { ErrorFallback } from '@/components/ui/error-fallback';
 import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
@@ -24,12 +23,10 @@ import { useUnsavedChanges } from '@/hooks/use-unsaved-changes';
 export default function DistributionPage() {
   const {
     state,
-    updateType,
     addRecipient,
     updateRecipient,
     removeRecipient,
     bulkAddRecipients,
-    setTotalAmount,
     reset,
   } = useDistributionState();
 
@@ -130,7 +127,7 @@ export default function DistributionPage() {
     return state.recipients.some(r => r.address || r.amount);
   }, [state.recipients]);
 
-  useUnsavedChanges(hasRecipientInput || urlInput);
+  useUnsavedChanges(hasRecipientInput || Boolean(urlInput));
 
   const handleDistribute = () => setShowPreview(true);
 
@@ -174,7 +171,7 @@ export default function DistributionPage() {
         bulkAddRecipients(result.recipients);
         setUploadStatus({ type: 'success', message: `Added ${result.recipients.length} recipients` });
       }
-    } catch (error) {
+    } catch {
       setUploadStatus({ type: 'error', message: 'Failed to process CSV' });
     } finally {
       setIsProcessing(false);
@@ -198,12 +195,12 @@ export default function DistributionPage() {
     e.stopPropagation();
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      const fakeEvent = { target: { files: [file] } } as React.ChangeEvent<HTMLInputElement>;
+      const fakeEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
       await handleFileUpload(fakeEvent);
     }
   };
 
-  const { distInsufficientBalance } = useBalanceValidation();
+  const { insufficientBalance: distInsufficientBalance } = useBalanceValidation("", undefined);
 
   return (
     <ProtectedRoute description="Connect wallet">
@@ -228,7 +225,7 @@ export default function DistributionPage() {
                 <div className="flex items-center gap-2">
                   <Switch
                     checked={showAddressLabel}
-                    onCheckedChange={(checked) => setShowAddressLabel(checked)}
+                    onChange={(e) => setShowAddressLabel(e.target.checked)}
                   />
                   <Label>Show Address Label</Label>
                 </div>

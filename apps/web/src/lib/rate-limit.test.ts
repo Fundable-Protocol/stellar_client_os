@@ -9,6 +9,8 @@ import {
 
 // ── Mock Redis client ─────────────────────────────────────────────────────────
 
+type RedisClientParam = ConstructorParameters<typeof RateLimiter>[0];
+
 function makeRedis(evalResult: [number, number] = [1, Date.now()]) {
   return {
     eval: vi.fn().mockResolvedValue(evalResult),
@@ -23,7 +25,7 @@ describe("RateLimiter.check", () => {
 
   it("returns allowed:true when count is within limit", async () => {
     const redis = makeRedis([3, Date.now() - 10_000]);
-    const limiter = new RateLimiter(redis as any, { limit: 10, windowMs: 60_000 });
+    const limiter = new RateLimiter(redis as unknown as RedisClientParam, { limit: 10, windowMs: 60_000 });
     const result = await limiter.check("127.0.0.1");
     expect(result.allowed).toBe(true);
     expect(result.count).toBe(3);
@@ -33,7 +35,7 @@ describe("RateLimiter.check", () => {
 
   it("returns allowed:false when count exceeds limit", async () => {
     const redis = makeRedis([11, Date.now() - 5_000]);
-    const limiter = new RateLimiter(redis as any, { limit: 10, windowMs: 60_000 });
+    const limiter = new RateLimiter(redis as unknown as RedisClientParam, { limit: 10, windowMs: 60_000 });
     const result = await limiter.check("10.0.0.1");
     expect(result.allowed).toBe(false);
     expect(result.remaining).toBe(0);
@@ -42,7 +44,7 @@ describe("RateLimiter.check", () => {
 
   it("returns allowed:true at exactly the limit (boundary)", async () => {
     const redis = makeRedis([10, Date.now()]);
-    const limiter = new RateLimiter(redis as any, { limit: 10, windowMs: 60_000 });
+    const limiter = new RateLimiter(redis as unknown as RedisClientParam, { limit: 10, windowMs: 60_000 });
     const result = await limiter.check("192.168.1.1");
     expect(result.allowed).toBe(true);
     expect(result.remaining).toBe(0);
@@ -57,7 +59,7 @@ describe("RateLimiter.check", () => {
 
   it("gracefully allows when Redis eval throws", async () => {
     const redis = { eval: vi.fn().mockRejectedValue(new Error("ECONNREFUSED")) };
-    const limiter = new RateLimiter(redis as any, { limit: 5, windowMs: 60_000 });
+    const limiter = new RateLimiter(redis as unknown as RedisClientParam, { limit: 5, windowMs: 60_000 });
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const result = await limiter.check("5.5.5.5");
     spy.mockRestore();
@@ -66,7 +68,7 @@ describe("RateLimiter.check", () => {
 
   it("uses the configured keyPrefix in the Redis call", async () => {
     const redis = makeRedis([1, Date.now()]);
-    const limiter = new RateLimiter(redis as any, {
+    const limiter = new RateLimiter(redis as unknown as RedisClientParam, {
       limit: 100,
       windowMs: 60_000,
       keyPrefix: "rl:stream",
@@ -87,7 +89,7 @@ describe("RateLimiter.check", () => {
     const now = Date.now();
     const oldestScore = now - 30_000;
     const redis = makeRedis([1, oldestScore]);
-    const limiter = new RateLimiter(redis as any, { limit: 10, windowMs: 60_000 });
+    const limiter = new RateLimiter(redis as unknown as RedisClientParam, { limit: 10, windowMs: 60_000 });
     const result = await limiter.check("1.1.1.1");
     // resetAt = oldestScore + windowMs
     expect(result.resetAt).toBe(oldestScore + 60_000);
@@ -95,7 +97,7 @@ describe("RateLimiter.check", () => {
 
   it("passes correct TTL to Lua script (ceil(windowMs/1000)+1)", async () => {
     const redis = makeRedis([1, Date.now()]);
-    const limiter = new RateLimiter(redis as any, { limit: 5, windowMs: 30_000 });
+    const limiter = new RateLimiter(redis as unknown as RedisClientParam, { limit: 5, windowMs: 30_000 });
     await limiter.check("x");
     // TTL should be ceil(30000/1000)+1 = 31
     expect(redis.eval).toHaveBeenCalledWith(
@@ -111,7 +113,7 @@ describe("RateLimiter.check", () => {
 
   it("uses distinct keys for different identifiers", async () => {
     const redis = makeRedis([1, Date.now()]);
-    const limiter = new RateLimiter(redis as any, { limit: 10, keyPrefix: "rl" });
+    const limiter = new RateLimiter(redis as unknown as RedisClientParam, { limit: 10, keyPrefix: "rl" });
     await limiter.check("192.168.0.1");
     await limiter.check("192.168.0.2");
     const calls = (redis.eval as ReturnType<typeof vi.fn>).mock.calls;
@@ -177,7 +179,7 @@ describe("createRateLimiter", () => {
 
   it("overrides are applied over env defaults", async () => {
     const redis = makeRedis([1, Date.now()]);
-    const limiter = createRateLimiter(redis as any, {
+    const limiter = createRateLimiter(redis as unknown as RedisClientParam, {
       limit: 5,
       keyPrefix: "rl:test",
     });

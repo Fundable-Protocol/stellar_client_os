@@ -7,25 +7,6 @@ import { StreamRecord } from "@/lib/validations";
 import StreamProgressBar from "./StreamProgressBar";
 import StreamCountdown from "./StreamCountdown";
 
-const getStatusColor = (status: string) => {
-    switch (status?.toLowerCase()) {
-        case "active":
-            return "bg-emerald-500";
-        case "canceled":
-            return "bg-red-500";
-        case "transferred":
-            return "bg-blue-500";
-        case "paused":
-            return "bg-amber-500";
-        case "completed":
-            return "bg-gray-500";
-        case "confirming":
-            return "bg-amber-400";
-        default:
-            return "bg-zinc-500";
-    }
-};
-
 const getStatusBadgeStyle = (status: string) => {
     switch (status?.toLowerCase()) {
         case "active":

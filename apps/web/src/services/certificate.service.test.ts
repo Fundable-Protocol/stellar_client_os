@@ -154,10 +154,10 @@ describe("generateQrDataUri", () => {
 // ── generateCertificate ───────────────────────────────────────────────────────
 
 describe("generateCertificate", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     // Restore default mock after each test
-    const QRCode = require("qrcode");
+    const QRCode = await import("qrcode");
     vi.mocked(QRCode.default.toDataURL).mockResolvedValue(
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
     );
@@ -198,7 +198,8 @@ describe("generateCertificate", () => {
   });
 
   it("handles missing optional issuedAt gracefully", async () => {
-    const { issuedAt: _, ...rest } = validInput;
+    const { issuedAt, ...rest } = validInput;
+    void issuedAt;
     const result = await generateCertificate(rest as CertificateInput);
     expect(result.pdfBytes).toBeInstanceOf(Uint8Array);
   });

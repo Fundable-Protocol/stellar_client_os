@@ -30,6 +30,15 @@ export type ConnectionStatus =
   | "disconnecting"
   | "locked";
 
+const WALLET_INSTALL_URL: Partial<Record<WalletId, string>> = {
+  freighter: "https://freighter.app/",
+  xbull: "https://xbull.app/",
+  rabet: "https://rabet.io/",
+  albedo: "https://albedo.link/",
+  lobstr: "https://lobstr.co/",
+  rango: "https://app.rango.exchange/",
+};
+
 interface WalletContextType {
   connect: (walletId: WalletId) => Promise<void>;
   disconnect: () => Promise<void>;
@@ -58,23 +67,59 @@ export const useWallet = () => {
   return context;
 };
 
+/** Read all persisted wallet fields in one pass and validate them together. */
+function loadPersistedSession(): {
+  address: string | null;
+  walletId: string | null;
+  network: WalletNetwork | null;
+} {
+  if (typeof window === 'undefined') {
+    return { address: null, walletId: null, network: null };
+  }
+  const savedAddress = safeGetItem("stellar_wallet_address");
+  const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
+  const savedNetwork = safeGetItem("stellar_wallet_network") as WalletNetwork | null;
+
+  if (
+    savedAddress &&
+    isValidStellarAddress(savedAddress) &&
+    savedWalletId &&
+    savedNetwork &&
+    Object.values(WalletNetwork).includes(savedNetwork)
+  ) {
+    return { address: savedAddress, walletId: savedWalletId, network: savedNetwork };
+  }
+  return { address: null, walletId: null, network: null };
+}
+
 export const StellarWalletProvider = ({
   children,
 }: {
   children: React.ReactNode;
 }) => {
+  // Restore the persisted session once at initialisation time.
+  // All three pieces of state are derived from the same storage snapshot so
+  // they are always consistent with one another.
   const [address, setAddress] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
-    const savedAddress = safeGetItem("stellar_wallet_address");
+    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
     const savedNetwork = safeGetItem("stellar_wallet_network");
     console.log('Lazy init address:', { savedAddress, savedNetwork });
     if (savedNetwork === WalletNetwork.TESTNET && savedAddress && isValidStellarAddress(savedAddress)) {
       return savedAddress;
     }
     return null;
+    return loadPersistedSession().address;
   });
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() => {
+    const { address: savedAddress, walletId: savedWalletId, network: savedNetwork } = loadPersistedSession();
+    // Start as "connecting" when we have a persisted session so the UI
+    // correctly reflects the pending auto-reconnect verification.
+    if (savedAddress && savedWalletId && savedNetwork) {
+      return "connecting";
     if (typeof window === 'undefined') return "idle";
+    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
+    const savedWalletId = safeGetItem("stellar_wallet_id");
     const savedAddress = safeGetItem("stellar_wallet_address");
     const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
     const savedNetwork = safeGetItem("stellar_wallet_network");
@@ -85,7 +130,15 @@ export const StellarWalletProvider = ({
     return "idle";
   });
   const [selectedWalletId, setSelectedWalletId] = useState<WalletId | null>(() => {
+    return loadPersistedSession().walletId;
+  });
+  const [network, setNetworkState] = useState<WalletNetwork>(() => {
+    // Restore the network that was active when the user last connected so the
+    // kit is initialised with the right network passphrase immediately.
+    return loadPersistedSession().network ?? WalletNetwork.TESTNET;
     if (typeof window === 'undefined') return null;
+    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
+    const savedWalletId = safeGetItem("stellar_wallet_id");
     const savedAddress = safeGetItem("stellar_wallet_address");
     const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
     const savedNetwork = safeGetItem("stellar_wallet_network");
@@ -95,7 +148,6 @@ export const StellarWalletProvider = ({
     }
     return null;
   });
-  const [network, setNetworkState] = useState<WalletNetwork>(WalletNetwork.TESTNET);
   const [kit, setKit] = useState<StellarWalletsKit | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPersistenceAvailable, setIsPersistenceAvailable] = useState(true);
@@ -114,14 +166,22 @@ export const StellarWalletProvider = ({
     });
     setKit(walletKit);
 
+    // RESTORE SESSION — attempt to re-verify the wallet extension is still
+    // accessible. The lazy initialisers already set the "connecting" status and
+    // restored address/walletId from storage so the UI can render immediately;
+    // here we confirm the extension responds and either promote to "connected"
+    // or clear stale state when it no longer does.
+    const { address: savedAddress, walletId: savedWalletId, network: savedNetwork } = loadPersistedSession();
     // RESTORE SESSION
+    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
+    const savedWalletId = safeGetItem("stellar_wallet_id");
     const savedAddress = safeGetItem("stellar_wallet_address");
     const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
     const savedNetwork = safeGetItem("stellar_wallet_network");
 
-    if (savedAddress && savedWalletId && savedNetwork === network) {
-      if (!isValidStellarAddress(savedAddress)) {
-        // Tampered or invalid address — clear storage and force reconnect
+    if (savedAddress && savedWalletId && savedNetwork) {
+      if (savedNetwork !== network) {
+        // The user previously connected on a different network — do not restore.
         safeRemoveItem("stellar_wallet_address");
         safeRemoveItem("@fundable/web:selected_wallet");
         safeRemoveItem("stellar_wallet_network");
@@ -130,10 +190,44 @@ export const StellarWalletProvider = ({
         setConnectionStatus("idle");
         return;
       }
+
       walletKit.setWallet(savedWalletId);
 
-      // Sync with backend on session restoration
-      offrampService.syncWallet(savedAddress);
+      // AUTO-RECONNECT: verify the wallet extension is still unlocked.
+      let cancelled = false;
+      walletKit
+        .getAddress()
+        .then(({ address: liveAddress }) => {
+          if (cancelled) return;
+          if (liveAddress === savedAddress) {
+            // Wallet confirmed — restore full session.
+            setConnectionStatus("connected");
+            offrampService.syncWallet(liveAddress);
+          } else {
+            // Address mismatch (user switched accounts) — update to the new one.
+            setAddress(liveAddress);
+            safeSetItem("stellar_wallet_address", liveAddress);
+            setConnectionStatus("connected");
+            offrampService.syncWallet(liveAddress);
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          // Wallet is locked, removed, or rejected the request — clear stale state.
+          safeRemoveItem("stellar_wallet_address");
+          safeRemoveItem("@fundable/web:selected_wallet");
+          safeRemoveItem("stellar_wallet_network");
+          setAddress(null);
+          setSelectedWalletId(null);
+          setConnectionStatus("idle");
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    } else {
+      // No valid persisted session — ensure status is idle.
+      setConnectionStatus("idle");
     }
 
     // Cleanup: disconnect the kit when the component unmounts or network changes
@@ -195,15 +289,6 @@ export const StellarWalletProvider = ({
     { id: "rabet", name: "Rabet", icon: "/icons/rabet.png" },
     { id: "lobstr", name: "Lobstr", icon: "/icons/lobstr.png" },
   ];
-
-  const WALLET_INSTALL_URL: Partial<Record<WalletId, string>> = {
-    freighter: "https://freighter.app/",
-    xbull: "https://xbull.app/",
-    rabet: "https://rabet.io/",
-    albedo: "https://albedo.link/",
-    lobstr: "https://lobstr.co/",
-    rango: "https://app.rango.exchange/",
-  };
 
   const connect = useCallback(async (walletId: WalletId) => {
     if (!kit) return;

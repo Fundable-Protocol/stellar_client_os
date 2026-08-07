@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, token, Address, Env, Symbol,
+    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env,
 };
 
 #[contracterror]
@@ -63,7 +63,7 @@ pub enum DataKey {
     Admin,
 }
 
-#[contracttype]
+#[contractevent(topics = ["stream_created"])]
 #[derive(Clone, Debug)]
 pub struct StreamCreatedEvent {
     pub stream_id: u64,
@@ -77,7 +77,7 @@ pub struct StreamCreatedEvent {
     pub ownership_id: u64,
 }
 
-#[contracttype]
+#[contractevent(topics = ["stream_transferred"])]
 #[derive(Clone, Debug)]
 pub struct StreamTransferredEvent {
     pub stream_id: u64,
@@ -87,7 +87,7 @@ pub struct StreamTransferredEvent {
     pub timestamp: u64,
 }
 
-#[contracttype]
+#[contractevent(topics = ["stream_claimed"])]
 #[derive(Clone, Debug)]
 pub struct StreamClaimedEvent {
     pub stream_id: u64,
@@ -96,7 +96,7 @@ pub struct StreamClaimedEvent {
     pub timestamp: u64,
 }
 
-#[contracttype]
+#[contractevent(topics = ["stream_cancelled"])]
 #[derive(Clone, Debug)]
 pub struct StreamCancelledEvent {
     pub stream_id: u64,
@@ -184,20 +184,18 @@ impl PaymentStreamContract {
             .persistent()
             .set(&DataKey::Stream(new_stream_id), &stream);
 
-        env.events().publish(
-            (Symbol::new(&env, "stream_created"),),
-            StreamCreatedEvent {
-                stream_id: new_stream_id,
-                sender: sender.clone(),
-                recipient,
-                token,
-                total_amount,
-                start_time,
-                end_time,
-                transferable,
-                ownership_id,
-            },
-        );
+        StreamCreatedEvent {
+            stream_id: new_stream_id,
+            sender: sender.clone(),
+            recipient,
+            token,
+            total_amount,
+            start_time,
+            end_time,
+            transferable,
+            ownership_id,
+        }
+        .publish(&env);
 
         Ok(new_stream_id)
     }
@@ -238,16 +236,14 @@ impl PaymentStreamContract {
             .persistent()
             .set(&DataKey::StreamOwnershipRecord(ownership_id), &ownership_record);
 
-        env.events().publish(
-            (Symbol::new(&env, "stream_transferred"),),
-            StreamTransferredEvent {
-                stream_id,
-                ownership_id,
-                from: old_recipient,
-                to: new_recipient,
-                timestamp: env.ledger().timestamp(),
-            },
-        );
+        StreamTransferredEvent {
+            stream_id,
+            ownership_id,
+            from: old_recipient,
+            to: new_recipient,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
 
         Ok(())
     }
@@ -291,15 +287,13 @@ impl PaymentStreamContract {
         let token_client = token::Client::new(&env, &stream.token);
         token_client.transfer(&env.current_contract_address(), &ownership_record.owner, &claimable);
 
-        env.events().publish(
-            (Symbol::new(&env, "stream_claimed"),),
-            StreamClaimedEvent {
-                stream_id,
-                recipient: ownership_record.owner,
-                amount: claimable,
-                timestamp: current_time,
-            },
-        );
+        StreamClaimedEvent {
+            stream_id,
+            recipient: ownership_record.owner,
+            amount: claimable,
+            timestamp: current_time,
+        }
+        .publish(&env);
 
         Ok(claimable)
     }
@@ -351,16 +345,14 @@ impl PaymentStreamContract {
             );
         }
 
-        env.events().publish(
-            (Symbol::new(&env, "stream_cancelled"),),
-            StreamCancelledEvent {
-                stream_id,
-                sender: stream.sender,
-                refund_amount,
-                vested_amount: vested,
-                timestamp: current_time,
-            },
-        );
+        StreamCancelledEvent {
+            stream_id,
+            sender: stream.sender,
+            refund_amount,
+            vested_amount: vested,
+            timestamp: current_time,
+        }
+        .publish(&env);
 
         Ok(())
     }

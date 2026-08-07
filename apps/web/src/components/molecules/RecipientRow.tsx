@@ -2,7 +2,7 @@
  * RecipientRow - Individual recipient row with address and amount inputs
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Trash2, AlertCircle } from 'lucide-react';
 import { useDebouncedCallback } from '@/hooks/use-debounce-callback';
 import { cn } from '@/lib/utils';
@@ -75,7 +75,6 @@ export function RecipientRow({
   }, 300);
 
   const handleAmountChange = (value: string) => {
-    setLocalAmount(value);
     debouncedAmountChange(value);
   };
 

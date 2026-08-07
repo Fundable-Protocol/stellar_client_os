@@ -39,7 +39,7 @@ export interface ParsedContractError {
   code?: number;
   message: string;
   details?: string;
-  originalError?: Error | string;
+  originalError?: unknown;
   operation?: string;
   suggestion?: string;
 }
@@ -85,14 +85,17 @@ function parseTransactionResultXdr(resultXdr: string): {
         const firstOp = operations[0];
         
         // Check for contract-specific errors
-        if (firstOp.tr().switch() === xdr.HostFunctionType.invokeContract()) {
-          const invokeResult = firstOp.tr().invokeResult();
-          if (invokeResult.switch() === xdr.InvokeHostFunctionResultType.sorobanVal()) {
-            const val = invokeResult.val();
-            if (val.switch() === xdr.ScValType.error()) {
+        if (firstOp.tr().switch() === xdr.OperationType.invokeHostFunction()) {
+          const invokeResult = firstOp.tr().value() as xdr.InvokeHostFunctionResult;
+          if (
+            invokeResult.switch() ===
+            xdr.InvokeHostFunctionResultCode.invokeHostFunctionSuccess()
+          ) {
+            const val = xdr.ScVal.fromXDR(invokeResult.success());
+            if (val.switch() === xdr.ScValType.scvError()) {
               const errorVal = val.error();
-              if (errorVal.switch() === xdr.ScErrorType.contract()) {
-                const contractCode = errorVal.contract().value();
+              if (errorVal.switch() === xdr.ScErrorType.sceContract()) {
+                const contractCode = errorVal.contractCode();
                 if (contractCode in CONTRACT_ERRORS) {
                   return {
                     message: CONTRACT_ERRORS[contractCode],
@@ -106,37 +109,21 @@ function parseTransactionResultXdr(resultXdr: string): {
         }
         
         // Check for other operation-specific errors
-        const opResult = firstOp.tr();
-        switch (opResult.switch()) {
-          case xdr.OperationResultType.opBadAuth:
+        switch (firstOp.switch()) {
+          case xdr.OperationResultCode.opBadAuth():
             return {
               message: "Authentication failed - invalid signature or insufficient permissions",
               suggestion: "Check that you're using the correct account and have signed the transaction properly",
             };
-          case xdr.OperationResultType.opNoAccount:
+          case xdr.OperationResultCode.opNoAccount():
             return {
               message: "Account does not exist",
               suggestion: "Ensure the account has been created and funded on the network",
             };
-          case xdr.OperationResultType.opNotSupported:
+          case xdr.OperationResultCode.opNotSupported():
             return {
               message: "Operation not supported",
               suggestion: "This operation may not be available on the current network or protocol version",
-            };
-          case xdr.OperationResultType.opTooEarly:
-            return {
-              message: "Transaction submitted before its valid time",
-              suggestion: "Check the minTime parameter and system clock synchronization",
-            };
-          case xdr.OperationResultType.opTooLate:
-            return {
-              message: "Transaction submitted after its valid time",
-              suggestion: "The transaction may have expired. Try creating a new transaction",
-            };
-          case xdr.OperationResultType.opMissingOperation:
-            return {
-              message: "Transaction contains no operations",
-              suggestion: "Add at least one operation to the transaction",
             };
         }
       }

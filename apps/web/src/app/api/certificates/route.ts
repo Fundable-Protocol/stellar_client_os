@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     const docType = (body as CertificateInput).documentType ?? "certificate";
     const filename = `fundable-${docType}-${certificateId}.pdf`;
 
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(pdfBytes as unknown as BodyInit, {
       status: 200,
       headers: {
         "Content-Type": "application/pdf",

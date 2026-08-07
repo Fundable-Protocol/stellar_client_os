@@ -53,7 +53,7 @@ export function BankSelector({
                 if (res.success && res.data) {
                     setBanks(res.data);
                 }
-            } catch (e) {
+            } catch {
                 notify.error("Failed to load banks. Please try again later.");
             } finally {
                 setIsLoadingBanks(false);
@@ -96,7 +96,7 @@ export function BankSelector({
             const timer = setTimeout(verifyAccount, 500);
             return () => clearTimeout(timer);
         }
-    }, [selectedBankCode, accountNumber, verifyAccount]);
+    }, [selectedBankCode, accountNumber, verifyAccount, minLen]);
 
     const filteredBanks = banks.filter((bank) =>
         bank.name.toLowerCase().includes(searchTerm.toLowerCase())

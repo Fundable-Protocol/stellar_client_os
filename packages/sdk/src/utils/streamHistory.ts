@@ -11,7 +11,7 @@ import {
   parsePaymentStreamContractEvent,
   PaymentStreamContractEvent,
   ContractEventRaw,
-} from "./events.js";
+} from "./events";
 
 export interface StreamHistoryOptions {
   rpcUrl: string;
@@ -43,15 +43,15 @@ export async function getStreamHistory(
 
   const server = new StellarSdk.rpc.Server(rpcUrl);
 
-  const filter: StellarSdk.rpc.EventFilter = {
+  const filter: StellarSdk.rpc.Api.EventFilter = {
     type: "contract",
     contractIds: [contractId],
   };
 
   // cursor takes precedence over startLedger for continuation pages
-  const requestParams: StellarSdk.rpc.GetEventsRequest = cursor
+  const requestParams: StellarSdk.rpc.Api.GetEventsRequest = cursor
     ? { filters: [filter], cursor, limit }
-    : { filters: [filter], startLedger, limit };
+    : { filters: [filter], startLedger: startLedger ?? 1, limit };
 
   try {
     const response = await server.getEvents(requestParams);
@@ -74,7 +74,7 @@ export async function getStreamHistory(
       latestLedger: response.latestLedger,
       cursor:
         response.events.length > 0
-          ? response.events[response.events.length - 1].pagingToken
+          ? response.events[response.events.length - 1].id
           : undefined,
     };
   } catch (error) {

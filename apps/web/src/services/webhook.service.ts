@@ -15,7 +15,7 @@ export class WebhookService {
   private readonly baseDelay: number;
   private readonly subscriptionsPath: string;
   private readonly deadLetterPath: string;
-  private readonly pendingDeliveries: Set<Promise<any>> = new Set();
+  private readonly pendingDeliveries: Set<Promise<void>> = new Set();
 
   constructor(options: WebhookServiceOptions = {}) {
     this.maxRetries = options.maxRetries ?? 5;
@@ -31,7 +31,7 @@ export class WebhookService {
   /**
    * Helper to write JSON file atomically
    */
-  private async writeJsonAtomic(filePath: string, data: any): Promise<void> {
+  private async writeJsonAtomic(filePath: string, data: unknown): Promise<void> {
     const dir = path.dirname(filePath);
     await fs.mkdir(dir, { recursive: true });
 
@@ -55,8 +55,8 @@ export class WebhookService {
     try {
       const data = await fs.readFile(this.subscriptionsPath, 'utf-8');
       return JSON.parse(data) as WebhookSubscription[];
-    } catch (err: any) {
-      if (err.code === 'ENOENT') {
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'ENOENT') {
         return [];
       }
       console.error('Failed to read webhook subscriptions:', err);
@@ -121,8 +121,8 @@ export class WebhookService {
       try {
         const data = await fs.readFile(this.deadLetterPath, 'utf-8');
         deadLetters = JSON.parse(data) as WebhookDeliveryAttempt[];
-      } catch (err: any) {
-        if (err.code !== 'ENOENT') {
+      } catch (err: unknown) {
+        if ((err as { code?: string }).code !== 'ENOENT') {
           console.error('Failed to read dead-letter log:', err);
         }
       }
@@ -141,8 +141,8 @@ export class WebhookService {
     try {
       const data = await fs.readFile(this.deadLetterPath, 'utf-8');
       return JSON.parse(data) as WebhookDeliveryAttempt[];
-    } catch (err: any) {
-      if (err.code === 'ENOENT') {
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'ENOENT') {
         return [];
       }
       throw err;
@@ -166,7 +166,7 @@ export class WebhookService {
   /**
    * Dispatch an event to all interested subscribers
    */
-  async dispatchEvent(event: string, eventData: Record<string, any>): Promise<void> {
+  async dispatchEvent(event: string, eventData: Record<string, unknown>): Promise<void> {
     const subscriptions = await this.getSubscriptions();
     const matchingSubs = subscriptions.filter(
       (sub) => sub.events.includes(event) || sub.events.includes('*')
@@ -187,7 +187,7 @@ export class WebhookService {
   private async deliverWithRetry(
     sub: WebhookSubscription,
     event: string,
-    eventData: Record<string, any>,
+    eventData: Record<string, unknown>,
     attemptNum = 1
   ): Promise<void> {
     const deliveryId = 'del_' + randomUUID().replace(/-/g, '').slice(0, 16);
@@ -232,9 +232,9 @@ export class WebhookService {
       if (!success) {
         errorMessage = `HTTP failure status: ${response.status}`;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       success = false;
-      errorMessage = err.message || String(err);
+      errorMessage = err instanceof Error ? err.message : String(err);
     }
 
     const attemptRecord: WebhookDeliveryAttempt = {

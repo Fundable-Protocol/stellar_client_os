@@ -2,11 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Networks, Keypair } from '@stellar/stellar-sdk';
 import { StellarService, createTestnetService, createMainnetService } from './stellar.service';
-import {
-  ValidationError,
-  InsufficientFundsError,
-  AccountNotFoundError,
-} from './errors';
+import { ValidationError } from './errors';
 import type { StellarServiceConfig, CreateStreamParams, DistributeParams } from './types';
 
 // Mock the Stellar SDK modules

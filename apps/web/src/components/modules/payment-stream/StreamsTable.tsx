@@ -23,7 +23,7 @@ import {
     TableHeader,
 } from "@/components/ui/table";
 
-import { streamColumns, useStreamColumns } from "./streamColumns";
+import { useStreamColumns } from "./streamColumns";
 import { StreamRecord } from "@/lib/validations";
 import { validPageLimits } from "@/lib/constants";
 import AppSelect from "@/components/molecules/AppSelect";

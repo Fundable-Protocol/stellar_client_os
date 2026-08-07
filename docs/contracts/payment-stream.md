@@ -17,6 +17,7 @@ A struct that holds all the essential information about a single payment stream.
 -   `total_amount`: `i128` - The total amount of tokens to be streamed over the duration.
 -   `withdrawn_amount`: `i128` - The amount of tokens already withdrawn by the recipient.
 -   `start_time`: `u64` - The Unix timestamp marking the beginning of the stream.
+-   `cliff_duration`: `u64` - Seconds after `start_time` during which nothing is withdrawable (linear lockup). `0` means no cliff.
 -   `end_time`: `u64` - The Unix timestamp marking the end of the stream.
 -   `status`: `StreamStatus` - The current status of the stream.
 
@@ -50,6 +51,23 @@ Creates a new payment stream with the specified parameters.
 -   `start_time`: `u64` - The timestamp when the stream begins.
 -   `end_time`: `u64` - The timestamp when the stream ends.
 -   Returns: A `u64` representing the unique ID of the newly created stream.
+
+### `create_stream_with_cliff(env: Env, sender: Address, recipient: Address, token: Address, total_amount: i128, initial_amount: i128, start_time: u64, end_time: u64, cliff_duration: u64) -> u64`
+
+Creates a new payment stream with a cliff (linear lockup) period.
+
+-   `env`: The contract environment.
+-   `sender`: `Address` - The account funding the stream.
+-   `recipient`: `Address` - The account that will receive the funds.
+-   `token`: `Address` - The token to be streamed.
+-   `total_amount`: `i128` - The total amount to be streamed.
+-   `initial_amount`: `i128` - The amount transferred to the escrow on creation.
+-   `start_time`: `u64` - The timestamp when vesting begins.
+-   `end_time`: `u64` - The timestamp when vesting completes.
+-   `cliff_duration`: `u64` - Seconds after `start_time` during which nothing is withdrawable. Must be strictly shorter than `end_time - start_time`.
+-   Returns: A `u64` representing the unique ID of the newly created stream.
+
+> **Cliff semantics:** no tokens are withdrawable until `cliff_duration` seconds after `start_time`. Once the cliff passes, tokens vest linearly across the whole `[start_time, end_time]` window, so the pro-rata share accrued during the cliff becomes claimable immediately at the cliff boundary.
 
 ### `get_stream(env: Env, stream_id: u64) -> Option<Stream>`
 

@@ -115,7 +115,7 @@ export interface StreamDataSource {
  * Returns mock data in test / development environments to avoid network calls.
  */
 export class DefaultStreamDataSource implements StreamDataSource {
-  async getStreams(network: string): Promise<StreamRecord[]> {
+  async getStreams(): Promise<StreamRecord[]> {
     // In production, this would call the Stellar RPC getEvents API and
     // cross-reference with an indexer for metadata tags.
     // Returning a well-typed empty array here so the gateway is functional
@@ -136,8 +136,6 @@ export class DefaultStreamDataSource implements StreamDataSource {
 }
 
 // ── Helper functions ──────────────────────────────────────────────────────────
-
-const FALLBACK_USD_RATE = "1"; // 1:1 fallback when no oracle available
 
 function toBigInt(s: string): bigint {
   try { return BigInt(s); } catch { return 0n; }

@@ -9,7 +9,17 @@ const DEFAULT_WARNING_MESSAGE = 'You have unsaved changes. Are you sure you want
  */
 export function useUnsavedChanges(isDirty: boolean, message: string = DEFAULT_WARNING_MESSAGE) {
   useEffect(() => {
-    if (!isDirty || typeof window === 'undefined') {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (isDirty) {
+      document.body.dataset.formDirty = 'true';
+    } else {
+      delete document.body.dataset.formDirty;
+    }
+
+    if (!isDirty) {
       return;
     }
 

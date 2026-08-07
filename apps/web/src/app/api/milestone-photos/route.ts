@@ -83,9 +83,8 @@ export async function POST(req: NextRequest) {
   }
 
   // ── MIME type validation ──────────────────────────────────────────────────
-  let mimeType: string;
   try {
-    mimeType = validateMimeType(photoFile.type || "image/jpeg").toString();
+    validateMimeType(photoFile.type || "image/jpeg");
   } catch (err) {
     if (err instanceof PHashError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
@@ -186,6 +185,6 @@ export async function DELETE(req: NextRequest) {
  *
  * Returns the current hash index size for monitoring.
  */
-export async function GET(_req: NextRequest) {
+export async function GET() {
   return NextResponse.json({ indexSize: indexSize() }, { status: 200 });
 }

@@ -10,7 +10,7 @@ export interface WebhookPayload {
   id: string; // Unique delivery attempt UUID
   event: string; // Event name (e.g., 'stream.status_updated')
   timestamp: number; // Epoch timestamp of delivery
-  payload: Record<string, any>; // Event details
+  payload: Record<string, unknown>; // Event details
 }
 
 export interface WebhookDeliveryAttempt {
@@ -18,7 +18,7 @@ export interface WebhookDeliveryAttempt {
   subscriptionId: string;
   event: string;
   url: string;
-  payload: Record<string, any>;
+  payload: Record<string, unknown>;
   timestamp: string; // ISO string
   statusCode: number | null;
   success: boolean;

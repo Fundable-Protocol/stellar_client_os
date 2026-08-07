@@ -29,7 +29,6 @@ const ArrowDownIcon = ({
 export function ConnectButton() {
   const { isConnected, isLocked, address, openModal, disconnect } = useWallet();
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [mounted, setMounted] = useState(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -46,20 +45,21 @@ export function ConnectButton() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  if (!mounted) {
-    return <div className="w-[140px] h-[36px]" aria-hidden="true" />;
-  }
-
   const formatAddress = (addr: string) => {
     if (!addr) return "";
     return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
   };
 
   const handleDisconnect = async () => {
+    if (document.body.dataset.formDirty === 'true') {
+      if (!window.confirm("You have unsaved changes. Are you sure you want to disconnect? All form inputs will be lost.")) {
+        return;
+      }
+    }
     try {
       await disconnect();
       setDropdownOpen(false);
-    } catch (error) {
+    } catch {
       // Silently fail disconnect
     }
   };
@@ -69,6 +69,7 @@ export function ConnectButton() {
       <div className="relative" ref={dropdownRef}>
         <motion.button
           type="button"
+          data-wallet-trigger
           aria-expanded={dropdownOpen}
           aria-haspopup="menu"
           aria-label={`Wallet connected: ${formatAddress(address)}. Click to open wallet menu`}
@@ -125,6 +126,7 @@ export function ConnectButton() {
   return (
     <motion.button
       type="button"
+      data-wallet-trigger
       aria-label="Connect your Stellar wallet"
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}

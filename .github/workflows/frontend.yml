@@ -34,6 +34,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Configure frontend environment
+        run: |
+          node -e "
+            const fs = require('fs');
+            const d = JSON.parse(fs.readFileSync('deployments/testnet.json', 'utf8'));
+            const env = [
+              'NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID=' + d.payment_stream,
+              'NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID=' + d.distributor,
+            ].join('\n');
+            fs.writeFileSync('apps/web/.env.local', env);
+          "
+
       - name: Lint frontend
         run: pnpm lint
 

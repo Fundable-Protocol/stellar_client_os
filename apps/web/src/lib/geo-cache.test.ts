@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   GeoCache,
   buildBboxKey,
@@ -11,6 +11,8 @@ import {
   type StreamLocation,
   type StreamAggregates,
 } from "./geo-cache";
+
+type RedisClientParam = ConstructorParameters<typeof GeoCache>[0];
 
 // ── Mock Redis ────────────────────────────────────────────────────────────────
 
@@ -139,28 +141,28 @@ describe("buildDetailKey", () => {
 
 describe("GeoCache get/set", () => {
   it("returns null on cache miss", async () => {
-    const cache = new GeoCache(makeRedis() as any);
+    const cache = new GeoCache(makeRedis() as unknown as RedisClientParam);
     expect(await cache.get("missing-key")).toBeNull();
   });
 
   it("returns stored value after set", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.set("test-key", { hello: "world" });
     const result = await cache.get<{ hello: string }>("test-key");
     expect(result?.hello).toBe("world");
   });
 
   it("calls setex when ttlSeconds > 0", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.set("key", "value", { ttlSeconds: 30 });
     expect(redis.setex).toHaveBeenCalledWith("key", 30, JSON.stringify("value"));
   });
 
   it("calls set (no TTL) when ttlSeconds is 0", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.set("key", "value", { ttlSeconds: 0 });
     expect(redis.set).toHaveBeenCalled();
     expect(redis.setex).not.toHaveBeenCalled();
@@ -178,7 +180,7 @@ describe("GeoCache get/set", () => {
 
   it("returns null when Redis get throws", async () => {
     const redis = { get: vi.fn().mockRejectedValue(new Error("ECONNREFUSED")) };
-    const cache = new GeoCache(redis as any);
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await cache.get("k")).toBeNull();
     spy.mockRestore();
@@ -189,13 +191,13 @@ describe("GeoCache get/set", () => {
 
 describe("GeoCache bbox helpers", () => {
   it("getBboxStreams returns null on miss", async () => {
-    const cache = new GeoCache(makeRedis() as any);
+    const cache = new GeoCache(makeRedis() as unknown as RedisClientParam);
     expect(await cache.getBboxStreams(BBOX)).toBeNull();
   });
 
   it("getBboxStreams returns cached data after set", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setBboxStreams(BBOX, [STREAM]);
     const result = await cache.getBboxStreams(BBOX);
     expect(result).toHaveLength(1);
@@ -203,8 +205,8 @@ describe("GeoCache bbox helpers", () => {
   });
 
   it("setBboxStreams applies default TTL", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setBboxStreams(BBOX, []);
     expect(redis.setex).toHaveBeenCalledWith(
       expect.any(String),
@@ -214,15 +216,15 @@ describe("GeoCache bbox helpers", () => {
   });
 
   it("setBboxStreams applies custom TTL when provided", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setBboxStreams(BBOX, [], undefined, 90);
     expect(redis.setex).toHaveBeenCalledWith(expect.any(String), 90, expect.any(String));
   });
 
   it("filter-keyed and unfiltered entries are independent", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setBboxStreams(BBOX, [STREAM]);
     await cache.setBboxStreams(BBOX, [], { status: "completed" });
     const unfiltered = await cache.getBboxStreams(BBOX);
@@ -236,21 +238,21 @@ describe("GeoCache bbox helpers", () => {
 
 describe("GeoCache radius helpers", () => {
   it("getRadiusStreams returns null on miss", async () => {
-    const cache = new GeoCache(makeRedis() as any);
+    const cache = new GeoCache(makeRedis() as unknown as RedisClientParam);
     expect(await cache.getRadiusStreams(RADIUS)).toBeNull();
   });
 
   it("getRadiusStreams returns cached data after set", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setRadiusStreams(RADIUS, [STREAM]);
     const result = await cache.getRadiusStreams(RADIUS);
     expect(result).toHaveLength(1);
   });
 
   it("setRadiusStreams applies default TTL of 60s", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setRadiusStreams(RADIUS, []);
     expect(redis.setex).toHaveBeenCalledWith(expect.any(String), 60, expect.any(String));
   });
@@ -260,13 +262,13 @@ describe("GeoCache radius helpers", () => {
 
 describe("GeoCache aggregates helpers", () => {
   it("getAggregates returns null on miss", async () => {
-    const cache = new GeoCache(makeRedis() as any);
+    const cache = new GeoCache(makeRedis() as unknown as RedisClientParam);
     expect(await cache.getAggregates("global")).toBeNull();
   });
 
   it("getAggregates returns cached aggregates after set", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setAggregates("global", AGGREGATES);
     const result = await cache.getAggregates("global");
     expect(result?.totalStreams).toBe(42);
@@ -274,15 +276,15 @@ describe("GeoCache aggregates helpers", () => {
   });
 
   it("setAggregates applies default TTL of 120s", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setAggregates("global", AGGREGATES);
     expect(redis.setex).toHaveBeenCalledWith(expect.any(String), 120, expect.any(String));
   });
 
   it("different scopes are independent", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setAggregates("global", AGGREGATES);
     await cache.setAggregates("NG", { ...AGGREGATES, totalStreams: 5 });
     expect((await cache.getAggregates("global"))?.totalStreams).toBe(42);
@@ -294,21 +296,21 @@ describe("GeoCache aggregates helpers", () => {
 
 describe("GeoCache detail helpers", () => {
   it("getDetail returns null on miss", async () => {
-    const cache = new GeoCache(makeRedis() as any);
+    const cache = new GeoCache(makeRedis() as unknown as RedisClientParam);
     expect(await cache.getDetail("stream-1")).toBeNull();
   });
 
   it("getDetail returns cached stream after setDetail", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setDetail("stream-1", STREAM);
     const result = await cache.getDetail("stream-1");
     expect(result?.id).toBe("stream-1");
   });
 
   it("setDetail applies default TTL of 300s", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.setDetail("x", STREAM);
     expect(redis.setex).toHaveBeenCalledWith(expect.any(String), 300, expect.any(String));
   });
@@ -318,8 +320,8 @@ describe("GeoCache detail helpers", () => {
 
 describe("GeoCache delete operations", () => {
   it("delete removes a key and returns 1", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.set("del-key", "value");
     const count = await cache.delete("del-key");
     expect(count).toBe(1);
@@ -327,7 +329,7 @@ describe("GeoCache delete operations", () => {
   });
 
   it("delete returns 0 for unknown key", async () => {
-    const cache = new GeoCache(makeRedis() as any);
+    const cache = new GeoCache(makeRedis() as unknown as RedisClientParam);
     expect(await cache.delete("ghost")).toBe(0);
   });
 
@@ -337,7 +339,7 @@ describe("GeoCache delete operations", () => {
   });
 
   it("deletePattern scans and deletes matching keys", async () => {
-    const redis = makeRedis() as any;
+    const redis = makeRedis();
     // Override scan to return two keys on first call, then signal done
     let call = 0;
     redis.scan = vi.fn(async () => {
@@ -348,7 +350,7 @@ describe("GeoCache delete operations", () => {
     (redis._data as Record<string, string>)["geo:bbox:key1"] = "v";
     (redis._data as Record<string, string>)["geo:bbox:key2"] = "v";
 
-    const cache = new GeoCache(redis);
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     const deleted = await cache.deletePattern("geo:bbox:*");
     expect(deleted).toBe(2);
   });
@@ -358,16 +360,16 @@ describe("GeoCache delete operations", () => {
 
 describe("GeoCache invalidation", () => {
   it("invalidateGeoCache calls deletePattern with bbox prefix", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     const spy = vi.spyOn(cache, "deletePattern");
     await cache.invalidateGeoCache();
     expect(spy).toHaveBeenCalledWith("geo:bbox:*");
   });
 
   it("invalidateStream deletes detail and agg patterns", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     const deleteSpy = vi.spyOn(cache, "delete");
     const patternSpy = vi.spyOn(cache, "deletePattern");
     await cache.invalidateStream("stream-99");
@@ -385,8 +387,8 @@ describe("GeoCache.ttl", () => {
   });
 
   it("returns the remaining TTL in seconds", async () => {
-    const redis = makeRedis() as any;
-    const cache = new GeoCache(redis);
+    const redis = makeRedis();
+    const cache = new GeoCache(redis as unknown as RedisClientParam);
     await cache.set("ttl-key", "v", { ttlSeconds: 45 });
     redis.ttl.mockResolvedValueOnce(45);
     expect(await cache.ttl("ttl-key")).toBe(45);

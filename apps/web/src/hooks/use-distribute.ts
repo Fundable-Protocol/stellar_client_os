@@ -2,7 +2,7 @@ import { QueryClient, QueryKey, useMutation, useQueryClient } from '@tanstack/re
 import toast from 'react-hot-toast';
 import { distribute } from '@/lib/api';
 import { useWallet } from '@/providers/StellarWalletProvider';
-import { createBatches } from '@fundable/sdk';
+import { createBatches } from '../../../../packages/sdk/src/utils/batchDistribution';
 
 type DistributeInput = Parameters<typeof distribute>[0];
 
@@ -77,7 +77,7 @@ export function useDistribute() {
 
             try {
                 await queryClient.cancelQueries({ queryKey: ['streams'] });
-            } catch (error) {
+            } catch {
                 // Silently fail cache snapshot
             }
 

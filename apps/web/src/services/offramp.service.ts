@@ -345,7 +345,7 @@ const realOfframpService = {
             }
 
             const limits = data.data || data;
-            const providers = Array.isArray(limits.providers)
+            const providers = (Array.isArray(limits.providers)
                 ? limits.providers.filter(
                     (provider: unknown) =>
                         typeof provider === "object" &&
@@ -357,7 +357,7 @@ const realOfframpService = {
                         Number.isFinite(provider.minimumAmount) &&
                         provider.minimumAmount >= 0
                 )
-                : [];
+                : []) as Array<{ providerId: string; minimumAmount: number }>;
             const aggregateMinimum =
                 typeof limits.minimumAmount === "number" &&
                 Number.isFinite(limits.minimumAmount) &&

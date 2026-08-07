@@ -25,9 +25,10 @@ export async function GET() {
     const service = new WebhookService();
     const subscriptions = await service.getSubscriptions();
     return NextResponse.json(subscriptions);
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
-      { error: err.message || "Failed to retrieve subscriptions" },
+      { error: message || "Failed to retrieve subscriptions" },
       { status: 500 }
     );
   }
@@ -55,9 +56,10 @@ export async function POST(req: NextRequest) {
     const subscription = await service.createSubscription(url, events, secret);
 
     return NextResponse.json(subscription, { status: 201 });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
-      { error: err.message || "Failed to register subscription" },
+      { error: message || "Failed to register subscription" },
       { status: 500 }
     );
   }
