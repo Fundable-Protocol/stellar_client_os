@@ -53,6 +53,12 @@ export function DepositStreamModal({
   }, [stream])
 
   const onSubmit = async (data: DepositStreamFormData) => {
+    const parsedAmount = parseFloat(data.amount)
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      notify.error("Deposit amount must be greater than zero")
+      return
+    }
+
     setIsSubmitting(true)
     try {
       const txHash = await StellarService.depositToStream(stream.id, data)
@@ -114,6 +120,7 @@ export function DepositStreamModal({
               <Input
                 id="deposit-amount"
                 type="number"
+                min="0"
                 step="0.0000001"
                 placeholder="0.00"
                 aria-label={`Deposit amount in ${stream.tokenSymbol}`}

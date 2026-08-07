@@ -37,6 +37,8 @@ export default function OfframpPage() {
         goBack,
         currentTokenBalance,
         isLoadingBalance,
+        providerMinimumAmount,
+        isLoadingProviderMinimum,
     } = useOfframpBridge();
 
     const [showQuoteModal, setShowQuoteModal] = useState(false);
@@ -134,6 +136,8 @@ export default function OfframpPage() {
                                                 onChange={handleFormChange}
                                                 maxBalance={isLoadingBalance ? "Loading..." : currentTokenBalance}
                                                 onMaxClick={handleMaxClick}
+                                                minimumAmount={providerMinimumAmount}
+                                                isLoadingMinimum={isLoadingProviderMinimum}
                                             />
                                         </div>
 
@@ -200,6 +204,7 @@ export default function OfframpPage() {
                     formState={formState}
                     onClose={handleCloseQuoteModal}
                     onConfirm={handleConfirmBridge}
+                    onRefresh={handleProceedToConfirm}
                     isLoading={isLoading}
                     isSubmitting={bridgeGuard.isGuardActive}
                 />

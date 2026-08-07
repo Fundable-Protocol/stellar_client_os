@@ -1,14 +1,17 @@
 'use client';
 
-import React, { memo, useCallback, useMemo } from 'react';
+import React, { memo, useCallback, useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@/components/ui/button';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Table, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RecipientRow } from '@/components/molecules/RecipientRow';
 import { FileUploadArea } from '@/components/molecules/FileUploadArea';
 import { Plus, Upload } from 'lucide-react';
 import { Recipient, DistributionType } from '@/types/distribution';
 import { notify } from '@/utils/notification';
+
+const ROW_ESTIMATED_HEIGHT = 80;
 
 interface RecipientTableProps {
   recipients: Recipient[];
@@ -32,6 +35,51 @@ export const RecipientTable = memo(function RecipientTable({
   isLoading = false,
 }: RecipientTableProps) {
   const [showUpload, setShowUpload] = React.useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const rowVirtualizer = useVirtualizer({
+    count: recipients.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_ESTIMATED_HEIGHT,
+    overscan: 10,
+  });
+  const [pendingFocusRecipientId, setPendingFocusRecipientId] = React.useState<string | null>(null);
+  const inputRefs = React.useRef(new Map<string, HTMLInputElement>());
+
+  const setAddressInputRef = useCallback((id: string) => (element: HTMLInputElement | null) => {
+    if (element) {
+      inputRefs.current.set(id, element);
+    } else {
+      inputRefs.current.delete(id);
+    }
+  }, []);
+
+  const handleRemoveRecipient = useCallback((id: string, index: number) => {
+    const nextRecipient = recipients[index + 1] ?? recipients[index - 1];
+
+    if (nextRecipient) {
+      setPendingFocusRecipientId(nextRecipient.id);
+    }
+
+    onRemoveRecipient(id);
+  }, [onRemoveRecipient, recipients]);
+
+  React.useEffect(() => {
+    if (!pendingFocusRecipientId) {
+      return;
+    }
+
+    const targetId = pendingFocusRecipientId;
+
+    requestAnimationFrame(() => {
+      const nextInput = inputRefs.current.get(targetId);
+      if (nextInput) {
+        nextInput.focus();
+      }
+    });
+
+    setPendingFocusRecipientId(null);
+  }, [pendingFocusRecipientId]);
 
   const handleBulkImport = useCallback((newRecipients: Recipient[]) => {
     onBulkImport(newRecipients);
@@ -43,7 +91,6 @@ export const RecipientTable = memo(function RecipientTable({
   }, [onBulkImport]);
 
   const handleUploadError = useCallback((error: string) => {
-    // Surface errors through parent component if callback provided
     if (onUploadError) {
       onUploadError([{ line: 0, message: error }], []);
     } else {
@@ -57,6 +104,8 @@ export const RecipientTable = memo(function RecipientTable({
 
   const recipientCount = useMemo(() => recipients.length, [recipients.length]);
 
+  const totalSize = rowVirtualizer.getTotalSize();
+  const virtualItems = rowVirtualizer.getVirtualItems();
   const recipientRows = useMemo(() =>
     recipients.map((recipient, index) => (
       <RecipientRow
@@ -65,10 +114,11 @@ export const RecipientTable = memo(function RecipientTable({
         recipient={recipient}
         distributionType={distributionType}
         onChange={(updates) => onUpdateRecipient(recipient.id, updates)}
-        onRemove={() => onRemoveRecipient(recipient.id)}
+        onRemove={() => handleRemoveRecipient(recipient.id, index)}
+        addressInputRef={setAddressInputRef(recipient.id)}
       />
     )),
-    [recipients, distributionType, onUpdateRecipient, onRemoveRecipient]
+    [recipients, distributionType, onUpdateRecipient, handleRemoveRecipient, setAddressInputRef]
   );
 
   return (
@@ -103,9 +153,10 @@ export const RecipientTable = memo(function RecipientTable({
         </div>
       )}
 
-      {/* Recipients Table */}
+      {/* Recipients Table — Virtualized */}
       {recipientCount > 0 ? (
         <div className="border border-zinc-700 rounded-lg">
+          {/* Non-virtualized table header */}
           <Table>
             <TableHeader>
               <TableRow>
@@ -116,22 +167,63 @@ export const RecipientTable = memo(function RecipientTable({
                 <TableHead className="w-[100px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+          </Table>
+
+          {/* Virtualized scrollable rows */}
+          <div
+            ref={scrollContainerRef}
+            className="overflow-auto"
+            style={{ maxHeight: Math.min(recipientCount * ROW_ESTIMATED_HEIGHT, 480) }}
+          >
+            <div
+              style={{
+                height: `${totalSize}px`,
+                position: 'relative',
+              }}
+            >
               {isLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
-                  <TableRow key={`skeleton-${i}`} className="border-zinc-800">
-                    <TableCell><div className="h-4 bg-zinc-800 animate-pulse rounded w-full" /></TableCell>
+                  <div
+                    key={`skeleton-${i}`}
+                    className="flex items-center gap-3 p-4 border-b border-zinc-700"
+                  >
+                    <div className="h-4 bg-zinc-800 animate-pulse rounded w-full" />
                     {distributionType === 'weighted' && (
-                      <TableCell><div className="h-4 bg-zinc-800 animate-pulse rounded w-full" /></TableCell>
+                      <div className="h-4 bg-zinc-800 animate-pulse rounded w-32" />
                     )}
-                    <TableCell><div className="h-4 bg-zinc-800 animate-pulse rounded w-8 ml-auto" /></TableCell>
-                  </TableRow>
+                    <div className="h-4 bg-zinc-800 animate-pulse rounded w-8" />
+                  </div>
                 ))
               ) : (
-                recipientRows
+                virtualItems.map((virtualRow) => {
+                  const recipient = recipients[virtualRow.index];
+                  return (
+                    <div
+                      key={recipient.id}
+                      data-index={virtualRow.index}
+                      ref={rowVirtualizer.measureElement}
+                      className="border-b border-zinc-700 last:border-b-0"
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                    >
+                      <RecipientRow
+                        index={virtualRow.index}
+                        recipient={recipient}
+                        distributionType={distributionType}
+                        onChange={(updates) => onUpdateRecipient(recipient.id, updates)}
+                        onRemove={() => onRemoveRecipient(recipient.id)}
+                      />
+                    </div>
+                  );
+                })
               )}
-            </TableBody>
-          </Table>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="border border-dashed border-zinc-700 rounded-lg p-8 text-center">

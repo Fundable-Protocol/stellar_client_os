@@ -110,6 +110,15 @@ export function WithdrawStreamModal({
     return StellarService.formatTokenAmount(withdrawableAmount)
   }, [withdrawableAmount])
 
+  const isZeroWithdrawable = useMemo(() => {
+    if (!withdrawableAmount) return true
+    try {
+      return BigInt(withdrawableAmount) <= 0n
+    } catch {
+      return parseFloat(withdrawableAmount) <= 0
+    }
+  }, [withdrawableAmount])
+
   const onSubmit = async (data: WithdrawStreamFormData) => {
     setIsSubmitting(true)
     try {
@@ -278,7 +287,7 @@ export function WithdrawStreamModal({
             </Button>
             <Button
               type="submit"
-              disabled={isSubmitting || isLoadingAmount}
+              disabled={isSubmitting || isLoadingAmount || isZeroWithdrawable}
             >
               {isSubmitting ? "Withdrawing..." : "Withdraw"}
             </Button>

@@ -1,26 +1,17 @@
 "use client";
 
-import React, { type ReactNode, useEffect, useState } from 'react'
+import React, { type ReactNode, useState } from 'react'
 import { WifiOff } from "lucide-react"
 import { SidebarProvider } from '@/components/ui/sidebar'
 import AdminNavbar from '@/components/organisms/AdminNavbar'
 import { AppSidebar } from '@/components/ui/app-sidebar'
+import { SyncQueueBanner } from '@/components/organisms/SyncQueueBanner'
+import { SyncQueueDrawer } from '@/components/organisms/SyncQueueDrawer'
+import { useSyncQueue } from '@/hooks/use-sync-queue'
 
 function AppProvider({ children }: { children: ReactNode; }) {
-  const [isOnline, setIsOnline] = useState(true)
-
-  useEffect(() => {
-    const updateOnlineStatus = () => setIsOnline(navigator.onLine)
-
-    updateOnlineStatus()
-    window.addEventListener('online', updateOnlineStatus)
-    window.addEventListener('offline', updateOnlineStatus)
-
-    return () => {
-      window.removeEventListener('online', updateOnlineStatus)
-      window.removeEventListener('offline', updateOnlineStatus)
-    }
-  }, [])
+  const syncQueue = useSyncQueue()
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   return (
     <div className="pt-20">
@@ -28,7 +19,7 @@ function AppProvider({ children }: { children: ReactNode; }) {
         <AppSidebar />
         <main className="flex flex-col h-full w-full overflow-hidden">
           <AdminNavbar />
-          {!isOnline && (
+          {!syncQueue.isOnline && syncQueue.pendingCount === 0 && (
             <div
               role="status"
               aria-live="polite"
@@ -41,6 +32,15 @@ function AppProvider({ children }: { children: ReactNode; }) {
               </span>
             </div>
           )}
+          <SyncQueueBanner
+            syncQueue={syncQueue}
+            onOpenDrawer={() => setDrawerOpen(true)}
+          />
+          <SyncQueueDrawer
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+            syncQueue={syncQueue}
+          />
           <div className="flex-1 px-4 py-4 overflow-y-auto pb-16 sm:pb-20 md:pb-4">
             {children}
           </div>

@@ -123,6 +123,20 @@ export interface AggregatedRatesResponse {
     error?: string;
 }
 
+export interface ProviderLimit {
+    providerId: string;
+    minimumAmount: number;
+}
+
+export interface ProviderLimitsResponse {
+    success: boolean;
+    data?: {
+        minimumAmount: number;
+        providers: ProviderLimit[];
+    };
+    error?: string;
+}
+
 export interface CreateOfframpRequest {
     providerId: OfframpProviderId;
     token: string;

@@ -25,7 +25,28 @@ export function isAbortError(error: unknown): boolean {
     if (error instanceof DOMException) {
         return error.name === "AbortError";
     }
-    return error instanceof Error && error.name === "AbortError";
+    return error instanceof Error && (error.name === "AbortError" || error.name === "CanceledError");
+}
+
+/**
+ * Handles intentional AbortError cancellations silently without logging uncaught errors.
+ */
+export function handleAbortError(error: unknown): boolean {
+    if (isAbortError(error)) {
+        // Silent handling of intentional request cancellations
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Silences intentional request abort errors and returns fallback value.
+ */
+export function silenceAbortError<T = null>(error: unknown, fallback: T = null as T): T {
+    if (isAbortError(error)) {
+        return fallback;
+    }
+    throw error;
 }
 
 export function throwIfAborted(signal?: AbortSignal): void {

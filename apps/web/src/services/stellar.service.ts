@@ -49,7 +49,6 @@ import {
   TransactionTimeoutError,
   ContractError,
   SimulationError,
-  AccountNotFoundError,
   StreamNotFoundError,
   InsufficientFundsError,
   ValidationError,
@@ -120,7 +119,7 @@ export class StellarService {
    * @param address - Stellar account address
    * @returns Account information including balances
    */
-  async getAccount(address: string, signal?: AbortSignal): Promise<AccountInfo> {
+  async getAccount(address: string, signal?: AbortSignal): Promise<AccountInfo | null> {
     return withRetry(async () => {
       try {
         const account = await withAbortSignal(this.horizonServer.loadAccount(address), signal);
@@ -143,7 +142,7 @@ export class StellarService {
         }
         const err = error as Error & { response?: { status?: number } };
         if (err?.response?.status === 404) {
-          throw new AccountNotFoundError(address, err); // 404 — not retried
+          return null; // 404 — unfunded account, return null gracefully
         }
         throw parseError(error);
       }
@@ -824,7 +823,7 @@ export class StellarService {
     }
 
     // Poll for transaction result
-    let getResponse = await this.rpcServer.getTransaction(hash);
+    let getResponse = await withRetry(() => this.rpcServer.getTransaction(hash), { maxRetries: this.maxRetries });
     const maxWaitTime = this.defaultTimeout * 1000;
     const startTime = Date.now();
 
@@ -834,7 +833,7 @@ export class StellarService {
       }
 
       await sleep(1000);
-      getResponse = await this.rpcServer.getTransaction(hash);
+      getResponse = await withRetry(() => this.rpcServer.getTransaction(hash), { maxRetries: this.maxRetries });
     }
 
     if (getResponse.status === Api.GetTransactionStatus.SUCCESS) {

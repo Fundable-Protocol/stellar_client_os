@@ -5,7 +5,6 @@ import { StellarService, createTestnetService, createMainnetService } from './st
 import {
   ValidationError,
   InsufficientFundsError,
-  AccountNotFoundError,
 } from './errors';
 import type { StellarServiceConfig, CreateStreamParams, DistributeParams } from './types';
 
