@@ -4,11 +4,9 @@ mod test {
     use soroban_sdk::{token, vec, Address, Env, Event, IntoVal, Vec};
     use crate::{
         DelegationGrantedEvent, EmergencyPausedEvent, EmergencyUnpausedEvent,
-        PaymentStreamContract, PaymentStreamContractClient, StreamPausedEvent, StreamResumedEvent,
-        StreamParams, StreamStatus,
+        Error, PaymentStreamContract, PaymentStreamContractClient, StreamParams, StreamStatus,
+        StreamPausedEvent, StreamResumedEvent,
     };
-    use soroban_sdk::{token, vec, Address, Env, IntoVal, Vec};
-    use crate::{Error, PaymentStreamContract, PaymentStreamContractClient, StreamParams, StreamStatus};
 
 
     
@@ -2401,9 +2399,9 @@ fn test_pause_blocked_during_dispute() {
         );
     }
 
-    /// Double-pause is rejected with `AlreadyPaused` (error code 18).
+    /// Double-pause is rejected with `AlreadyPaused` (error code 33).
     #[test]
-    #[should_panic(expected = "Error(Contract, #18)")]
+    #[should_panic(expected = "Error(Contract, #33)")]
     fn test_emergency_pause_already_paused() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2428,7 +2426,7 @@ fn test_pause_blocked_during_dispute() {
 
     /// `create_stream` is blocked while the circuit breaker is active.
     #[test]
-    #[should_panic(expected = "Error(Contract, #17)")]
+    #[should_panic(expected = "Error(Contract, #32)")]
     fn test_create_stream_blocked_when_paused() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2437,13 +2435,13 @@ fn test_pause_blocked_during_dispute() {
 
         client.emergency_pause();
 
-        // This call should panic with ContractPaused (17)
+        // This call should panic with ContractPaused (32)
         client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
     }
 
     /// `withdraw` is blocked while the circuit breaker is active.
     #[test]
-    #[should_panic(expected = "Error(Contract, #17)")]
+    #[should_panic(expected = "Error(Contract, #32)")]
     fn test_withdraw_blocked_when_paused() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2462,7 +2460,7 @@ fn test_pause_blocked_during_dispute() {
 
     /// `withdraw_max` is blocked while the circuit breaker is active.
     #[test]
-    #[should_panic(expected = "Error(Contract, #17)")]
+    #[should_panic(expected = "Error(Contract, #32)")]
     fn test_withdraw_max_blocked_when_paused() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2480,7 +2478,7 @@ fn test_pause_blocked_during_dispute() {
 
     /// `deposit` is blocked while the circuit breaker is active.
     #[test]
-    #[should_panic(expected = "Error(Contract, #17)")]
+    #[should_panic(expected = "Error(Contract, #32)")]
     fn test_deposit_blocked_when_paused() {
         let env = Env::default();
         env.mock_all_auths();
@@ -3412,7 +3410,7 @@ fn test_pause_blocked_during_dispute() {
 
     /// Batch creation is blocked while the emergency circuit breaker is active.
     #[test]
-    #[should_panic(expected = "Error(Contract, #17)")]
+    #[should_panic(expected = "Error(Contract, #32)")]
     fn test_create_batch_streams_blocked_when_paused() {
         let env = Env::default();
         env.mock_all_auths();
@@ -3549,7 +3547,7 @@ fn test_pause_blocked_during_dispute() {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #3)")]
+    #[should_panic(expected = "Error(Auth, InvalidAction)")]
     fn test_set_fee_tiers_unauthorized() {
         let env = Env::default();
         // Do NOT mock all auths - only mock admin for initialize
@@ -4143,7 +4141,7 @@ fn test_pause_blocked_during_dispute() {
 
         let events = env.events().all();
         // At least the FeeTiersUpdated event should be present
-        assert!(events.len() > 0);
+        assert!(!events.events().is_empty());
     }
 
 
