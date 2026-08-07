@@ -21,6 +21,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 import { HistoryRecord } from "@/services/types";
+import { DistributionStatus } from "@/types/history";
 import AppSelect from "@/components/molecules/AppSelect";
 import { validPageLimits } from "@/lib/constants";
 import { Download } from "lucide-react";
@@ -73,7 +74,11 @@ const HistoryTable = ({
     function toggleRow(id: string) {
         setExpandedRows((prev) => {
             const next = new Set(prev);
-            next.has(id) ? next.delete(id) : next.add(id);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
             return next;
         });
     }
@@ -263,7 +268,7 @@ const HistoryTable = ({
                                                             total_amount: rec.amount.toString(),
                                                             token_symbol: 'Unknown',
                                                             distribution_type: 'equal',
-                                                            status: rec.status as any,
+                                                            status: rec.status as DistributionStatus,
                                                             created_at: rec.date,
                                                             total_recipients: rec.recipients,
                                                             transaction_hash: rec.transactionHash,

@@ -4,7 +4,9 @@ import { SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
 import { env } from '@/lib/env';
 import { throwIfAborted } from '@/utils/retry';
 import { StellarService, type Stream as ServiceStream, type AccountInfo } from '@/services';
-import { PaymentStreamClient, DistributorClient, createBatches } from '@fundable/sdk';
+import { PaymentStreamClient } from '../../../../packages/sdk/src/PaymentStreamClient';
+import { DistributorClient } from '../../../../packages/sdk/src/DistributorClient';
+import { createBatches } from '../../../../packages/sdk/src/utils/batchDistribution';
 import { Stream, StreamStatus } from '../types';
 
 type WalletSigner = (xdr: string) => Promise<string>;
@@ -54,16 +56,18 @@ function serializeStreamId(value: bigint): string {
 async function signAndSendTx<T>(
     tx: AssembledTransaction<T>,
     signTransaction?: WalletSigner
-): Promise<void> {
+): Promise<string> {
     if (!signTransaction) {
         throw new Error('Wallet signer is required for contract write operations');
     }
 
-    await tx.signAndSend({
+    const result = await tx.signAndSend({
         signTransaction: async (xdr: string) => ({
             signedTxXdr: await signTransaction(xdr),
         }),
     });
+
+    return result.hash;
 }
 
 function createPaymentStreamClient(publicKey: string): PaymentStreamClient {
@@ -132,7 +136,7 @@ export async function withdraw(params: {
     amount: bigint;
     sender?: string;
     signTransaction?: WalletSigner;
-}): Promise<void> {
+}): Promise<string> {
     let sender = params.sender;
     if (!sender) {
         const stream = await stellarService.getStream(BigInt(params.streamId));
@@ -145,7 +149,8 @@ export async function withdraw(params: {
 
     const client = createPaymentStreamClient(sender);
     const tx = await client.withdraw(BigInt(params.streamId), params.amount);
-    await signAndSendTx(tx, params.signTransaction);
+    const hash = await signAndSendTx(tx, params.signTransaction);
+    return hash;
 }
 
 export async function distribute(params: {
@@ -194,7 +199,7 @@ export async function fetchAccountInfo(address: string, signal?: AbortSignal): P
     throwIfAborted(signal);
     try {
         return await stellarService.getAccount(address, signal);
-    } catch (e) {
+    } catch {
         return null;
     }
 }
@@ -220,6 +225,25 @@ export async function resumeStream(params: { id: string; signTransaction: (xdr: 
     const tx = await client.resumeStream(BigInt(params.id));
 
     await signAndSendTx(tx, params.signTransaction);
+}
+
+export async function depositToStream(params: {
+    streamId: number;
+    amount: bigint;
+    sender: string;
+    signTransaction?: WalletSigner;
+}): Promise<string> {
+    const client = createPaymentStreamClient(params.sender);
+    const tx = await client.deposit(BigInt(params.streamId), params.amount);
+    const hash = await signAndSendTx(tx, params.signTransaction);
+    return hash;
+}
+
+export async function getWithdrawableAmount(params: {
+    streamId: number;
+}): Promise<string> {
+    const amount = await stellarService.getWithdrawableAmount(BigInt(params.streamId));
+    return amount.toString();
 }
 
 export async function cancelStream(params: { id: string; signTransaction: (xdr: string) => Promise<string> }) {

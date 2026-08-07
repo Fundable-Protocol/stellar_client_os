@@ -1,7 +1,7 @@
 "use client";
 
 import { Info } from "lucide-react";
-import { SUPPORTED_TOKENS, PaymentStreamFormData } from "@/lib/validations";
+import { SUPPORTED_TOKENS, PaymentStreamFormData, getTokenSymbol } from "@/lib/validations";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface StreamFormData {
@@ -43,6 +43,9 @@ export function PaymentStreamSummary({
   const selectedToken = SUPPORTED_TOKENS.find(
     (t) => t.value === token
   );
+
+  // Resolve token value or contract address to a display-friendly ticker symbol
+  const tokenSymbol = getTokenSymbol(token);
 
   // Parse and validate duration to avoid division by zero
   const parsedDuration = parseFloat(durationValue);
@@ -104,7 +107,7 @@ export function PaymentStreamSummary({
         <div>
           <span className="text-zinc-400">Token:</span>
           <p className="font-medium text-zinc-50">
-            {selectedToken?.label || token}
+            {selectedToken?.label || tokenSymbol}
           </p>
         </div>
 
@@ -112,7 +115,7 @@ export function PaymentStreamSummary({
           <div>
             <span className="text-zinc-400">Total Amount:</span>
             <p className="font-medium text-zinc-50">
-              {amount} {token}
+              {amount} {tokenSymbol}
             </p>
           </div>
         )}
@@ -131,14 +134,14 @@ export function PaymentStreamSummary({
             <div>
               <span className="text-zinc-400">Rate per Hour:</span>
               <p className="font-medium text-zinc-50">
-                {amountPerHour.toFixed(4)} {token}
+                {amountPerHour.toFixed(4)} {tokenSymbol}
               </p>
             </div>
 
             <div>
               <span className="text-zinc-400">Rate per Day:</span>
               <p className="font-medium text-zinc-50">
-                {amountPerDay.toFixed(4)} {token}
+                {amountPerDay.toFixed(4)} {tokenSymbol}
               </p>
             </div>
           </>

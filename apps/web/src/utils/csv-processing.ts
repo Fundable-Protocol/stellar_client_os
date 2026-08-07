@@ -22,7 +22,6 @@ export async function processCSVFile(
     throw new Error(`File size exceeds maximum limit of ${MAX_FILE_SIZE / 1024 / 1024}MB`);
   }
 
-  const CHUNK_SIZE = 1024 * 1024; // 1MB
   const reader = file.stream().getReader();
   const decoder = new TextDecoder("utf-8");
 
@@ -55,7 +54,7 @@ export async function processCSVFile(
 export async function processCSVText(
   text: string,
   distributionType: DistributionType
-): CSVProcessingResult {
+): Promise<CSVProcessingResult> {
   // Normalize line endings to handle Windows-style CRLF
   const normalizedText = text.replace(/\r\n/g, '\n');
   const lines = normalizedText.split('\n').map(line => line.trim()).filter(line => line);

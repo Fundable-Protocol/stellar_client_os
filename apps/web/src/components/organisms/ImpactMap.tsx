@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { cn } from "@/lib/utils";
 import { MapLayerToggle } from "@/components/molecules/MapLayerToggle";
@@ -74,7 +74,7 @@ export function ImpactMap({ className }: ImpactMapProps) {
       container: mapContainerRef.current,
       zoom: DEFAULT_ZOOM,
       center: DEFAULT_CENTER,
-      attributionControl: true,
+      attributionControl: { compact: true },
     });
 
     map.on("load", () => {

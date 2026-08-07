@@ -39,8 +39,6 @@ vi.mock("@/lib/api", () => ({
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { offrampService } from "@/services/offramp.service";
 
-const mockSignTransaction = vi.fn().mockResolvedValue("signed-xdr");
-
 const mockWallet = {
     address: "GABC123",
     isConnected: true,

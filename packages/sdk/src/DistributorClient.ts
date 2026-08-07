@@ -1,21 +1,21 @@
-import { Client as ContractClient } from "./generated/distributor/src/index.js";
+import { Client as ContractClient } from "./generated/distributor/src/index";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
-  Address,
 } from "@stellar/stellar-sdk/contract";
+import { Address } from "@stellar/stellar-sdk";
 import {
   UserStats,
   TokenStats,
   DistributionHistory,
-} from "./generated/distributor/src/index.js";
-import { executeWithErrorHandling } from "./utils/errors.js";
+} from "./generated/distributor/src/index";
+import { executeWithErrorHandling } from "./utils/errors";
 import {
   prepareBatchEqualDistribution,
   prepareBatchWeightedDistribution,
   BatchDistributionConfig,
   BatchDistributionResult,
-} from "./utils/batchDistribution.js";
+} from "./utils/batchDistribution";
 
 /**
  * Type alias for address parameters that accept both string and Address objects
@@ -112,8 +112,6 @@ export class DistributorClient {
   public async getUserStats(
     user: AddressParam
   ): Promise<AssembledTransaction<UserStats | undefined>> {
-    const actualUser = typeof user === "object" ? user.user : user;
-
     return executeWithErrorHandling(
       () =>
         this.client.get_user_stats({ user: addressToString(user) }) as Promise<
@@ -131,8 +129,6 @@ export class DistributorClient {
   public async getTokenStats(
     token: AddressParam
   ): Promise<AssembledTransaction<TokenStats | undefined>> {
-    const actualToken = typeof token === "object" ? token.token : token;
-
     return executeWithErrorHandling(
       () =>
         this.client.get_token_stats({ token: addressToString(token) }) as Promise<

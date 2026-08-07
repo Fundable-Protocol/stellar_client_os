@@ -14,16 +14,10 @@ import {
   formatEndTime,
   getRelativeTime,
   durationToSeconds,
-  type DurationUnit,
 } from '../stream-validation';
 
 // Helper to freeze time at a known Unix timestamp
 const NOW = 1_000_000_000; // Arbitrary fixed timestamp
-
-/** How close two numbers must be after a time-sensitive call (allow 1s variance) */
-function expectCloseTo(actual: number, expected: number, tolerance = 1) {
-  expect(Math.abs(actual - expected)).toBeLessThanOrEqual(tolerance);
-}
 
 describe('MIN_START_TIME_OFFSET_SECONDS', () => {
   it('should be exactly 60 seconds', () => {

@@ -51,6 +51,60 @@ test.describe('Wallet Connection', () => {
       await expect(page.getByRole('dialog')).not.toBeVisible();
     });
 
+    test('keyboard focus stays trapped inside the wallet modal', async ({ page }) => {
+      await page.goto('/dashboard');
+      await page.getByRole('button', { name: /connect wallet/i }).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+
+      // Tab well past the number of focusable elements in the dialog. If the
+      // trap leaks, focus lands on navbar links or <body> instead.
+      for (let i = 0; i < 15; i++) {
+        await page.keyboard.press('Tab');
+        const insideDialog = await dialog.evaluate(
+          (node) =>
+            document.activeElement !== null &&
+            node.contains(document.activeElement),
+        );
+        expect(insideDialog, `focus escaped the dialog on Tab #${i + 1}`).toBe(true);
+      }
+
+      // Shift+Tab wrapping backwards must stay contained too.
+      for (let i = 0; i < 15; i++) {
+        await page.keyboard.press('Shift+Tab');
+        const insideDialog = await dialog.evaluate(
+          (node) =>
+            document.activeElement !== null &&
+            node.contains(document.activeElement),
+        );
+        expect(
+          insideDialog,
+          `focus escaped the dialog on Shift+Tab #${i + 1}`,
+        ).toBe(true);
+      }
+    });
+
+    test('closing the modal returns focus to a mounted wallet trigger', async ({ page }) => {
+      await page.goto('/dashboard');
+      await page.getByRole('button', { name: /connect wallet/i }).click();
+      await expect(page.getByRole('dialog')).toBeVisible();
+
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).not.toBeVisible();
+
+      // Focus must not fall through to <body>, which would drop the keyboard
+      // user out of the tab order entirely.
+      const restored = await page.evaluate(() => {
+        const active = document.activeElement;
+        return {
+          isBody: active === document.body,
+          isWalletTrigger: Boolean(active?.closest('[data-wallet-trigger]')),
+        };
+      });
+      expect(restored.isBody).toBe(false);
+      expect(restored.isWalletTrigger).toBe(true);
+    });
+
     test('protected pages show connect wallet prompt when disconnected', async ({ page }) => {
       const protectedPages = ['/payment-stream', '/offramp', '/distribution'];
       for (const path of protectedPages) {

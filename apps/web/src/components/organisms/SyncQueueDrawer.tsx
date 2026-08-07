@@ -171,7 +171,6 @@ function QueueItemRow({
           <button
             type="button"
             onClick={() => onRetry(item.id)}
-            disabled={item.status === "syncing"}
             aria-label={`Retry syncing ${item.label}`}
             className={cn(
               "rounded-md p-1.5 text-white/50 hover:text-white",

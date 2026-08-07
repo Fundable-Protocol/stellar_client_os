@@ -6,6 +6,7 @@ import {
   Account,
   hash,
   StrKey,
+  Transaction,
 } from '@stellar/stellar-sdk';
 import { Server as RpcServer, Api, assembleTransaction } from '@stellar/stellar-sdk/rpc';
 import { getStellarServerOptions } from '@/utils/rpc-connection-options';
@@ -13,21 +14,6 @@ import { getStellarServerOptions } from '@/utils/rpc-connection-options';
 interface DeployConfig {
   rpcUrl: string;
   networkPassphrase: string;
-}
-
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
-
-function allowLocalHttp(url: string): boolean {
-  if (process.env.NODE_ENV === 'production') {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'http:' && LOOPBACK_HOSTS.has(parsed.hostname);
-  } catch {
-    return false;
-  }
 }
 
 export class ContractDeployer {
@@ -46,7 +32,7 @@ export class ContractDeployer {
     address: string,
     wasmBytes: Uint8Array,
     fee: string = '1000' // Increased default fee for Wasm upload
-  ): Promise<{ transaction: any; simulation: any }> {
+  ): Promise<{ transaction: Transaction; simulation: Api.SimulateTransactionSuccessResponse }> {
     const account = await this.getAccount(address);
     
     // Convert Uint8Array to Buffer for the SDK
@@ -78,7 +64,7 @@ export class ContractDeployer {
   /**
    * Submit transaction and wait for confirmation, returning the result.
    */
-  async submitSignedTransaction(signedTxXdr: string): Promise<any> {
+  async submitSignedTransaction(signedTxXdr: string): Promise<Api.GetSuccessfulTransactionResponse> {
     const tx = TransactionBuilder.fromXDR(signedTxXdr, this.networkPassphrase);
     const sendResponse = await this.rpcServer.sendTransaction(tx);
 
@@ -111,16 +97,15 @@ export class ContractDeployer {
   /**
    * Helper to parse WASM hash from a successful upload getTransaction response
    */
-  parseWasmHashFromUpload(getResponse: any): Buffer {
+  parseWasmHashFromUpload(getResponse: unknown): Buffer {
     let wasmHash: Buffer | undefined;
+    const meta = (getResponse as { resultMetaXdr?: xdr.TransactionMeta }).resultMetaXdr;
     
-    if (getResponse.resultMetaXdr) {
-      const meta = getResponse.resultMetaXdr;
-      if (meta.v3()?.sorobanMeta()?.returnValue()) {
-          const retVal = meta.v3().sorobanMeta().returnValue();
-          if (retVal.switch() === xdr.ScValType.scvBytes()) {
-             wasmHash = retVal.bytes();
-          }
+    if (meta) {
+      const sorobanMeta = meta.v3()?.sorobanMeta();
+      const retVal = sorobanMeta?.returnValue();
+      if (retVal && retVal.switch() === xdr.ScValType.scvBytes()) {
+        wasmHash = retVal.bytes();
       }
     }
     
@@ -181,7 +166,7 @@ export class ContractDeployer {
     wasmHash: Buffer,
     salt?: Buffer,
     fee: string = '1000',
-  ): Promise<{ transaction: any; simulation: any; salt: Buffer }> {
+  ): Promise<{ transaction: Transaction; simulation: Api.SimulateTransactionSuccessResponse; salt: Buffer }> {
     const account = await this.getAccount(address);
 
     // Use the provided salt or generate a cryptographically random one.
@@ -229,16 +214,15 @@ export class ContractDeployer {
   /**
    * Helper to parse Contract ID from a successful create getTransaction response
    */
-  parseContractIdFromCreate(getResponse: any): string {
+  parseContractIdFromCreate(getResponse: unknown): string {
     let contractAddress: string | undefined;
+    const meta = (getResponse as { resultMetaXdr?: xdr.TransactionMeta }).resultMetaXdr;
     
-    if (getResponse.resultMetaXdr) {
-      const meta = getResponse.resultMetaXdr;
-      if (meta.v3()?.sorobanMeta()?.returnValue()) {
-          const retVal = meta.v3().sorobanMeta().returnValue();
-          if (retVal.switch() === xdr.ScValType.scvAddress()) {
-             contractAddress = Address.fromScAddress(retVal.address()).toString();
-          }
+    if (meta) {
+      const sorobanMeta = meta.v3()?.sorobanMeta();
+      const retVal = sorobanMeta?.returnValue();
+      if (retVal && retVal.switch() === xdr.ScValType.scvAddress()) {
+        contractAddress = Address.fromScAddress(retVal.address()).toString();
       }
     }
     

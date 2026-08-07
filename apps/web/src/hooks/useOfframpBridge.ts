@@ -452,29 +452,6 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
         ]
     );
 
-    // ---------- Confirm & Process ----------
-
-    const confirmAndBridge = useCallback(async () => {
-        if (!isConnected || !address || !offrampData) {
-            setError("Missing required data");
-            return;
-        }
-
-        setIsLoading(true);
-        setError(null);
-        setStep("processing");
-
-        try {
-            startPayoutPolling();
-        } catch (e) {
-            const msg = e instanceof Error ? e.message : "Processing failed";
-            setStep("failed");
-            setError(msg);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [isConnected, address, offrampData]);
-
     // ---------- Status Polling ----------
 
     const startPayoutPolling = useCallback(() => {
@@ -499,6 +476,29 @@ export function useOfframpBridge(): UseOfframpBridgeReturn {
             }
         }, 10000);
     }, [offrampData, address]);
+
+    // ---------- Confirm & Process ----------
+
+    const confirmAndBridge = useCallback(async () => {
+        if (!isConnected || !address || !offrampData) {
+            setError("Missing required data");
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+        setStep("processing");
+
+        try {
+            startPayoutPolling();
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : "Processing failed";
+            setStep("failed");
+            setError(msg);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [isConnected, address, offrampData, startPayoutPolling]);
 
     // ---------- Controls ----------
 

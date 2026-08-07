@@ -10,8 +10,15 @@ import type {
   UserLimitsResponse,
   VerifyBankAccountResponse,
 } from "@/types/offramp";
-import type { BridgeQuote } from "@/services/allbridge.service";
 import { createAbortError } from "@/utils/retry";
+
+/** Quote shape produced by the mock bridge adapter. */
+export interface BridgeQuote {
+  sendAmount: string;
+  receiveAmount: string;
+  bridgeFee: string;
+  estimatedTimeMinutes: number;
+}
 import { calculateOfframpFee, calculateOfframpFiatAmount } from "@/utils/offramp-fee";
 
 const DEFAULT_DELAYS = {

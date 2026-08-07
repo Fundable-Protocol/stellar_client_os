@@ -21,13 +21,11 @@ import {
 
 interface DistributionFormProps {
   onSubmit: (data: DistributionState) => Promise<void>;
-  initialState?: Partial<DistributionState>;
   isLoading?: boolean;
 }
 
 export const DistributionForm = memo(function DistributionForm({
   onSubmit,
-  initialState,
   isLoading = false,
 }: DistributionFormProps) {
   const {

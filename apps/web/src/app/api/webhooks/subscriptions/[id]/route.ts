@@ -27,9 +27,10 @@ export async function DELETE(req: NextRequest, { params }: RouteParams) {
     }
 
     return NextResponse.json({ success: true, message: "Subscription deleted successfully" });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
-      { error: err.message || "Failed to delete subscription" },
+      { error: message || "Failed to delete subscription" },
       { status: 500 }
     );
   }

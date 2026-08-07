@@ -41,32 +41,22 @@ export default function OfframpQuoteModal({
     }, [isLoading, onClose]);
 
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
-    const [isExpired, setIsExpired] = useState(false);
 
     useEffect(() => {
-        if (!offrampData?.expiresAt) {
-            setTimeLeft(null);
-            setIsExpired(false);
-            return;
-        }
+        if (!offrampData?.expiresAt) return;
 
+        const expiresAt = new Date(offrampData.expiresAt).getTime();
         const tick = () => {
-            const remaining = Math.floor(
-                (new Date(offrampData.expiresAt!).getTime() - Date.now()) / 1000,
-            );
-            if (remaining <= 0) {
-                setTimeLeft(0);
-                setIsExpired(true);
-                return;
-            }
-            setTimeLeft(remaining);
-            setIsExpired(false);
+            const remaining = Math.floor((expiresAt - Date.now()) / 1000);
+            setTimeLeft(Math.max(0, remaining));
         };
 
         tick();
         const intervalId = setInterval(tick, 1000);
         return () => clearInterval(intervalId);
     }, [offrampData?.expiresAt]);
+
+    const isExpired = timeLeft !== null && timeLeft <= 0;
 
     if (!isOpen) return null;
 

@@ -101,11 +101,11 @@ describe('Stellar Address Validation - Property Tests', () => {
 
     it('should handle edge cases consistently', () => {
       const edgeCases = [
-        null as any,
-        undefined as any,
-        123 as any,
-        {} as any,
-        [] as any,
+        null as unknown as string,
+        undefined as unknown as string,
+        123 as unknown as string,
+        {} as unknown as string,
+        [] as unknown as string,
         'G'.repeat(56), // all G's
         'C'.repeat(56), // all C's
         'G' + '2'.repeat(55), // valid base32 chars

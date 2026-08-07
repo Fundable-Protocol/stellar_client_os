@@ -146,7 +146,7 @@ export interface BatchDistributionResult {
    * Each inner array contains the recipients for that batch.
    * Index corresponds to batch number (0-indexed).
    */
-  recipientBatches: string[][];
+  recipientBatches: AddressParam[][];
 
   /**
    * Amounts split into batches (only for weighted distribution).

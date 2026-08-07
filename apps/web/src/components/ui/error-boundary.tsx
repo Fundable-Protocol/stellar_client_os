@@ -10,10 +10,11 @@ type FallbackRenderProps = {
 
 type ErrorBoundaryProps = {
   children: ReactNode;
-  fallback?: ReactNode;
+  fallback?: ReactNode | ((props: FallbackRenderProps) => ReactNode);
   fallbackRender?: (props: FallbackRenderProps) => ReactNode;
   boundaryName?: string;
   onError?: (error: Error, componentStack: string) => void;
+  onReset?: () => void;
 };
 
 type ErrorBoundaryState = {
@@ -42,16 +43,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     // Report the error with sanitization automatically applied
     reportRuntimeError(error, {
       boundaryName: boundaryName,
-      componentStack: errorInfo.componentStack,
+      componentStack: errorInfo.componentStack ?? undefined,
     });
 
     if (onError) {
-      onError(error, errorInfo.componentStack);
+      onError(error, errorInfo.componentStack ?? "");
     }
   }
 
   reset = (): void => {
     this.setState(initialState);
+    this.props.onReset?.();
   };
 
   render(): ReactNode {
@@ -63,7 +65,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         return fallbackRender({ error, reset: this.reset });
       }
       if (fallback) {
-        return fallback;
+        return typeof fallback === "function"
+          ? fallback({ error, reset: this.reset })
+          : fallback;
       }
       // Default fallback
       return (

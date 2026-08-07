@@ -6,13 +6,13 @@
  * Pattern to match Stellar public keys (G...)
  * Stellar public keys are 56 characters long and start with 'G'
  */
-const STELLAR_PUBLIC_KEY_PATTERN = /\bG[A-Z0-9]{55}\b/g;
+export const STELLAR_PUBLIC_KEY_PATTERN = /\bG[A-Z0-9]{55}\b/g;
 
 /**
  * Pattern to match Stellar secret keys (S...)
  * Secret keys are 56 characters long and start with 'S'
  */
-const STELLAR_SECRET_KEY_PATTERN = /\bS[A-Z0-9]{55}\b/g;
+export const STELLAR_SECRET_KEY_PATTERN = /\bS[A-Z0-9]{55}\b/g;
 
 /**
  * Pattern to match Stellar addresses in various formats
@@ -138,14 +138,17 @@ export function sanitizeError(
     (prop) => prop !== 'message' && prop !== 'name' && prop !== 'stack'
   );
 
+  const errorRecord = error as Error & Record<string, unknown>;
+  const safeErrorRecord = safeError as Error & Record<string, unknown>;
+
   for (const prop of customProps) {
-    const value = (error as Record<string, unknown>)[prop];
+    const value = errorRecord[prop];
     if (typeof value === 'string') {
-      (safeError as Record<string, unknown>)[prop] = sanitizeErrorString(value, options);
+      safeErrorRecord[prop] = sanitizeErrorString(value, options);
     } else if (value && typeof value === 'object') {
-      (safeError as Record<string, unknown>)[prop] = sanitizeObject(value, options);
+      safeErrorRecord[prop] = sanitizeObject(value, options);
     } else {
-      (safeError as Record<string, unknown>)[prop] = value;
+      safeErrorRecord[prop] = value;
     }
   }
 

@@ -49,7 +49,7 @@ lto = true
     await fs.writeFile(path.join(srcDir, "lib.rs"), sourceCode);
 
     // Run cargo build
-    return new Promise((resolve) => {
+    return new Promise<NextResponse>((resolve) => {
       exec(
         `rustup target add wasm32-unknown-unknown && cargo build --target wasm32-unknown-unknown --release`,
         { cwd: tmpDir },
@@ -93,10 +93,13 @@ lto = true
         }
       );
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Compile endpoint error:", error);
     return NextResponse.json(
-      { error: "Internal server error", details: error.message },
+      {
+        error: "Internal server error",
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     );
   }

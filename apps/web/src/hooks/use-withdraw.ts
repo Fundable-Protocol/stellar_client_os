@@ -53,7 +53,7 @@ export function useWithdraw() {
                 if (streamQueryKey) {
                     await queryClient.cancelQueries({ queryKey: streamQueryKey });
                 }
-            } catch (error) {
+            } catch {
                 // Silently fail cache snapshot
             }
 

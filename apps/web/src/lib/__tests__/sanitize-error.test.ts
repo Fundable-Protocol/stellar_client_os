@@ -122,14 +122,16 @@ describe('sanitize-error', () => {
     });
 
     it('should sanitize custom error properties', () => {
-      const error = new Error('Something went wrong');
-      (error as any).address = validPublicKey;
-      (error as any).details = { user: validPublicKey, context: 'test' };
+      type ErrorWithProps = Error & Record<string, unknown>;
 
-      const result = sanitizeError(error);
-      expect((result as any).address).toBe('[PUBLIC_KEY_REDACTED]');
-      expect((result as any).details.user).toBe('[PUBLIC_KEY_REDACTED]');
-      expect((result as any).details.context).toBe('test');
+      const error = new Error('Something went wrong') as ErrorWithProps;
+      error.address = validPublicKey;
+      error.details = { user: validPublicKey, context: 'test' };
+
+      const result = sanitizeError(error) as ErrorWithProps;
+      expect(result.address).toBe('[PUBLIC_KEY_REDACTED]');
+      expect((result.details as Record<string, unknown>).user).toBe('[PUBLIC_KEY_REDACTED]');
+      expect((result.details as Record<string, unknown>).context).toBe('test');
     });
 
     it('should handle error without stack', () => {

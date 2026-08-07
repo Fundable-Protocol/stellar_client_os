@@ -33,7 +33,6 @@ function createWrapper(queryClient: QueryClient) {
 
   return QueryClientWrapper;
 }
-}
 
 describe('useCreateStream', () => {
   let queryClient: QueryClient;

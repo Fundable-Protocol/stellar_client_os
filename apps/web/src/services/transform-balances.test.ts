@@ -3,7 +3,7 @@
  */
 
 import { extractBalances } from "./transform-balances";
-import type { AccountInfo } from "./types";
+import type { AccountInfo, AccountBalance } from "./types";
 
 describe("extractBalances", () => {
   it("should extract native XLM balance", () => {
@@ -197,7 +197,7 @@ describe("extractBalances", () => {
         },
         {
           balance: "25.0000000",
-          assetType: "liquidity_pool_shares" as any,
+          assetType: "liquidity_pool_shares" as unknown as AccountBalance["assetType"],
           // liquidity_pool_shares don't have assetCode
         },
       ],
@@ -231,7 +231,7 @@ describe("extractBalances", () => {
         },
         {
           balance: "25.0000000",
-          assetType: "liquidity_pool_shares" as any,
+          assetType: "liquidity_pool_shares" as unknown as AccountBalance["assetType"],
           // This should be filtered out, not labeled as XLM
         },
       ],

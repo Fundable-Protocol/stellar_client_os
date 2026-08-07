@@ -15,7 +15,7 @@
  *   - qrcode    — QR code generation as PNG data URI
  */
 
-import { PDFDocument, rgb, StandardFonts, type PDFFont, type PDFPage } from "pdf-lib";
+import { PDFDocument, rgb, StandardFonts, type PDFPage } from "pdf-lib";
 import QRCode from "qrcode";
 
 // ── Types ─────────────────────────────────────────────────────────────────────

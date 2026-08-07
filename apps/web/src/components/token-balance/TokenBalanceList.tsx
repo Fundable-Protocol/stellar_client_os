@@ -1,11 +1,7 @@
-// @ts-nocheck
 "use client";
 
-import { useState, useEffect } from "react";
-import {
-  TokenBalanceListProps,
-  TokenBalanceData,
-} from "@/types/token-balance.types";
+import { useState } from "react";
+import { TokenBalanceListProps } from "@/types/token-balance.types";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { TokenBalanceCard } from "./TokenBalanceCard";
 import { extractBalances } from "@/services/transform-balances";
@@ -19,8 +15,6 @@ import {
 import { WalletNetwork } from "@creit.tech/stellar-wallets-kit";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Wallet, RefreshCw } from "lucide-react";
-import { isAbortError } from "@/utils/retry";
-import { notify } from "@/utils/notification";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 
@@ -88,7 +82,7 @@ export function TokenBalanceList({ className = "" }: TokenBalanceListProps) {
   const queryClient = useQueryClient();
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const { data: balances, isLoading: loading, error, refetch, isRefetching } = useQuery({
+  const { data: balances, isLoading: loading, error, isRefetching } = useQuery({
     queryKey: ["token-balances", address, network],
     queryFn: async ({ signal }: { signal: AbortSignal }) => {
       if (!address) return null;

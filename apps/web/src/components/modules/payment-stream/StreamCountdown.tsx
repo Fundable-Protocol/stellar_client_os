@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
@@ -10,6 +9,7 @@ interface StreamCountdownProps {
 
 const StreamCountdown = ({ endTime, status }: StreamCountdownProps) => {
     const normalizedStatus = status.toLowerCase();
+
     const currentTime = useSyncExternalStore(
         (onStoreChange: () => void) => {
             if (normalizedStatus !== "active") {

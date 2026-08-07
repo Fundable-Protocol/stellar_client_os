@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useDistributionState } from './use-distribution-state';
-import type { DistributionType, Recipient } from '@/types/distribution';
+import type { Recipient } from '@/types/distribution';
 
 // Mock sessionStorage
 const mockSessionStorage = {

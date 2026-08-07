@@ -23,13 +23,19 @@ export default function OfframpSummary({
     onProceed,
     isLoading,
 }: OfframpSummaryProps) {
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const timeLeft = useMemo(() => {
-        if (!quote?.expiresAt) return null;
+    // Tick once per second while a quote is live so the "expires in…" hint
+    // stays accurate without calling an impure function during render.
+    const [now, setNow] = useState(() => Date.now());
 
-        const remaining = Math.floor((new Date(quote.expiresAt).getTime() - Date.now()) / 1000);
-        return remaining > 0 ? remaining : 0;
+    useEffect(() => {
+        if (!quote?.expiresAt) return;
+        const interval = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(interval);
     }, [quote?.expiresAt]);
+
+    const timeLeft = quote?.expiresAt
+        ? Math.max(0, Math.floor((new Date(quote.expiresAt).getTime() - now) / 1000))
+        : null;
 
     const selectedCountry = SUPPORTED_COUNTRIES.find(
         (c) => c.code === formState.country

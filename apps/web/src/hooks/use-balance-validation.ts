@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useTokenBalance } from "./use-token-balance";
 
 /**
@@ -14,10 +14,9 @@ export function useBalanceValidation(
   delay = 300
 ) {
   const { balance, isLoading } = useTokenBalance(tokenCode);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Compute error synchronously; debounce via effect side-effect only
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   const error = useMemo(() => {
     if (!amount || !balance) return null;
 

@@ -1,22 +1,22 @@
-import { Client as ContractClient } from "./generated/payment-stream/src/index.js";
+import { Client as ContractClient } from "./generated/payment-stream/src/index";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
-  Address,
 } from "@stellar/stellar-sdk/contract";
+import { Address } from "@stellar/stellar-sdk";
 import {
   Stream,
   StreamMetrics,
   ProtocolMetrics,
   StreamStatus,
-} from "./generated/payment-stream/src/index.js";
-import { executeWithErrorHandling } from "./utils/errors.js";
+} from "./generated/payment-stream/src/index";
+import { executeWithErrorHandling } from "./utils/errors";
 import {
   getStreamHistory,
   getAllStreamHistory,
   StreamHistoryResult,
-} from "./utils/streamHistory.js";
-import { PaymentStreamContractEvent } from "./utils/events.js";
+} from "./utils/streamHistory";
+import { PaymentStreamContractEvent } from "./utils/events";
 
 /**
  * Type alias for address parameters that accept both string and Address objects

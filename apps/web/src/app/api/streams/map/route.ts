@@ -177,16 +177,20 @@ export const GET = withRateLimit(handler, {
 
 async function fetchBboxStreams(
   bbox: BoundingBox,
-  _filters: Record<string, string>
+  filters: Record<string, string>
 ) {
   // Production: query indexed stream events filtered by geo bounding box
+  void bbox;
+  void filters;
   return [];
 }
 
 async function fetchRadiusStreams(
-  _query: RadiusQuery,
-  _filters: Record<string, string>
+  query: RadiusQuery,
+  filters: Record<string, string>
 ) {
   // Production: query indexed stream events filtered by geo radius
+  void query;
+  void filters;
   return [];
 }

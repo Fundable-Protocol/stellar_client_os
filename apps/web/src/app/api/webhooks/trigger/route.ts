@@ -31,9 +31,10 @@ export async function POST(req: NextRequest) {
     await service.dispatchEvent(event, payload);
 
     return NextResponse.json({ success: true, message: `Event '${event}' dispatched successfully` });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json(
-      { error: err.message || "Failed to trigger event" },
+      { error: message || "Failed to trigger event" },
       { status: 500 }
     );
   }

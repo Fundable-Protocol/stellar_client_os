@@ -83,18 +83,6 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
         }
     };
 
-    /**
-     * Calculates vesting progress using floating point progression before BigInt conversion
-     * to avoid integer floor division jitter on short streams (#415).
-     */
-    const calculateVestingProgress = (startTime: number, endTime: number, now: number = Date.now()): number => {
-        const totalDuration = endTime - startTime;
-        if (totalDuration <= 0) return 100;
-        const elapsed = Math.max(0, now - startTime);
-        const progressRatio = Math.min(1, Math.max(0, elapsed / totalDuration));
-        return progressRatio * 100;
-    };
-
     const handleResume = async () => {
         if (!signTransaction) return;
         setIsLoading(true);
@@ -133,7 +121,6 @@ export default function StreamActionsCell({ stream }: StreamActionsCellProps) {
 
     const isActive = stream.status === "Active";
     const isPaused = stream.status === "Paused";
-    const canManage = isActive || isPaused;
 
     return (
         <>

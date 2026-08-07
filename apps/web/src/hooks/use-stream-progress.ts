@@ -108,10 +108,7 @@ export function useStreamProgress(
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!isActive) {
-      setNow(Date.now());
-      return;
-    }
+    if (!isActive) return;
 
     const interval = setInterval(() => {
       const current = Date.now();
