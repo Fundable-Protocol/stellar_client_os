@@ -1,8 +1,8 @@
 #![no_std]
-#![allow(deprecated)]
+#[allow(deprecated)]
 use soroban_sdk::{
     contract, contractclient, contracterror, contractevent, contractimpl, contracttype,
-    panic_with_error, token, Address, Env, Vec,
+    panic_with_error, token, Address, Env, Symbol, Vec,
 };
 
 /// Persistent/instance storage keys.
@@ -32,6 +32,10 @@ pub enum DataKey {
     Dispute(u64),
     /// The id of the currently active (unresolved) dispute for a stream, if any.
     ActiveDispute(u64),
+    /// Configured fee tiers for volume-based protocol fee discounts.
+    FeeTiers,
+    /// Cumulative escrowed volume for a sender address.
+    SenderVolume(Address),
 }
 
 /// Stream status enum
@@ -210,6 +214,20 @@ pub struct StreamResumedEvent {
     pub paused_duration: u64,
 }
 
+/// Fee tier configuration for volume-based protocol fee discounts.
+///
+/// Tiers are stored sorted ascending by `min_volume`.  The highest tier
+/// whose `min_volume` is <= the sender's cumulative stream volume determines
+/// their protocol fee rate at withdrawal time.
+#[contracttype]
+#[derive(Clone)]
+pub struct FeeTier {
+    /// Minimum cumulative stream volume (token units) required for this tier
+    pub min_volume: i128,
+    /// Protocol fee rate in basis points (e.g., 30 = 0.3%, max 500 = 5%)
+    pub fee_rate: u32,
+}
+
 /// Emergency paused event data
 #[contractevent(topics = ["EmergencyPaused"])]
 #[derive(Clone)]
@@ -247,10 +265,14 @@ pub enum Error {
     DepositExceedsTotal = 14,
     ArithmeticOverflow = 15,
     InvalidDelegate = 16,
+    /// Tier fee_rate exceeds MAX_FEE or tiers not sorted strictly ascending
+    InvalidTier = 17,
+    /// Exceeded the maximum number of configurable fee tiers
+    TooManyTiers = 18,
     /// Protocol is globally paused by the emergency circuit breaker
-    ContractPaused = 17,
+    ContractPaused = 32,
     /// Emergency pause is already active
-    AlreadyPaused = 18,
+    AlreadyPaused = 33,
     /// Contract is not currently paused
     NotPaused = 19,
     /// Swap path is invalid for cross-asset deposits (from_token == stream.token)
@@ -281,8 +303,9 @@ pub enum Error {
 }
 
 // Constants
-const MAX_FEE: u32 = 500; // 5% in basis points
-const MAX_STREAMS_PER_BATCH: u32 = 50; // max streams per create_batch_streams call
+const MAX_FEE: u32 = 500;   // 5% in basis points
+const MAX_TIERS: u32 = 10;  // Maximum number of configurable fee tiers
+const MAX_STREAMS_PER_BATCH: u32 = 50;
 const LEDGER_THRESHOLD: u32 = 518400; // ~30 days at 5s/ledger
 const LEDGER_BUMP: u32 = 535680; // ~31 days
 const DISPUTE_TIMELOCK_DELAY: u64 = 172800; // 48 hours in seconds
@@ -676,6 +699,18 @@ impl PaymentStreamContract {
             last_delegation_time: 0,
         };
 
+        // Track sender's cumulative stream volume for fee tier eligibility.
+        // Only funds actually escrowed (initial_amount) are counted here to
+        // prevent tier-gaming via zero-deposit streams.  Additional deposits
+        // via deposit() also increment this counter.
+        let sender_vol_key = DataKey::SenderVolume(sender.clone());
+        let current_vol: i128 = env.storage().persistent()
+            .get(&sender_vol_key)
+            .unwrap_or(0);
+        let new_vol = current_vol.saturating_add(initial_amount);
+        env.storage().persistent().set(&sender_vol_key, &new_vol);
+        env.storage().persistent().extend_ttl(&sender_vol_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
         // Store stream and metrics
         env.storage().persistent().set(&DataKey::Stream(stream_id), &stream);
         env.storage().persistent().set(&DataKey::Metrics(stream_id), &stream_metrics);
@@ -736,6 +771,18 @@ impl PaymentStreamContract {
         // Transfer tokens from sender to contract
         let token_client = token::Client::new(&env, &stream.token);
         token_client.transfer(&stream.sender, &env.current_contract_address(), &amount);
+
+        // Update sender's cumulative volume for fee tier eligibility.
+        // deposit() actually moves tokens into escrow, so each deposited
+        // amount counts toward the sender's volume just as initial_amount
+        // does at stream creation.
+        let sender_vol_key = DataKey::SenderVolume(stream.sender.clone());
+        let current_vol: i128 = env.storage().persistent()
+            .get(&sender_vol_key)
+            .unwrap_or(0);
+        let new_vol = current_vol.saturating_add(amount);
+        env.storage().persistent().set(&sender_vol_key, &new_vol);
+        env.storage().persistent().extend_ttl(&sender_vol_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update balance
         stream.balance = new_balance;
@@ -1095,16 +1142,58 @@ impl PaymentStreamContract {
         env.storage().persistent().get(&DataKey::Delegate(stream_id))
     }
 
-    /// Calculate the protocol fee for a given amount
-    fn calculate_protocol_fee(env: &Env, amount: i128) -> i128 {
-        let fee_rate: u32 = env.storage().instance().get(&DataKey::FeeRate).unwrap_or(0);
+    /// Resolve the applicable fee rate for a sender based on their cumulative
+    /// stream volume and the configured fee tiers.
+    ///
+    /// Tiers are walked in ascending order of `min_volume`; the last qualifying
+    /// entry wins. Falls back to `general_protocol_fee_rate` when no tiers are
+    /// configured or when the sender's volume is below all tier thresholds.
+    fn get_applicable_fee_rate_internal(env: &Env, sender: &Address) -> u32 {
+        let general_rate: u32 = env.storage().instance()
+            .get(&DataKey::FeeRate)
+            .unwrap_or(0);
+
+        let tiers: Vec<FeeTier> = env.storage().instance()
+            .get(&DataKey::FeeTiers)
+            .unwrap_or_else(|| Vec::new(env));
+
+        if tiers.is_empty() {
+            return general_rate;
+        }
+
+        let sender_vol_key = DataKey::SenderVolume(sender.clone());
+        let volume: i128 = env.storage().persistent()
+            .get(&sender_vol_key)
+            .unwrap_or(0);
+        if volume > 0 {
+            env.storage().persistent().extend_ttl(&sender_vol_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
+
+        // Start with the general rate; upgrade to each qualifying tier
+        let mut applicable_rate = general_rate;
+        let len = tiers.len();
+        for i in 0..len {
+            let tier = tiers.get(i).unwrap();
+            if volume >= tier.min_volume {
+                applicable_rate = tier.fee_rate;
+            }
+        }
+        applicable_rate
+    }
+
+    /// Calculate the protocol fee for a withdrawal amount.
+    ///
+    /// Uses the sender's cumulative stream volume to select the applicable
+    /// fee tier, rewarding high-volume ecosystem donors with lower fees.
+    fn calculate_protocol_fee(env: &Env, amount: i128, sender: &Address) -> i128 {
+        let fee_rate = Self::get_applicable_fee_rate_internal(env, sender);
 
         if fee_rate == 0 || amount <= 0 {
             return 0;
         }
 
         // fee = (amount * fee_rate) / 10000
-        // Split calculation to avoid overflow while preserving precision
+        // Split to avoid i128 overflow while preserving precision
         let rate = fee_rate as i128;
         let fee = (amount / 10000) * rate + ((amount % 10000) * rate) / 10000;
         fee.max(0)
@@ -1169,8 +1258,8 @@ impl PaymentStreamContract {
             panic_with_error!(&env, Error::InsufficientWithdrawable);
         }
 
-        // Calculate protocol fee
-        let fee = Self::calculate_protocol_fee(&env, amount);
+        // Calculate protocol fee using the sender's volume-based tier
+        let fee = Self::calculate_protocol_fee(&env, amount, &stream.sender);
         let net_amount = amount - fee;
 
         stream.withdrawn_amount += amount;
@@ -1178,7 +1267,7 @@ impl PaymentStreamContract {
         // Check if stream is completed
         if stream.withdrawn_amount >= stream.total_amount {
             stream.status = StreamStatus::Completed;
-            
+
             // Update protocol metrics - decrease active streams
             let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
                 .get(&DataKey::ProtocolMetrics)
@@ -1235,7 +1324,7 @@ impl PaymentStreamContract {
         }
 
         let current_time = env.ledger().timestamp();
-        
+
         stream.status = StreamStatus::Paused;
         stream.paused_at = Some(current_time);
 
@@ -1280,7 +1369,7 @@ impl PaymentStreamContract {
         }
 
         let current_time = env.ledger().timestamp();
-        
+
         // Calculate pause duration
         let paused_duration = if let Some(paused_at) = stream.paused_at {
             current_time.saturating_sub(paused_at)
@@ -1290,10 +1379,10 @@ impl PaymentStreamContract {
 
         // Update total paused duration
         stream.total_paused_duration += paused_duration;
-        
+
         // Extend end_time by the paused duration
         stream.end_time += paused_duration;
-        
+
         stream.status = StreamStatus::Active;
         stream.paused_at = None;
 
@@ -1336,7 +1425,7 @@ impl PaymentStreamContract {
         if stream.status != StreamStatus::Active && stream.status != StreamStatus::Paused {
             panic_with_error!(&env, Error::StreamCannotBeCanceled);
         }
-        
+
         let was_active = stream.status == StreamStatus::Active;
         stream.status = StreamStatus::Canceled;
 
@@ -1372,12 +1461,35 @@ impl PaymentStreamContract {
     }
 
     /// Set the protocol fee rate
+    ///
+    /// The new rate must not be lower than the first configured tier's `fee_rate`.
+    /// Tiers are required to have non-increasing rates relative to the general
+    /// rate, so lowering the base below an existing tier would violate that
+    /// invariant and cause high-volume senders to pay more than low-volume ones.
+    ///
+    /// # Errors
+    /// - `FeeTooHigh` - new_fee_rate exceeds MAX_FEE (500 bps).
+    /// - `InvalidTier` - new_fee_rate is below the first configured tier rate.
     pub fn set_protocol_fee_rate(env: Env, new_fee_rate: u32) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
         if new_fee_rate > MAX_FEE {
             panic_with_error!(&env, Error::FeeTooHigh);
+        }
+
+        // Preserve the non-increasing fee-rate invariant: the general rate must
+        // be >= every configured tier rate.  The first tier has the highest
+        // fee_rate among all tiers (since tiers are stored non-increasing), so
+        // checking only the first tier is sufficient.
+        let tiers: Vec<FeeTier> = env.storage().instance()
+            .get(&DataKey::FeeTiers)
+            .unwrap_or_else(|| Vec::new(&env));
+        if !tiers.is_empty() {
+            let first_tier = tiers.get(0).unwrap();
+            if new_fee_rate < first_tier.fee_rate {
+                panic_with_error!(&env, Error::InvalidTier);
+            }
         }
 
         env.storage().instance().set(&DataKey::FeeRate, &new_fee_rate);
@@ -1412,6 +1524,85 @@ impl PaymentStreamContract {
         env.storage().persistent()
             .get(&DataKey::Metrics(stream_id))
             .unwrap_or_else(|| Self::default_stream_metrics(&env))
+    }
+
+    /// Set fee tiers for volume-based protocol fee discounts (admin only).
+    ///
+    /// `tiers` must be sorted in **strictly ascending** order by `min_volume`.
+    /// Each tier's `fee_rate` must not exceed `MAX_FEE` (500 bps = 5%).
+    /// Pass an empty Vec to clear all tiers and revert to `general_protocol_fee_rate`.
+    ///
+    /// # Errors
+    /// - `Unauthorized`  - caller is not the contract admin.
+    /// - `TooManyTiers`  - tiers.len() > MAX_TIERS (10).
+    /// - `InvalidTier`   - a tier's fee_rate exceeds MAX_FEE, or tiers are
+    ///                      not strictly sorted ascending by min_volume.
+    pub fn set_fee_tiers(env: Env, tiers: Vec<FeeTier>) {
+        let admin: Address = env.storage().instance()
+            .get(&DataKey::Admin)
+            .unwrap();
+        admin.require_auth();
+
+        if tiers.len() > MAX_TIERS {
+            panic_with_error!(&env, Error::TooManyTiers);
+        }
+
+        let general_rate: u32 = env.storage().instance()
+            .get(&DataKey::FeeRate)
+            .unwrap_or(0);
+        let mut prev_min_volume: i128 = -1_i128;
+        let mut prev_fee_rate: u32 = general_rate;
+        let len = tiers.len();
+        for i in 0..len {
+            let tier = tiers.get(i).unwrap();
+            if tier.fee_rate > MAX_FEE {
+                panic_with_error!(&env, Error::InvalidTier);
+            }
+            if tier.fee_rate > prev_fee_rate {
+                panic_with_error!(&env, Error::InvalidTier);
+            }
+            if tier.min_volume <= prev_min_volume {
+                panic_with_error!(&env, Error::InvalidTier);
+            }
+            prev_min_volume = tier.min_volume;
+            prev_fee_rate = tier.fee_rate;
+        }
+
+        env.storage().instance().set(&DataKey::FeeTiers, &tiers);
+        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.events().publish(("FeeTiersUpdated",), ());
+    }
+
+    /// Return the currently configured fee tiers.
+    /// Returns an empty Vec when no tiers have been configured.
+    pub fn get_fee_tiers(env: Env) -> Vec<FeeTier> {
+        env.storage().instance()
+            .get(&DataKey::FeeTiers)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Return the cumulative escrowed volume for a sender address.
+    ///
+    /// This is the sum of all tokens the sender has actually transferred into
+    /// escrow: the `initial_amount` at stream creation plus any subsequent
+    /// `deposit()` calls.  It determines their position in the fee tier
+    /// hierarchy and cannot be gamed by declaring a large `total_amount`
+    /// without depositing funds.
+    pub fn get_sender_volume(env: Env, sender: Address) -> i128 {
+        let sender_vol_key = DataKey::SenderVolume(sender);
+        env.storage().persistent()
+            .get(&sender_vol_key)
+            .unwrap_or(0)
+    }
+
+    /// Return the effective protocol fee rate (in basis points) for a sender
+    /// based on their current cumulative stream volume.
+    ///
+    /// This is the rate applied to the next withdrawal from any stream
+    /// created by this sender.
+    pub fn get_applicable_fee_rate(env: Env, sender: Address) -> u32 {
+        Self::get_applicable_fee_rate_internal(&env, &sender)
     }
 
     /// Get protocol-wide metrics

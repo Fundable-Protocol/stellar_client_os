@@ -875,7 +875,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "InvalidDeadline")]
+    #[should_panic(expected = "Error(Contract, #5)")]
     fn test_create_campaign_deadline_in_past() {
         let env = Env::default();
         env.mock_all_auths();
@@ -962,7 +962,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "CampaignNotActive")]
+    #[should_panic(expected = "Error(Contract, #8)")]
     fn test_contribute_after_deadline() {
         let env = Env::default();
         env.mock_all_auths();
@@ -983,7 +983,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "InvalidAmount")]
+    #[should_panic(expected = "Error(Contract, #4)")]
     fn test_contribute_zero_amount() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1000,7 +1000,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "TargetExceeded")]
+    #[should_panic(expected = "Error(Contract, #16)")]
     fn test_contribute_exceeds_hard_cap() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1026,6 +1026,8 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let contributor = Address::generate(&env);
+        // campaign 99 does not exist → should panic with CampaignNotFound (wrapped as
+        // CampaignNotActive because load_campaign panics first).
         // campaign 99 does not exist → load_campaign panics with CampaignNotFound = 7.
         client.contribute(&contributor, &99, &500);
     }
@@ -1122,7 +1124,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "DeadlineNotReached")]
+    #[should_panic(expected = "Error(Contract, #9)")]
     fn test_trigger_expiry_before_deadline() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1137,7 +1139,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "CampaignNotActive")]
+    #[should_panic(expected = "Error(Contract, #8)")]
     fn test_trigger_expiry_already_resolved() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1233,7 +1235,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "CampaignNotSuccessful")]
+    #[should_panic(expected = "Error(Contract, #11)")]
     fn test_claim_funds_on_active_campaign() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1247,7 +1249,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "CampaignNotSuccessful")]
+    #[should_panic(expected = "Error(Contract, #11)")]
     fn test_claim_funds_on_failed_campaign() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1263,7 +1265,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "AlreadyClaimed")]
+    #[should_panic(expected = "Error(Contract, #13)")]
     fn test_claim_funds_double_claim() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1351,7 +1353,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "CampaignNotFailed")]
+    #[should_panic(expected = "Error(Contract, #10)")]
     fn test_refund_on_active_campaign() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1371,7 +1373,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "CampaignNotFailed")]
+    #[should_panic(expected = "Error(Contract, #10)")]
     fn test_refund_on_successful_campaign() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1392,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "NoContributionFound")]
+    #[should_panic(expected = "Error(Contract, #12)")]
     fn test_refund_no_contribution() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1410,7 +1412,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "NoContributionFound")]
+    #[should_panic(expected = "Error(Contract, #12)")]
     fn test_refund_double_refund_prevented() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1446,7 +1448,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "FeeTooHigh")]
+    #[should_panic(expected = "Error(Contract, #14)")]
     fn test_set_fee_rate_too_high() {
         let env = Env::default();
         env.mock_all_auths();

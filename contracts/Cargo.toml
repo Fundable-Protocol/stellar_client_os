@@ -6,7 +6,7 @@ members = [
     "distributor",
     "dispute-arbiter",
     "nft-stream",
-    "campaign-funding"
+    "campaign-funding",
     "soulbound-badge"
 ]
 
@@ -32,3 +32,4 @@ lto = true
 [profile.release-with-logs]
 inherits = "release"
 debug-assertions = true
+

@@ -67,7 +67,11 @@ async function signAndSendTx<T>(
         }),
     });
 
-    return result.hash;
+    const hash = result.sendTransactionResponse?.hash;
+    if (!hash) {
+        throw new Error('Transaction did not return a hash');
+    }
+    return hash;
 }
 
 function createPaymentStreamClient(publicKey: string): PaymentStreamClient {

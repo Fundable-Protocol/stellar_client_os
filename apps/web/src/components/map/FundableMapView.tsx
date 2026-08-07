@@ -191,8 +191,6 @@ function MapClusterMarker({
       radius={isHovered ? radius + 3 : radius}
       eventHandlers={eventHandlers}
       aria-label={`Cluster of ${cluster.count} fundable stream${cluster.count !== 1 ? "s" : ""}`}
-      role="button"
-      tabIndex={0}
     >
       <Popup>
         <div style={popupStyles.container}>
@@ -218,6 +216,7 @@ export function FundableMapView({
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsMounted(true);
   }, []);
 
