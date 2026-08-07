@@ -117,15 +117,6 @@ export const StellarWalletProvider = ({
     // correctly reflects the pending auto-reconnect verification.
     if (savedAddress && savedWalletId && savedNetwork) {
       return "connecting";
-    if (typeof window === 'undefined') return "idle";
-    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
-    const savedWalletId = safeGetItem("stellar_wallet_id");
-    const savedAddress = safeGetItem("stellar_wallet_address");
-    const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
-    const savedNetwork = safeGetItem("stellar_wallet_network");
-    console.log('Lazy init connectionStatus:', { savedAddress, savedWalletId, savedNetwork });
-    if (savedAddress && isValidStellarAddress(savedAddress) && savedWalletId && savedNetwork === WalletNetwork.TESTNET) {
-      return "connected";
     }
     return "idle";
   });
