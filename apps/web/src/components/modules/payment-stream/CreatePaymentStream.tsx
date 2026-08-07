@@ -11,6 +11,7 @@ import { PaymentStreamConfirmationModal } from "./PaymentStreamConfirmationModal
 import { capitalizeWord } from "@/lib/utils";
 import { SUPPORTED_TOKENS, PaymentStreamFormData } from "@/lib/validations";
 import { StellarService } from "@/lib/stellar";
+import { createStream } from "@/lib/api";
 import { validateEndTime, validateContractId } from "@/lib/stream-validation";
 import { useDebouncedCallback } from "@/hooks/use-debounce-callback";
 import { useBalanceValidation } from "@/hooks/use-balance-validation";
@@ -203,6 +204,7 @@ const CreatePaymentStream = () => {
             streamData.duration === 'month' ? 2592000 : 31536000;
       const durationInSeconds = Math.floor(parseFloat(streamData.durationValue) * durationMultiplier);
       const startTime = Math.floor(Date.now() / 1000);
+      const amount = BigInt(Math.floor(parseFloat(streamData.amount) * 10000000));
 
       if (!isConnected || !address || !signTransaction) {
         throw new Error('Connect your wallet');

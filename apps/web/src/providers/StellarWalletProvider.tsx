@@ -109,7 +109,6 @@ export const StellarWalletProvider = ({
       return savedAddress;
     }
     return null;
-    return loadPersistedSession().address;
   });
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() => {
     const { address: savedAddress, walletId: savedWalletId, network: savedNetwork } = loadPersistedSession();
@@ -124,20 +123,7 @@ export const StellarWalletProvider = ({
     return loadPersistedSession().walletId;
   });
   const [network, setNetworkState] = useState<WalletNetwork>(() => {
-    // Restore the network that was active when the user last connected so the
-    // kit is initialised with the right network passphrase immediately.
     return loadPersistedSession().network ?? WalletNetwork.TESTNET;
-    if (typeof window === 'undefined') return null;
-    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
-    const savedWalletId = safeGetItem("stellar_wallet_id");
-    const savedAddress = safeGetItem("stellar_wallet_address");
-    const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
-    const savedNetwork = safeGetItem("stellar_wallet_network");
-    console.log('Lazy init selectedWalletId:', { savedWalletId, savedNetwork });
-    if (savedNetwork === WalletNetwork.TESTNET && savedAddress && isValidStellarAddress(savedAddress)) {
-      return savedWalletId as WalletId | null;
-    }
-    return null;
   });
   const [kit, setKit] = useState<StellarWalletsKit | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -164,12 +150,6 @@ export const StellarWalletProvider = ({
     // or clear stale state when it no longer does.
     const { address: savedAddress, walletId: savedWalletId, network: savedNetwork } = loadPersistedSession();
     // RESTORE SESSION
-    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
-    const savedWalletId = safeGetItem("stellar_wallet_id");
-    const savedAddress = safeGetItem("stellar_wallet_address");
-    const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
-    const savedNetwork = safeGetItem("stellar_wallet_network");
-
     if (savedAddress && savedWalletId && savedNetwork) {
       if (savedNetwork !== network) {
         // The user previously connected on a different network — do not restore.

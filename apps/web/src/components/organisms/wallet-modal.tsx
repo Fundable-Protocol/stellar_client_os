@@ -1,8 +1,6 @@
 "use client";
-import { motion } from "framer-motion";
-import { Wallet, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Loader2 } from "lucide-react";
+import { Wallet, Check, Loader2 } from "lucide-react";
 import React from "react";
 import { useWallet, WalletId } from "@/providers/StellarWalletProvider";
 import {

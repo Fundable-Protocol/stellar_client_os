@@ -11,23 +11,6 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:3000',
     trace: 'on-first-retry',
-    // Inject mock wallet state into every page before scripts run
-    storageState: undefined,
-    initScript: `
-      window.stellarWallet = {
-        address: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
-        isConnected: true,
-      };
-      window.freighterApi = {
-        isConnected: async () => true,
-        getPublicKey: async () => 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
-        signTransaction: async () => 'mock_signed_tx',
-      };
-      window.albedo = {
-        publicKey: async () => ({ pubkey: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' }),
-        tx: async () => ({ signed_envelope_xdr: 'mock_signed_tx' }),
-      };
-    `,
   },
 
   projects: [
