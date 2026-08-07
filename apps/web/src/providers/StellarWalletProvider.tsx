@@ -13,14 +13,22 @@ import {
   WalletNetwork,
   allowAllModules,
 } from "@creit.tech/stellar-wallets-kit";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle, ArrowRightLeft } from "lucide-react";
 
 import { safeGetItem, safeSetItem, safeRemoveItem, isStorageAvailable } from "@/utils/safe-storage";
 import { isValidStellarAddress } from "@/utils/stellar-validation";
 
 import { offrampService } from "@/services/offramp.service";
 import { notify } from "@/utils/notification";
-import { isLockedWalletError } from "@/utils/wallet-errors";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 export type WalletId = string;
 export type ConnectionStatus =
@@ -29,6 +37,28 @@ export type ConnectionStatus =
   | "connected"
   | "disconnecting"
   | "locked";
+
+/**
+ * Maps each WalletNetwork enum value to its canonical Stellar network passphrase.
+ * Used to detect mismatches between the wallet extension's active network and the
+ * network the application is configured to target.
+ */
+export const NETWORK_PASSPHRASES: Record<WalletNetwork, string> = {
+  [WalletNetwork.PUBLIC]: "Public Global Stellar Network ; September 2015",
+  [WalletNetwork.TESTNET]: "Test SDF Network ; September 2015",
+  [WalletNetwork.FUTURENET]: "Test SDF Future Network ; October 2022",
+  [WalletNetwork.SANDBOX]: "Local Sandbox Stellar Network ; September 2015",
+  [WalletNetwork.STANDALONE]: "Standalone Network ; February 2017",
+};
+
+/** Human-readable display names for each WalletNetwork value. */
+const NETWORK_DISPLAY_NAMES: Record<WalletNetwork, string> = {
+  [WalletNetwork.PUBLIC]: "Mainnet",
+  [WalletNetwork.TESTNET]: "Testnet",
+  [WalletNetwork.FUTURENET]: "Futurenet",
+  [WalletNetwork.SANDBOX]: "Sandbox",
+  [WalletNetwork.STANDALONE]: "Standalone",
+};
 
 interface WalletContextType {
   connect: (walletId: WalletId) => Promise<void>;
@@ -46,6 +76,8 @@ interface WalletContextType {
   closeModal: () => void;
   isModalOpen: boolean;
   supportedWallets: { id: WalletId; name: string; icon: string }[];
+  /** True when the connected wallet's network passphrase does not match the app's configured network. */
+  networkMismatch: boolean;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -142,6 +174,17 @@ export const StellarWalletProvider = ({
   const [kit, setKit] = useState<StellarWalletsKit | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPersistenceAvailable, setIsPersistenceAvailable] = useState(true);
+
+  /**
+   * Tracks whether the wallet extension's active network passphrase mismatches
+   * the application's configured network. When true, the NetworkMismatchModal is shown.
+   */
+  const [networkMismatch, setNetworkMismatch] = useState(false);
+  /**
+   * Stores the network name reported by the wallet extension so the mismatch modal
+   * can display an informative message ("Your wallet is on Mainnet, app needs Testnet").
+   */
+  const [walletNetworkName, setWalletNetworkName] = useState<string>("");
 
   // Holds the AbortController for the current in-flight connection attempt.
   // Aborting it signals connect() to discard any resolved address.
@@ -249,6 +292,8 @@ export const StellarWalletProvider = ({
     setConnectionStatus("disconnecting");
     setAddress(null);
     setSelectedWalletId(null);
+    setNetworkMismatch(false);
+    setWalletNetworkName("");
     safeRemoveItem("stellar_wallet_address");
     safeRemoveItem("@fundable/web:selected_wallet");
     safeRemoveItem("stellar_wallet_network");
@@ -289,6 +334,58 @@ export const StellarWalletProvider = ({
     lobstr: "https://lobstr.co/",
     rango: "https://app.rango.exchange/",
   };
+
+  /**
+   * Checks whether the wallet extension's active network passphrase matches the
+   * application's configured network.  Returns `true` when they match (safe to
+   * proceed), `false` on a mismatch, and `true` when the wallet doesn't expose a
+   * network API (fail-open so legacy wallets keep working).
+   *
+   * On a mismatch the function also updates `networkMismatch` and
+   * `walletNetworkName` state so the blocking modal is displayed to the user.
+   */
+  const checkNetworkPassphrase = useCallback(
+    async (walletKit: StellarWalletsKit): Promise<boolean> => {
+      try {
+        // Not all wallet adapters implement getNetwork(); guard against that.
+        if (typeof walletKit.getNetwork !== "function") return true;
+
+        const walletNetworkInfo = await walletKit.getNetwork();
+        const walletPassphrase: string =
+          typeof walletNetworkInfo === "string"
+            ? walletNetworkInfo
+            : (walletNetworkInfo as { networkPassphrase?: string; network?: string })
+                ?.networkPassphrase ??
+              (walletNetworkInfo as { networkPassphrase?: string; network?: string })
+                ?.network ??
+              "";
+
+        const expectedPassphrase = NETWORK_PASSPHRASES[network];
+
+        if (!walletPassphrase || walletPassphrase === expectedPassphrase) {
+          // Passphrase matches or wallet didn't provide one — safe to proceed.
+          return true;
+        }
+
+        // Determine the human-readable name of the wallet's network for the modal.
+        const detectedNetworkEntry = Object.entries(NETWORK_PASSPHRASES).find(
+          ([, passphrase]) => passphrase === walletPassphrase,
+        );
+        const detectedNetworkName = detectedNetworkEntry
+          ? NETWORK_DISPLAY_NAMES[detectedNetworkEntry[0] as WalletNetwork]
+          : `Unknown (${walletPassphrase.slice(0, 30)}…)`;
+
+        setWalletNetworkName(detectedNetworkName);
+        setNetworkMismatch(true);
+        return false;
+      } catch {
+        // If the check itself throws (e.g. wallet doesn't support getNetwork),
+        // fail-open so we don't block existing wallets.
+        return true;
+      }
+    },
+    [network],
+  );
 
   const connect = useCallback(async (walletId: WalletId) => {
     if (!kit) return;
@@ -334,6 +431,20 @@ export const StellarWalletProvider = ({
           "No address returned from wallet. Please ensure your wallet is unlocked and try again.",
         );
       }
+
+      // ── Network passphrase mismatch check ─────────────────────────────────
+      // Verify that the wallet extension is connected to the same Stellar network
+      // that this application is configured to target.  A mismatch means the user
+      // would end up signing transactions intended for Testnet contracts with a
+      // Mainnet wallet (or vice versa), which produces invalid / rejected txs.
+      const passphraseOk = await checkNetworkPassphrase(kit);
+      if (!passphraseOk) {
+        // The modal is now visible.  Reset connecting state and bail out — the
+        // user must switch networks in their wallet extension and reconnect.
+        setConnectionStatus("idle");
+        return;
+      }
+      // ──────────────────────────────────────────────────────────────────────
 
       setAddress(resolvedAddress);
       setSelectedWalletId(walletId);
@@ -401,12 +512,24 @@ export const StellarWalletProvider = ({
         connectionAbortRef.current = null;
       }
     }
-  }, [kit, network]);
+  }, [kit, network, checkNetworkPassphrase]);
 
   const signTransaction = useCallback(
     async (xdr: string) => {
       if (!kit || !address) throw new Error("Wallet not connected");
 
+      // ── Network passphrase mismatch check ─────────────────────────────────
+      // Re-verify before every signing attempt: the user could have switched
+      // networks in their wallet extension after the initial connection.
+      const passphraseOk = await checkNetworkPassphrase(kit);
+      if (!passphraseOk) {
+        throw new Error(
+          `Network mismatch: your wallet is on ${walletNetworkName} but this app targets ` +
+          `${NETWORK_DISPLAY_NAMES[network]}. Please switch your wallet to ` +
+          `${NETWORK_DISPLAY_NAMES[network]} and try again.`,
+        );
+      }
+      // ──────────────────────────────────────────────────────────────────────
       let timeoutId: ReturnType<typeof setTimeout>;
       const timeoutPromise = new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
@@ -424,11 +547,33 @@ export const StellarWalletProvider = ({
         clearTimeout(timeoutId!);
       }
     },
-    [kit, address],
+    [kit, address, network, walletNetworkName, checkNetworkPassphrase],
   );
 
   const openModal = useCallback(() => setIsModalOpen(true), []);
   const closeModal = useCallback(() => setIsModalOpen(false), []);
+
+  /** Dismiss the mismatch modal without disconnecting. */
+  const dismissMismatchModal = useCallback(() => {
+    setNetworkMismatch(false);
+    setWalletNetworkName("");
+  }, []);
+
+  /**
+   * Switch the app's configured network to match the wallet's network.
+   * This calls `setNetwork` which disconnects first, then re-initialises the kit.
+   */
+  const switchAppNetwork = useCallback(async () => {
+    // Find the WalletNetwork enum value whose display name matches walletNetworkName
+    const targetEntry = Object.entries(NETWORK_DISPLAY_NAMES).find(
+      ([, displayName]) => displayName === walletNetworkName,
+    );
+    setNetworkMismatch(false);
+    setWalletNetworkName("");
+    if (targetEntry) {
+      await setNetwork(targetEntry[0] as WalletNetwork);
+    }
+  }, [walletNetworkName, setNetwork]);
 
   return (
     <WalletContext.Provider
@@ -448,9 +593,62 @@ export const StellarWalletProvider = ({
         closeModal,
         isModalOpen,
         supportedWallets,
+        networkMismatch,
       }}
     >
       {children}
+
+      {/* ── Network mismatch modal ──────────────────────────────────────── */}
+      <Dialog open={networkMismatch} onOpenChange={(open) => !open && dismissMismatchModal()}>
+        <DialogContent
+          className="max-w-md border-yellow-500/20 bg-[#0F1621]"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-yellow-500/10 shrink-0">
+                <AlertTriangle className="w-5 h-5 text-yellow-400" aria-hidden="true" />
+              </div>
+              <DialogTitle className="text-yellow-100">Network Mismatch Detected</DialogTitle>
+            </div>
+            <DialogDescription className="text-zinc-400 leading-relaxed">
+              Your wallet is connected to{" "}
+              <span className="font-semibold text-yellow-300">{walletNetworkName}</span>, but this
+              app is configured for{" "}
+              <span className="font-semibold text-white">
+                {NETWORK_DISPLAY_NAMES[network]}
+              </span>
+              .
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-xl bg-yellow-500/5 border border-yellow-500/10 p-4 text-sm text-zinc-400 leading-relaxed">
+            Submitting a transaction signed on the wrong network will cause it to be rejected by
+            Stellar validators. Please switch your wallet extension to{" "}
+            <span className="font-semibold text-white">{NETWORK_DISPLAY_NAMES[network]}</span>{" "}
+            before proceeding, or switch the app network to match your wallet.
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={dismissMismatchModal}
+              className="border-white/10 bg-white/5 text-white hover:bg-white/10"
+            >
+              Dismiss
+            </Button>
+            <Button
+              onClick={switchAppNetwork}
+              className="gap-2 bg-yellow-500 text-black hover:bg-yellow-400 font-semibold"
+            >
+              <ArrowRightLeft className="w-4 h-4" aria-hidden="true" />
+              Switch App to {walletNetworkName}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ────────────────────────────────────────────────────────────────── */}
+
       {!isPersistenceAvailable && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-xs rounded-md shadow-lg flex items-center gap-2">
           <AlertCircle className="w-4 h-4" />
