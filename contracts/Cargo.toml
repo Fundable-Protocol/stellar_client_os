@@ -4,6 +4,8 @@ resolver = "2"
 members = [
     "payment-stream",
     "distributor",
+    "nft-stream",
+    "campaign-funding"
     "dispute-arbiter",
     "nft-stream",
     "soulbound-badge"
