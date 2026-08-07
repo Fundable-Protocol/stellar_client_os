@@ -1019,6 +1019,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "CampaignNotActive")]
     #[should_panic(expected = "Error(Contract, #7)")]
     fn test_contribute_to_nonexistent_campaign() {
         let env = Env::default();
@@ -1026,6 +1027,8 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let contributor = Address::generate(&env);
+        // campaign 99 does not exist → should panic with CampaignNotFound (wrapped as
+        // CampaignNotActive because load_campaign panics first).
         // campaign 99 does not exist → load_campaign panics with CampaignNotFound = 7.
         client.contribute(&contributor, &99, &500);
     }
