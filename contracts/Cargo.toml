@@ -6,7 +6,7 @@ members = [
     "distributor",
     "dispute-arbiter",
     "nft-stream",
-    "campaign-funding"
+    "campaign-funding",
     "soulbound-badge"
 ]
 
