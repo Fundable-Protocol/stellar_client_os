@@ -2,7 +2,7 @@
 #![allow(deprecated)]
 use soroban_sdk::{
     contract, contractclient, contracterror, contractevent, contractimpl, contracttype,
-    panic_with_error, token, Address, Env, Vec,
+    panic_with_error, token, Address, Env, Symbol, Vec,
 };
 
 /// Persistent/instance storage keys.
@@ -22,6 +22,8 @@ pub enum DataKey {
     Stream(u64),
     Metrics(u64),
     Delegate(u64),
+    /// Per-stream reentrancy lock (temporary storage).
+    Lock(u64),
     /// Global emergency-pause circuit breaker flag (instance storage).
     Paused,
     /// Configured DEX router address used by `deposit_with_swap` (instance storage).
@@ -278,6 +280,8 @@ pub enum Error {
     TimelockNotElapsed = 30,
     /// The recipient/sender resolution amounts are invalid or exceed the stream's escrowed balance
     InvalidResolutionAmounts = 31,
+    /// A reentrant call was detected; the stream or global lock is already held.
+    ReentrancyGuard = 32,
 }
 
 // Constants
@@ -307,6 +311,40 @@ pub struct PaymentStreamContract;
 
 #[contractimpl]
 impl PaymentStreamContract {
+    // -----------------------------------------------------------------------
+    // Reentrancy guard helpers (private)
+    // -----------------------------------------------------------------------
+
+    /// Acquire a per-stream reentrancy lock stored in temporary storage.
+    fn acquire_stream_lock(env: &Env, stream_id: u64) {
+        let key = (stream_id, Symbol::new(env, "lock"));
+        if env.storage().temporary().get::<_, bool>(&key).unwrap_or(false) {
+            panic_with_error!(env, Error::ReentrancyGuard);
+        }
+        env.storage().temporary().set(&key, &true);
+    }
+
+    /// Release the per-stream reentrancy lock.
+    fn release_stream_lock(env: &Env, stream_id: u64) {
+        let key = (stream_id, Symbol::new(env, "lock"));
+        env.storage().temporary().remove(&key);
+    }
+
+    /// Acquire the global reentrancy lock for non-stream operations.
+    fn acquire_global_lock(env: &Env) {
+        let key = Symbol::new(env, "g_lock");
+        if env.storage().temporary().get::<_, bool>(&key).unwrap_or(false) {
+            panic_with_error!(env, Error::ReentrancyGuard);
+        }
+        env.storage().temporary().set(&key, &true);
+    }
+
+    /// Release the global reentrancy lock.
+    fn release_global_lock(env: &Env) {
+        let key = Symbol::new(env, "g_lock");
+        env.storage().temporary().remove(&key);
+    }
+
     /// Initialize the contract
     pub fn initialize(env: Env, admin: Address, fee_collector: Address, general_fee_rate: u32) {
         if env.storage().instance().has(&DataKey::Admin) {
@@ -361,6 +399,7 @@ impl PaymentStreamContract {
     /// - `Error::Unauthorized` – caller is not admin.
     /// - `Error::AlreadyPaused` – the circuit breaker is already active.
     pub fn emergency_pause(env: Env) {
+        Self::acquire_global_lock(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -384,6 +423,8 @@ impl PaymentStreamContract {
             paused_at: now,
         }
         .publish(&env);
+
+        Self::release_global_lock(&env);
     }
 
     /// Deactivate the global emergency pause switch, resuming normal operation.
@@ -395,6 +436,7 @@ impl PaymentStreamContract {
     /// - `Error::Unauthorized` – caller is not admin.
     /// - `Error::NotPaused` – the circuit breaker is not currently active.
     pub fn emergency_unpause(env: Env) {
+        Self::acquire_global_lock(&env);
         let admin: Address = env
             .storage()
             .instance()
@@ -418,6 +460,8 @@ impl PaymentStreamContract {
             unpaused_at: now,
         }
         .publish(&env);
+
+        Self::release_global_lock(&env);
     }
 
     /// Returns `true` when the global emergency pause is active.
@@ -646,6 +690,8 @@ impl PaymentStreamContract {
         stream_count += 1;
         env.storage().instance().set(&DataKey::StreamCount, &stream_count);
 
+        Self::acquire_stream_lock(&env, stream_id);
+
         let current_time = env.ledger().timestamp();
 
         // Create stream
@@ -705,11 +751,13 @@ impl PaymentStreamContract {
             token_client.transfer(&sender, &env.current_contract_address(), &initial_amount);
         }
 
+        Self::release_stream_lock(&env, stream_id);
         stream_id
     }
 
     /// Deposit tokens to an existing stream
     pub fn deposit(env: Env, stream_id: u64, amount: i128) {
+        Self::acquire_stream_lock(&env, stream_id);
         Self::assert_not_paused(&env);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
@@ -754,6 +802,8 @@ impl PaymentStreamContract {
 
         // Emit StreamDeposit event
         StreamDepositEvent { stream_id, amount }.publish(&env);
+
+        Self::release_stream_lock(&env, stream_id);
     }
 
     /// Deposit by first swapping a source asset into the stream token via the Stellar DEX.
@@ -794,6 +844,7 @@ impl PaymentStreamContract {
         min_amount_out: i128,
         swap_path: Vec<Address>,
     ) {
+        Self::acquire_stream_lock(&env, stream_id);
         // 0. Emergency circuit breaker — same policy as `deposit`
         Self::assert_not_paused(&env);
 
@@ -928,6 +979,8 @@ impl PaymentStreamContract {
             amount: actual_received,
         }
         .publish(&env);
+
+        Self::release_stream_lock(&env, stream_id);
     }
 
     /// Register the DEX router contract address (admin only).
@@ -1000,6 +1053,7 @@ impl PaymentStreamContract {
 
     /// Set a delegate for withdrawal rights on a stream
     pub fn set_delegate(env: Env, stream_id: u64, delegate: Address) {
+        Self::acquire_stream_lock(&env, stream_id);
         let stream: Stream = Self::get_stream(env.clone(), stream_id);
         stream.recipient.require_auth();
     
@@ -1054,10 +1108,13 @@ impl PaymentStreamContract {
             delegate: delegate.clone(),
         }
         .publish(&env);
+
+        Self::release_stream_lock(&env, stream_id);
     }
 
     /// Revoke the delegate for a stream
     pub fn revoke_delegate(env: Env, stream_id: u64) {
+        Self::acquire_stream_lock(&env, stream_id);
         let stream: Stream = Self::get_stream(env.clone(), stream_id);
         stream.recipient.require_auth();
 
@@ -1086,6 +1143,8 @@ impl PaymentStreamContract {
             }
             .publish(&env);
         }
+
+        Self::release_stream_lock(&env, stream_id);
     }
 
     /// Get the delegate for a stream
@@ -1159,6 +1218,7 @@ impl PaymentStreamContract {
 
     /// Withdraw from a stream
     pub fn withdraw(env: Env, stream_id: u64, amount: i128) {
+        Self::acquire_stream_lock(&env, stream_id);
         Self::assert_not_paused(&env);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
@@ -1212,6 +1272,8 @@ impl PaymentStreamContract {
             token_client.transfer(&env.current_contract_address(), &fee_collector, &fee);
             FeeCollectedEvent { stream_id, amount: fee }.publish(&env);
         }
+
+        Self::release_stream_lock(&env, stream_id);
     }
 
     /// Withdraw the maximum available amount from a stream
@@ -1226,6 +1288,7 @@ impl PaymentStreamContract {
 
     /// Pause a stream (sender only)
     pub fn pause_stream(env: Env, stream_id: u64) {
+        Self::acquire_stream_lock(&env, stream_id);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         stream.sender.require_auth();
@@ -1267,10 +1330,13 @@ impl PaymentStreamContract {
             paused_at: current_time,
         }
         .publish(&env);
+
+        Self::release_stream_lock(&env, stream_id);
     }
 
     /// Resume a paused stream (sender only)
     pub fn resume_stream(env: Env, stream_id: u64) {
+        Self::acquire_stream_lock(&env, stream_id);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         stream.sender.require_auth();
@@ -1325,10 +1391,13 @@ impl PaymentStreamContract {
             paused_duration,
         }
         .publish(&env);
+
+        Self::release_stream_lock(&env, stream_id);
     }
 
     /// Cancel a stream
     pub fn cancel_stream(env: Env, stream_id: u64) {
+        Self::acquire_stream_lock(&env, stream_id);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         stream.sender.require_auth();
@@ -1369,10 +1438,13 @@ impl PaymentStreamContract {
             let token_client = token::Client::new(&env, &stream.token);
             token_client.transfer(&env.current_contract_address(), &stream.sender, &remaining);
         }
+
+        Self::release_stream_lock(&env, stream_id);
     }
 
     /// Set the protocol fee rate
     pub fn set_protocol_fee_rate(env: Env, new_fee_rate: u32) {
+        Self::acquire_global_lock(&env);
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
@@ -1382,15 +1454,20 @@ impl PaymentStreamContract {
 
         env.storage().instance().set(&DataKey::FeeRate, &new_fee_rate);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        Self::release_global_lock(&env);
     }
 
     /// Set the fee collector address
     pub fn set_fee_collector(env: Env, new_fee_collector: Address) {
+        Self::acquire_global_lock(&env);
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::FeeCollector, &new_fee_collector);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        Self::release_global_lock(&env);
     }
 
     /// Get the current protocol fee rate
@@ -1444,6 +1521,7 @@ impl PaymentStreamContract {
         recipient_amount: i128,
         sender_amount: i128,
     ) -> u64 {
+        Self::acquire_stream_lock(&env, stream_id);
         Self::assert_not_paused(&env);
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
@@ -1519,10 +1597,11 @@ impl PaymentStreamContract {
                 stream_id,
                 recipient_amount,
                 sender_amount,
-                execute_after,
-            },
-        );
+                 execute_after,
+             },
+         );
 
+        Self::release_stream_lock(&env, stream_id);
         dispute_id
     }
 
@@ -1547,6 +1626,8 @@ impl PaymentStreamContract {
         }
 
         let mut stream: Stream = Self::get_stream(env.clone(), queued.stream_id);
+
+        Self::acquire_stream_lock(&env, queued.stream_id);
 
         let token_client = token::Client::new(&env, &stream.token);
         if queued.recipient_amount > 0 {
@@ -1590,6 +1671,8 @@ impl PaymentStreamContract {
                 sender_amount: queued.sender_amount,
             },
         );
+
+        Self::release_stream_lock(&env, queued.stream_id);
     }
 
     /// Cancel a queued dispute resolution before its timelock elapses
@@ -1609,6 +1692,9 @@ impl PaymentStreamContract {
         }
 
         let mut stream: Stream = Self::get_stream(env.clone(), queued.stream_id);
+
+        Self::acquire_stream_lock(&env, queued.stream_id);
+
         stream.status = queued.previous_status;
 
         env.storage().persistent().set(&DataKey::Stream(queued.stream_id), &stream);
@@ -1633,6 +1719,8 @@ impl PaymentStreamContract {
                 stream_id: queued.stream_id,
             },
         );
+
+        Self::release_stream_lock(&env, queued.stream_id);
     }
 
     /// Get a queued dispute resolution by id, if it exists

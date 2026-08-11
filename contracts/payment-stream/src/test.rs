@@ -3485,4 +3485,293 @@ fn test_pause_blocked_during_dispute() {
         env.ledger().set_timestamp(50);
         assert_eq!(client.withdrawable_amount(&ids.get(0).unwrap()), 500);
     }
+
+    // -----------------------------------------------------------------------
+    // Reentrancy guard tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #32)")]
+    fn test_reentrancy_guard_blocks_reentrant_withdraw() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &1000);
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        env.ledger().set_timestamp(50);
+        env.as_contract(&contract_id, || {
+            let lock_key = (stream_id, Symbol::new(&env, "lock"));
+            env.storage().temporary().set(&lock_key, &true);
+        });
+        client.withdraw(&stream_id, &100);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #32)")]
+    fn test_reentrancy_guard_blocks_reentrant_deposit() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &1000);
+        let stream_id = client.create_stream(&sender, &recipient, &token, &500, &0, &0, &100);
+        env.as_contract(&contract_id, || {
+            let lock_key = (stream_id, Symbol::new(&env, "lock"));
+            env.storage().temporary().set(&lock_key, &true);
+        });
+        client.deposit(&stream_id, &100);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #32)")]
+    fn test_reentrancy_guard_blocks_reentrant_cancel() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &1000);
+        let stream_id = client.create_stream(&sender, &recipient, &token, &500, &0, &0, &100);
+        env.as_contract(&contract_id, || {
+            let lock_key = (stream_id, Symbol::new(&env, "lock"));
+            env.storage().temporary().set(&lock_key, &true);
+        });
+        client.cancel_stream(&stream_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #32)")]
+    fn test_reentrancy_guard_blocks_reentrant_pause() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &1000);
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        env.as_contract(&contract_id, || {
+            let lock_key = (stream_id, Symbol::new(&env, "lock"));
+            env.storage().temporary().set(&lock_key, &true);
+        });
+        client.pause_stream(&stream_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #32)")]
+    fn test_reentrancy_guard_blocks_reentrant_resume() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &1000);
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        client.pause_stream(&stream_id);
+        env.as_contract(&contract_id, || {
+            let lock_key = (stream_id, Symbol::new(&env, "lock"));
+            env.storage().temporary().set(&lock_key, &true);
+        });
+        client.resume_stream(&stream_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #32)")]
+    fn test_reentrancy_guard_blocks_reentrant_set_delegate() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let delegate = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &1000);
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        env.as_contract(&contract_id, || {
+            let lock_key = (stream_id, Symbol::new(&env, "lock"));
+            env.storage().temporary().set(&lock_key, &true);
+        });
+        client.set_delegate(&stream_id, &delegate);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #32)")]
+    fn test_reentrancy_guard_blocks_reentrant_revoke_delegate() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let delegate = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &1000);
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        client.set_delegate(&stream_id, &delegate);
+        env.as_contract(&contract_id, || {
+            let lock_key = (stream_id, Symbol::new(&env, "lock"));
+            env.storage().temporary().set(&lock_key, &true);
+        });
+        client.revoke_delegate(&stream_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #32)")]
+    fn test_reentrancy_guard_blocks_global_set_fee_rate() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        env.as_contract(&contract_id, || {
+            let key = Symbol::new(&env, "g_lock");
+            env.storage().temporary().set(&key, &true);
+        });
+        client.set_protocol_fee_rate(&100);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #32)")]
+    fn test_reentrancy_guard_blocks_global_set_fee_collector() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let new_collector = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        env.as_contract(&contract_id, || {
+            let key = Symbol::new(&env, "g_lock");
+            env.storage().temporary().set(&key, &true);
+        });
+        client.set_fee_collector(&new_collector);
+    }
+
+    #[test]
+    fn test_reentrancy_lock_released_after_successful_withdraw() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &1000);
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        env.ledger().set_timestamp(50);
+        client.withdraw(&stream_id, &100);
+        env.as_contract(&contract_id, || {
+            let lock_key = (stream_id, Symbol::new(&env, "lock"));
+            assert!(env.storage().temporary().get::<_, bool>(&lock_key).unwrap_or(false) == false);
+        });
+    }
+
+    #[test]
+    fn test_reentrancy_lock_released_after_successful_cancel() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &1000);
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        client.cancel_stream(&stream_id);
+        env.as_contract(&contract_id, || {
+            let lock_key = (stream_id, Symbol::new(&env, "lock"));
+            assert!(env.storage().temporary().get::<_, bool>(&lock_key).unwrap_or(false) == false);
+        });
+    }
+
+    #[test]
+    fn test_independent_streams_use_separate_locks() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let admin = Address::generate(&env);
+        let fee_collector = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(&env, &contract_id);
+        client.initialize(&admin, &fee_collector, &0);
+        let token_admin = token::StellarAssetClient::new(&env, &token);
+        token_admin.mint(&sender, &2000);
+        let stream_id1 = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        let stream_id2 = client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+        env.as_contract(&contract_id, || {
+            let lock_key1 = (stream_id1, Symbol::new(&env, "lock"));
+            env.storage().temporary().set(&lock_key1, &true);
+        });
+        env.ledger().set_timestamp(50);
+        client.withdraw(&stream_id2, &200);
+        assert_eq!(client.get_stream(&stream_id2).withdrawn_amount, 200);
+    }
 }
