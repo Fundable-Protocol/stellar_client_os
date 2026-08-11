@@ -1019,7 +1019,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "CampaignNotActive")]
     #[should_panic(expected = "Error(Contract, #7)")]
     fn test_contribute_to_nonexistent_campaign() {
         let env = Env::default();

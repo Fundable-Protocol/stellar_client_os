@@ -117,36 +117,13 @@ export const StellarWalletProvider = ({
     // correctly reflects the pending auto-reconnect verification.
     if (savedAddress && savedWalletId && savedNetwork) {
       return "connecting";
-    if (typeof window === 'undefined') return "idle";
-    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
-    const savedWalletId = safeGetItem("stellar_wallet_id");
-    const savedAddress = safeGetItem("stellar_wallet_address");
-    const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
-    const savedNetwork = safeGetItem("stellar_wallet_network");
-    console.log('Lazy init connectionStatus:', { savedAddress, savedWalletId, savedNetwork });
-    if (savedAddress && isValidStellarAddress(savedAddress) && savedWalletId && savedNetwork === WalletNetwork.TESTNET) {
-      return "connected";
     }
-    return "idle";
   });
   const [selectedWalletId, setSelectedWalletId] = useState<WalletId | null>(() => {
     return loadPersistedSession().walletId;
   });
   const [network, setNetworkState] = useState<WalletNetwork>(() => {
-    // Restore the network that was active when the user last connected so the
-    // kit is initialised with the right network passphrase immediately.
     return loadPersistedSession().network ?? WalletNetwork.TESTNET;
-    if (typeof window === 'undefined') return null;
-    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
-    const savedWalletId = safeGetItem("stellar_wallet_id");
-    const savedAddress = safeGetItem("stellar_wallet_address");
-    const savedWalletId = safeGetItem("@fundable/web:selected_wallet");
-    const savedNetwork = safeGetItem("stellar_wallet_network");
-    console.log('Lazy init selectedWalletId:', { savedWalletId, savedNetwork });
-    if (savedNetwork === WalletNetwork.TESTNET && savedAddress && isValidStellarAddress(savedAddress)) {
-      return savedWalletId as WalletId | null;
-    }
-    return null;
   });
   const [kit, setKit] = useState<StellarWalletsKit | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);

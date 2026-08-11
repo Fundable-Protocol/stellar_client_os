@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 3,
+    "address": 7,
     "nonce": 0,
     "mux_id": 0
   },
@@ -17,12 +17,6 @@
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "u32": 250
                 }
               ]
             }
@@ -31,8 +25,6 @@
         }
       ]
     ],
-    [],
-    [],
     []
   ],
   "ledger": {
@@ -76,7 +68,7 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "CampaignCount"
+                            "symbol": "DisputeCount"
                           }
                         ]
                       },
@@ -88,24 +80,12 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "FeeCollector"
+                            "symbol": "MinVotingPeriod"
                           }
                         ]
                       },
                       "val": {
-                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "FeeRate"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u32": 250
+                        "u64": "604800"
                       }
                     }
                   ]
@@ -115,7 +95,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 535680
+        "live_until": 4095
       },
       {
         "entry": {
@@ -149,7 +129,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 535680
+        "live_until": 4095
       }
     ]
   },
