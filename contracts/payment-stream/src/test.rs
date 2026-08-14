@@ -3722,7 +3722,7 @@ fn test_pause_blocked_during_dispute() {
         client.withdraw(&stream_id, &100);
         env.as_contract(&contract_id, || {
             let lock_key = (stream_id, Symbol::new(&env, "lock"));
-            assert!(env.storage().temporary().get::<_, bool>(&lock_key).unwrap_or(false) == false);
+            assert!(env.storage().temporary().get::<_, bool>(&lock_key).is_none());
         });
     }
 
@@ -3745,7 +3745,7 @@ fn test_pause_blocked_during_dispute() {
         client.cancel_stream(&stream_id);
         env.as_contract(&contract_id, || {
             let lock_key = (stream_id, Symbol::new(&env, "lock"));
-            assert!(env.storage().temporary().get::<_, bool>(&lock_key).unwrap_or(false) == false);
+            assert!(env.storage().temporary().get::<_, bool>(&lock_key).is_none());
         });
     }
 
