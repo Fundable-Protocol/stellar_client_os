@@ -6,8 +6,9 @@ members = [
     "distributor",
     "dispute-arbiter",
     "nft-stream",
-    "campaign-funding"
-    "soulbound-badge"
+    "campaign-funding",
+    "soulbound-badge",
+    "timelock",
 ]
 
 [workspace.package]
