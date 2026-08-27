@@ -2,6 +2,7 @@ import { QueryClient, QueryKey, useMutation, useQueryClient } from '@tanstack/re
 import toast from 'react-hot-toast';
 import { distribute } from '@/lib/api';
 import { useWallet } from '@/providers/StellarWalletProvider';
+import { createBatches } from '../../../../packages/sdk/src/utils/batchDistribution';
 
 type DistributeInput = Parameters<typeof distribute>[0];
 
@@ -29,10 +30,38 @@ export function useDistribute() {
     const { address, signTransaction } = useWallet();
 
     return useMutation({
-        mutationFn: (params: DistributeInput) => {
+        mutationFn: async (params: DistributeInput) => {
             const sender = params.sender || address;
             if (!sender) {
                 throw new Error('Wallet not connected');
+            }
+
+            const BATCH_SIZE = 100;
+            if (params.recipients.length > BATCH_SIZE) {
+                const recipientBatches = createBatches(params.recipients, BATCH_SIZE);
+                if (typeof params.amounts === 'bigint') {
+                    for (const batch of recipientBatches) {
+                        await distribute({
+                            ...params,
+                            recipients: batch,
+                            sender,
+                            signTransaction,
+                        });
+                    }
+                    return;
+                } else {
+                    const amountBatches = createBatches(params.amounts, BATCH_SIZE);
+                    for (let i = 0; i < recipientBatches.length; i++) {
+                        await distribute({
+                            ...params,
+                            recipients: recipientBatches[i],
+                            amounts: amountBatches[i],
+                            sender,
+                            signTransaction,
+                        });
+                    }
+                    return;
+                }
             }
 
             return distribute({
@@ -48,7 +77,7 @@ export function useDistribute() {
 
             try {
                 await queryClient.cancelQueries({ queryKey: ['streams'] });
-            } catch (error) {
+            } catch {
                 // Silently fail cache snapshot
             }
 

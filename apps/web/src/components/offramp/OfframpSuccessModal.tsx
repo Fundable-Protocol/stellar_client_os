@@ -1,7 +1,7 @@
 "use client";
  
 import React, { useState, useRef, useEffect } from "react";
-import { CheckCircle2, Copy, ExternalLink, X, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, Copy, ExternalLink, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import toast from "react-hot-toast";
 import type { QuoteStatusData } from "@/types/offramp";
-import { STELLAR_EXPERT_URL } from "@/lib/constants";
+import { STELLAR_EXPERT_URL, STELLAR_NETWORK } from "@/lib/constants";
  
 interface OfframpSuccessModalProps {
     isOpen: boolean;
@@ -100,7 +100,7 @@ export default function OfframpSuccessModal({
  
                     {bridgeTxHash && (
                         <a
-                            href={`${STELLAR_EXPERT_URL}/tx/${bridgeTxHash}`}
+                            href={`${STELLAR_EXPERT_URL}/tx/${bridgeTxHash}?network=${STELLAR_NETWORK}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center justify-center gap-2 w-full py-3 text-xs text-fundable-purple hover:text-fundable-violet transition-colors font-medium"

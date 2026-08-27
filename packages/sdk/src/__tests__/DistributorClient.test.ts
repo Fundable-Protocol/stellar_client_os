@@ -453,4 +453,314 @@ describe("DistributorClient", () => {
       });
     });
   });
+
+  // ── batchDistribute ────────────────────────────────────────────────────────
+  describe("batchDistribute", () => {
+    /** Build a list of N fake recipient addresses */
+    const makeRecipients = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        `G${"A".repeat(54)}`.slice(0, 55) + i.toString().padStart(1, "0")
+      );
+
+    beforeEach(() => {
+      mockContractClient.distribute_equal.mockResolvedValue(mockTx(null));
+      mockContractClient.distribute_weighted.mockResolvedValue(mockTx(null));
+    });
+
+    // ── equal distribution ────────────────────────────────────────────────────
+    describe("equal distribution (total_amount present, no amounts)", () => {
+      it("returns a single batch when recipients fit in one batch", async () => {
+        const recipients = makeRecipients(3);
+        const result = await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          total_amount: 1000n,
+          recipients,
+          config: { maxRecipientsPerBatch: 10 },
+        });
+
+        expect(result.batchCount).toBe(1);
+        expect(result.transactions).toHaveLength(1);
+        expect(result.recipientBatches).toHaveLength(1);
+        expect(result.recipientBatches[0]).toHaveLength(3);
+        expect(mockContractClient.distribute_equal).toHaveBeenCalledTimes(1);
+        expect(mockContractClient.distribute_weighted).not.toHaveBeenCalled();
+      });
+
+      it("splits into multiple batches when recipients exceed maxRecipientsPerBatch", async () => {
+        const recipients = makeRecipients(25);
+        const result = await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          total_amount: 25000n,
+          recipients,
+          config: { maxRecipientsPerBatch: 10 },
+        });
+
+        expect(result.batchCount).toBe(3); // ceil(25/10)
+        expect(result.transactions).toHaveLength(3);
+        expect(result.recipientBatches[0]).toHaveLength(10);
+        expect(result.recipientBatches[1]).toHaveLength(10);
+        expect(result.recipientBatches[2]).toHaveLength(5);
+        expect(mockContractClient.distribute_equal).toHaveBeenCalledTimes(3);
+      });
+
+      it("uses default batch size (100) when config is omitted", async () => {
+        const recipients = makeRecipients(50);
+        const result = await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          total_amount: 50000n,
+          recipients,
+        });
+
+        expect(result.batchCount).toBe(1);
+        expect(mockContractClient.distribute_equal).toHaveBeenCalledTimes(1);
+      });
+
+      it("passes the full total_amount to every batch unchanged", async () => {
+        const recipients = makeRecipients(15);
+        await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          total_amount: 9999n,
+          recipients,
+          config: { maxRecipientsPerBatch: 10 },
+        });
+
+        const calls = mockContractClient.distribute_equal.mock.calls;
+        expect(calls).toHaveLength(2);
+        for (const [callParams] of calls) {
+          expect(callParams.total_amount).toBe(9999n);
+          expect(callParams.sender).toBe(SENDER);
+          expect(callParams.token).toBe(TOKEN);
+        }
+      });
+
+      it("rejects an empty recipients list", async () => {
+        await expect(
+          client.batchDistribute({
+            sender: SENDER,
+            token: TOKEN,
+            total_amount: 1000n,
+            recipients: [],
+          })
+        ).rejects.toThrow(/empty/i);
+        expect(mockContractClient.distribute_equal).not.toHaveBeenCalled();
+      });
+
+      it("rejects invalid maxRecipientsPerBatch (0)", async () => {
+        await expect(
+          client.batchDistribute({
+            sender: SENDER,
+            token: TOKEN,
+            total_amount: 1000n,
+            recipients: makeRecipients(5),
+            config: { maxRecipientsPerBatch: 0 },
+          })
+        ).rejects.toThrow(/positive integer/i);
+        expect(mockContractClient.distribute_equal).not.toHaveBeenCalled();
+      });
+
+      it("rejects invalid maxRecipientsPerBatch (-1)", async () => {
+        await expect(
+          client.batchDistribute({
+            sender: SENDER,
+            token: TOKEN,
+            total_amount: 1000n,
+            recipients: makeRecipients(5),
+            config: { maxRecipientsPerBatch: -1 },
+          })
+        ).rejects.toThrow(/positive integer/i);
+      });
+
+      it("calls onBatchStart and onBatchComplete for each batch", async () => {
+        const onBatchStart = vi.fn();
+        const onBatchComplete = vi.fn();
+        const recipients = makeRecipients(15);
+
+        await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          total_amount: 1000n,
+          recipients,
+          config: { maxRecipientsPerBatch: 10, onBatchStart, onBatchComplete },
+        });
+
+        expect(onBatchStart).toHaveBeenCalledTimes(2);
+        expect(onBatchComplete).toHaveBeenCalledTimes(2);
+        expect(onBatchStart).toHaveBeenNthCalledWith(1, 1, 2, 10);
+        expect(onBatchStart).toHaveBeenNthCalledWith(2, 2, 2, 5);
+      });
+
+      it("propagates contract errors from distributeEqual", async () => {
+        mockContractClient.distribute_equal.mockRejectedValue(
+          new Error("InvalidAmount")
+        );
+        await expect(
+          client.batchDistribute({
+            sender: SENDER,
+            token: TOKEN,
+            total_amount: 0n,
+            recipients: makeRecipients(3),
+          })
+        ).rejects.toThrow("InvalidAmount");
+      });
+
+      it("returns no amountBatches for equal distribution", async () => {
+        const result = await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          total_amount: 1000n,
+          recipients: makeRecipients(3),
+        });
+
+        expect(result.amountBatches).toBeUndefined();
+      });
+    });
+
+    // ── weighted distribution ─────────────────────────────────────────────────
+    describe("weighted distribution (amounts present)", () => {
+      it("returns a single batch when recipients fit in one batch", async () => {
+        const recipients = makeRecipients(3);
+        const amounts = [300n, 400n, 300n];
+
+        const result = await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          recipients,
+          amounts,
+          config: { maxRecipientsPerBatch: 10 },
+        });
+
+        expect(result.batchCount).toBe(1);
+        expect(result.transactions).toHaveLength(1);
+        expect(result.amountBatches).toHaveLength(1);
+        expect(result.amountBatches![0]).toEqual(amounts);
+        expect(mockContractClient.distribute_weighted).toHaveBeenCalledTimes(1);
+        expect(mockContractClient.distribute_equal).not.toHaveBeenCalled();
+      });
+
+      it("splits recipients and amounts in parallel into multiple batches", async () => {
+        const recipients = makeRecipients(25);
+        const amounts = recipients.map((_, i) => BigInt(i + 1));
+
+        const result = await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          recipients,
+          amounts,
+          config: { maxRecipientsPerBatch: 10 },
+        });
+
+        expect(result.batchCount).toBe(3);
+        expect(result.amountBatches).toHaveLength(3);
+        expect(result.amountBatches![0]).toHaveLength(10);
+        expect(result.amountBatches![2]).toHaveLength(5);
+        expect(result.recipientBatches[0]).toHaveLength(10);
+      });
+
+      it("passes correct slices to distributeWeighted", async () => {
+        const recipients = makeRecipients(15);
+        const amounts = recipients.map((_, i) => BigInt(i * 100));
+
+        await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          recipients,
+          amounts,
+          config: { maxRecipientsPerBatch: 10 },
+        });
+
+        const calls = mockContractClient.distribute_weighted.mock.calls;
+        expect(calls).toHaveLength(2);
+        expect(calls[0][0].recipients).toHaveLength(10);
+        expect(calls[0][0].amounts).toHaveLength(10);
+        expect(calls[1][0].recipients).toHaveLength(5);
+        expect(calls[1][0].amounts).toHaveLength(5);
+      });
+
+      it("rejects when recipients and amounts have different lengths", async () => {
+        await expect(
+          client.batchDistribute({
+            sender: SENDER,
+            token: TOKEN,
+            recipients: makeRecipients(3),
+            amounts: [100n, 200n], // length mismatch
+          })
+        ).rejects.toThrow(/mismatch/i);
+        expect(mockContractClient.distribute_weighted).not.toHaveBeenCalled();
+      });
+
+      it("rejects an empty recipients list", async () => {
+        await expect(
+          client.batchDistribute({
+            sender: SENDER,
+            token: TOKEN,
+            recipients: [],
+            amounts: [],
+          })
+        ).rejects.toThrow(/empty/i);
+      });
+
+      it("rejects invalid maxRecipientsPerBatch", async () => {
+        await expect(
+          client.batchDistribute({
+            sender: SENDER,
+            token: TOKEN,
+            recipients: makeRecipients(5),
+            amounts: [1n, 2n, 3n, 4n, 5n],
+            config: { maxRecipientsPerBatch: 1.5 },
+          })
+        ).rejects.toThrow(/positive integer/i);
+      });
+
+      it("propagates contract errors from distributeWeighted", async () => {
+        mockContractClient.distribute_weighted.mockRejectedValue(
+          new Error("Unauthorized")
+        );
+        await expect(
+          client.batchDistribute({
+            sender: SENDER,
+            token: TOKEN,
+            recipients: makeRecipients(3),
+            amounts: [1n, 2n, 3n],
+          })
+        ).rejects.toThrow("Unauthorized");
+      });
+
+      it("calls onBatchStart and onBatchComplete for each batch", async () => {
+        const onBatchStart = vi.fn();
+        const onBatchComplete = vi.fn();
+        const recipients = makeRecipients(15);
+        const amounts = recipients.map(() => 100n);
+
+        await client.batchDistribute({
+          sender: SENDER,
+          token: TOKEN,
+          recipients,
+          amounts,
+          config: { maxRecipientsPerBatch: 10, onBatchStart, onBatchComplete },
+        });
+
+        expect(onBatchStart).toHaveBeenCalledTimes(2);
+        expect(onBatchComplete).toHaveBeenCalledTimes(2);
+      });
+
+      it("accepts Address objects for sender, token and recipients", async () => {
+        const recipients = [new Address(RECIPIENT_A), new Address(RECIPIENT_B)];
+        const amounts = [600n, 400n];
+
+        const result = await client.batchDistribute({
+          sender: new Address(SENDER),
+          token: new Address(TOKEN),
+          recipients,
+          amounts,
+        });
+
+        expect(result.batchCount).toBe(1);
+        expect(mockContractClient.distribute_weighted).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
 });

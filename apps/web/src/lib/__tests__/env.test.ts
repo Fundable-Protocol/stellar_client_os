@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { validateEnv } from "../env";
+import { validateEnv, env, PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID } from "../env";
 
 describe("Environment Variable Validation", () => {
   const originalEnv = process.env;
@@ -43,5 +43,10 @@ describe("Environment Variable Validation", () => {
     process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID = "CVALID123";
     process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID456";
     expect(() => validateEnv()).not.toThrow();
+  });
+
+  it("should export contract IDs from the env module", () => {
+    expect(PAYMENT_STREAM_CONTRACT_ID).toBe(env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID);
+    expect(DISTRIBUTOR_CONTRACT_ID).toBe(env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID);
   });
 });

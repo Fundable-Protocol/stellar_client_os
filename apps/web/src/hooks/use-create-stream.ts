@@ -3,7 +3,9 @@ import toast from 'react-hot-toast';
 import { createStream } from '@/lib/api';
 import { useWallet } from '@/providers/StellarWalletProvider';
 
-type CreateStreamInput = Parameters<typeof createStream>[0];
+type CreateStreamInput = Omit<Parameters<typeof createStream>[0], 'sender' | 'signTransaction'> & {
+    sender?: string;
+};
 
 interface CreateStreamMutationContext {
     previousStreams: Array<[QueryKey, unknown]>;
@@ -55,7 +57,7 @@ export function useCreateStream() {
                     }
                     return [...old, { ...newStream, id: -1, status: 'Active' }];
                 });
-            } catch (error) {
+            } catch {
                 // Silently fail optimistic update
             }
 

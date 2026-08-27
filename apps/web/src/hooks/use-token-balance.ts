@@ -50,15 +50,26 @@ export function useTokenBalances() {
 /**
  * Returns the balance string for a given token code (e.g. "XLM", "USDC").
  * Returns null while loading or if the token isn't held.
+ * Includes address and token in the query key to ensure proper cache
+ * invalidation when switching wallet accounts or tokens.
  */
 export function useTokenBalance(tokenCode: string | undefined) {
+  const { address, isConnected } = useWallet();
   const { balances, isLoading } = useTokenBalances();
 
-  if (!tokenCode || isLoading) return { balance: null, isLoading };
+  const { data: balance } = useQuery<string | null>({
+    queryKey: ["token-balance", address, tokenCode],
+    queryFn: async () => {
+      if (!tokenCode || !balances.length || !address) return null;
 
-  const entry = balances.find(
-    (b) => b.assetCode.toUpperCase() === tokenCode.toUpperCase()
-  );
+      const entry = balances.find(
+        (b) => b.assetCode.toUpperCase() === tokenCode.toUpperCase()
+      );
 
-  return { balance: entry?.balance ?? null, isLoading };
+      return entry?.balance ?? null;
+    },
+    enabled: !!tokenCode && isConnected && !!address && !isLoading,
+  });
+
+  return { balance: balance ?? null, isLoading };
 }

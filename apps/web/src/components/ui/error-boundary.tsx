@@ -1,8 +1,7 @@
 'use client';
 
-import React, { type ErrorInfo, type ReactNode } from 'react';
+import React, { Component, ReactNode } from 'react';
 import { reportRuntimeError } from '@/lib/error-reporting';
-import { ErrorFallback } from '@/components/ui/error-fallback';
 
 type FallbackRenderProps = {
   error: Error;
@@ -12,70 +11,81 @@ type FallbackRenderProps = {
 type ErrorBoundaryProps = {
   children: ReactNode;
   fallback?: ReactNode | ((props: FallbackRenderProps) => ReactNode);
-  resetKeys?: unknown[];
-  onReset?: () => void;
-  onError?: (error: Error, info: ErrorInfo) => void;
+  fallbackRender?: (props: FallbackRenderProps) => ReactNode;
   boundaryName?: string;
+  onError?: (error: Error, componentStack: string) => void;
+  onReset?: () => void;
 };
 
 type ErrorBoundaryState = {
+  hasError: boolean;
   error: Error | null;
 };
 
-function areResetKeysEqual(prev: unknown[] = [], next: unknown[] = []): boolean {
-  if (prev.length !== next.length) return false;
-  return prev.every((value, index) => Object.is(value, next[index]));
-}
+const initialState: ErrorBoundaryState = {
+  hasError: false,
+  error: null,
+};
 
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { error: null };
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = initialState;
+  }
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-    return { error };
+    return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo): void {
-    if (process.env.NODE_ENV === 'development') {
-      console.error(`[ErrorBoundary:${this.props.boundaryName || 'unnamed'}]`, error, info);
-    }
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
+    const { boundaryName, onError } = this.props;
 
+    // Report the error with sanitization automatically applied
     reportRuntimeError(error, {
-      boundaryName: this.props.boundaryName,
-      componentStack: info.componentStack,
+      boundaryName: boundaryName,
+      componentStack: errorInfo.componentStack ?? undefined,
     });
 
-    this.props.onError?.(error, info);
-  }
-
-  componentDidUpdate(prevProps: ErrorBoundaryProps): void {
-    if (!this.state.error) return;
-    if (!areResetKeysEqual(prevProps.resetKeys, this.props.resetKeys)) {
-      this.reset();
+    if (onError) {
+      onError(error, errorInfo.componentStack ?? "");
     }
   }
 
   reset = (): void => {
+    this.setState(initialState);
     this.props.onReset?.();
-    this.setState({ error: null });
   };
 
   render(): ReactNode {
-    const { error } = this.state;
+    const { hasError, error } = this.state;
+    const { children, fallback, fallbackRender } = this.props;
 
-    if (!error) {
-      return this.props.children;
+    if (hasError && error) {
+      if (fallbackRender) {
+        return fallbackRender({ error, reset: this.reset });
+      }
+      if (fallback) {
+        return typeof fallback === "function"
+          ? fallback({ error, reset: this.reset })
+          : fallback;
+      }
+      // Default fallback
+      return (
+        <div className="p-4 text-center">
+          <h2 className="text-lg font-semibold text-red-600">Something went wrong</h2>
+          <p className="text-sm text-gray-500 mt-2">
+            An unexpected error occurred. Please try again.
+          </p>
+          <button
+            onClick={this.reset}
+            className="mt-4 px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/90"
+          >
+            Try again
+          </button>
+        </div>
+      );
     }
 
-    const { fallback } = this.props;
-
-    if (typeof fallback === 'function') {
-      return fallback({ error, reset: this.reset });
-    }
-
-    if (fallback) {
-      return fallback;
-    }
-
-    return <ErrorFallback error={error} onRetry={this.reset} />;
+    return children;
   }
 }

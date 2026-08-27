@@ -5,7 +5,7 @@ import { ConnectWalletPrompt } from "@/components/layouts/ProtectedRoute";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { createTestnetService } from "@/services";
-import { DISTRIBUTOR_CONTRACT_ID, PAYMENT_STREAM_CONTRACT_ID } from "@/lib/constants";
+import { DISTRIBUTOR_CONTRACT_ID, PAYMENT_STREAM_CONTRACT_ID } from "@/lib/env";
 import { useMemo } from "react";
 import { withAbortSignal } from "@/utils/retry";
 

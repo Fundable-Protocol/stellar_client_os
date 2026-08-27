@@ -2,7 +2,7 @@
  * RecipientRow - Individual recipient row with address and amount inputs
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Trash2, AlertCircle } from 'lucide-react';
 import { useDebouncedCallback } from '@/hooks/use-debounce-callback';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,8 @@ interface RecipientRowProps {
   onChange: (updates: Partial<Recipient>) => void;
   /** Callback when recipient should be removed */
   onRemove: () => void;
+  /** Optional ref to move focus to this row's address input */
+  addressInputRef?: React.Ref<HTMLInputElement>;
   /** Whether the row is disabled */
   disabled?: boolean;
   /** Additional CSS classes */
@@ -38,16 +40,14 @@ export function RecipientRow({
   index,
   onChange,
   onRemove,
+  addressInputRef,
   disabled = false,
   className,
 }: RecipientRowProps) {
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-  const [localAmount, setLocalAmount] = useState(recipient.amount || '');
 
-  // Keep local amount synced with prop if it changes externally
-  useEffect(() => {
-    setLocalAmount(recipient.amount || '');
-  }, [recipient.amount]);
+  // Use prop value directly instead of syncing with local state
+  const localAmount = recipient.amount || '';
 
   // Validate address in real-time
   const addressError = recipient.address ? validateStellarAddress(recipient.address) : null;
@@ -58,10 +58,11 @@ export function RecipientRow({
     : null;
 
   const handleAddressChange = (value: string) => {
+    const trimmed = value.trim();
     onChange({
-      address: value,
-      isValid: !validateStellarAddress(value),
-      validationError: validateStellarAddress(value) || undefined,
+      address: trimmed,
+      isValid: !validateStellarAddress(trimmed),
+      validationError: validateStellarAddress(trimmed) || undefined,
     });
   };
 
@@ -74,7 +75,6 @@ export function RecipientRow({
   }, 300);
 
   const handleAmountChange = (value: string) => {
-    setLocalAmount(value);
     debouncedAmountChange(value);
   };
 
@@ -103,6 +103,7 @@ export function RecipientRow({
       <div className="flex-1 min-w-0">
         <div className="space-y-1">
           <Input
+            ref={addressInputRef}
             type="text"
             placeholder="Stellar address (G... or C...)"
             value={recipient.address}

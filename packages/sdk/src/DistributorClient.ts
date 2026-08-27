@@ -1,15 +1,21 @@
-import { Client as ContractClient } from "./generated/distributor/src/index.js";
+import { Client as ContractClient } from "./generated/distributor/src/index";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
-  Address,
 } from "@stellar/stellar-sdk/contract";
+import { Address } from "@stellar/stellar-sdk";
 import {
   UserStats,
   TokenStats,
   DistributionHistory,
-} from "./generated/distributor/src/index.js";
-import { executeWithErrorHandling } from "./utils/errors.js";
+} from "./generated/distributor/src/index";
+import { executeWithErrorHandling } from "./utils/errors";
+import {
+  prepareBatchEqualDistribution,
+  prepareBatchWeightedDistribution,
+  BatchDistributionConfig,
+  BatchDistributionResult,
+} from "./utils/batchDistribution";
 
 /**
  * Type alias for address parameters that accept both string and Address objects
@@ -106,8 +112,6 @@ export class DistributorClient {
   public async getUserStats(
     user: AddressParam
   ): Promise<AssembledTransaction<UserStats | undefined>> {
-    const actualUser = typeof user === "object" ? user.user : user;
-
     return executeWithErrorHandling(
       () =>
         this.client.get_user_stats({ user: addressToString(user) }) as Promise<
@@ -125,8 +129,6 @@ export class DistributorClient {
   public async getTokenStats(
     token: AddressParam
   ): Promise<AssembledTransaction<TokenStats | undefined>> {
-    const actualToken = typeof token === "object" ? token.token : token;
-
     return executeWithErrorHandling(
       () =>
         this.client.get_token_stats({ token: addressToString(token) }) as Promise<
@@ -247,5 +249,113 @@ export class DistributorClient {
         this.client.set_protocol_fee({ admin: actualAdmin, new_fee_percent: actualNewFeePercent }),
       "Set protocol fee",
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Batch distribution
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Distribute tokens equally to a large list of recipients, automatically
+   * splitting into multiple transactions to stay within Soroban's gas limits.
+   *
+   * @param params.sender   Sender address (must hold sufficient token balance).
+   * @param params.token    Token contract ID to distribute.
+   * @param params.total_amount  Total amount to distribute (in token base units).
+   * @param params.recipients   Full recipient list — will be chunked automatically.
+   * @param params.config   Optional batch settings (size, progress callbacks).
+   * @returns A {@link BatchDistributionResult} with one assembled transaction per
+   *          batch, ready to sign and submit sequentially.
+   *
+   * @example
+   * ```ts
+   * const { transactions } = await client.batchDistribute({
+   *   sender: 'GAAAA...',
+   *   token: 'CXXXX...',
+   *   total_amount: 1_000_000n,
+   *   recipients: thousandsOfAddresses,
+   *   config: { maxRecipientsPerBatch: 100 },
+   * });
+   * for (const tx of transactions) await tx.signAndSend({ signTransaction });
+   * ```
+   */
+  public async batchDistribute(params: {
+    sender: AddressParam;
+    token: AddressParam;
+    total_amount: bigint;
+    recipients: AddressParam[];
+    config?: BatchDistributionConfig;
+  }): Promise<BatchDistributionResult>;
+
+  /**
+   * Distribute tokens with per-recipient amounts to a large list of recipients,
+   * automatically splitting into multiple transactions to stay within Soroban's
+   * gas limits.
+   *
+   * @param params.sender     Sender address (must hold sufficient token balance).
+   * @param params.token      Token contract ID to distribute.
+   * @param params.recipients Full recipient list — will be chunked in parallel with amounts.
+   * @param params.amounts    Per-recipient amounts, parallel to `recipients`.
+   * @param params.config     Optional batch settings (size, progress callbacks).
+   * @returns A {@link BatchDistributionResult} with one assembled transaction per
+   *          batch, ready to sign and submit sequentially.
+   *
+   * @example
+   * ```ts
+   * const { transactions } = await client.batchDistribute({
+   *   sender: 'GAAAA...',
+   *   token: 'CXXXX...',
+   *   recipients: thousandsOfAddresses,
+   *   amounts: correspondingAmounts,
+   *   config: { maxRecipientsPerBatch: 75 },
+   * });
+   * for (const tx of transactions) await tx.signAndSend({ signTransaction });
+   * ```
+   */
+  public async batchDistribute(params: {
+    sender: AddressParam;
+    token: AddressParam;
+    recipients: AddressParam[];
+    amounts: bigint[];
+    config?: BatchDistributionConfig;
+  }): Promise<BatchDistributionResult>;
+
+  // Implementation signature — handles both overloads
+  public async batchDistribute(
+    params:
+      | {
+          sender: AddressParam;
+          token: AddressParam;
+          total_amount: bigint;
+          recipients: AddressParam[];
+          config?: BatchDistributionConfig;
+        }
+      | {
+          sender: AddressParam;
+          token: AddressParam;
+          recipients: AddressParam[];
+          amounts: bigint[];
+          config?: BatchDistributionConfig;
+        }
+  ): Promise<BatchDistributionResult> {
+    if ("amounts" in params) {
+      // Weighted distribution
+      return prepareBatchWeightedDistribution(this, {
+        sender: params.sender,
+        token: params.token,
+        recipients: params.recipients,
+        amounts: params.amounts,
+        config: params.config,
+      });
+    }
+
+    // Equal distribution
+    return prepareBatchEqualDistribution(this, {
+      sender: params.sender,
+      token: params.token,
+      total_amount: params.total_amount,
+      recipients: params.recipients,
+      config: params.config,
+    });
   }
 }

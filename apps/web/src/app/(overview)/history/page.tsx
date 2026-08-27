@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { Suspense, useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useWallet } from "@/providers/StellarWalletProvider";
@@ -11,7 +11,7 @@ import { columns } from "@/components/modules/history/columns";
 import { HistoryRecord } from "@/services/types";
 import AppSelect from "@/components/molecules/AppSelect";
 import { createTestnetService } from "@/services";
-import { DISTRIBUTOR_CONTRACT_ID, PAYMENT_STREAM_CONTRACT_ID } from "@/lib/constants";
+import { DISTRIBUTOR_CONTRACT_ID, PAYMENT_STREAM_CONTRACT_ID } from "@/lib/env";
 import { withAbortSignal } from "@/utils/retry";
 import { useDebouncedCallback } from "@/hooks/use-debounce-callback";
 
@@ -272,4 +272,14 @@ const HistoryPage = () => {
     );
 };
 
-export default HistoryPage;
+export default function HistoryPageWithSuspense() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-[400px] flex items-center justify-center text-zinc-500">
+                Loading…
+            </div>
+        }>
+            <HistoryPage />
+        </Suspense>
+    );
+}

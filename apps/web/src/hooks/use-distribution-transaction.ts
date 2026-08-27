@@ -5,7 +5,8 @@ import { Horizon } from '@stellar/stellar-sdk';
 import { DistributorClient } from '../../../../packages/sdk/src/DistributorClient';
 import { useWallet } from '@/providers/StellarWalletProvider';
 import { notify } from '@/utils/notification';
-import { DISTRIBUTOR_CONTRACT_ID, SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
+import { DISTRIBUTOR_CONTRACT_ID } from '@/lib/env';
+import { SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
 import { amountToStroops } from '@/utils/amount-validation';
 import { getStellarServerOptions } from '@/utils/rpc-connection-options';
 import type { DistributionState } from '@/types/distribution';
@@ -63,9 +64,9 @@ async function checkSenderBalance(
       const xlmBalance = account.balances.find(
         (b): b is Horizon.HorizonApi.BalanceLine<'native'> => b.asset_type === 'native'
       );
-      const available = BigInt(Math.floor(parseFloat(xlmBalance?.balance ?? '0') * 1e7));
+      const available = xlmBalance?.balance ? amountToStroops(xlmBalance.balance) : 0n;
       // Keep 1 XLM reserve
-      const reserve = BigInt(1e7);
+      const reserve = 10_000_000n;
       if (available - reserve < requiredAmount) {
         return { ok: false, reason: 'Insufficient XLM balance' };
       }
@@ -83,7 +84,7 @@ async function checkSenderBalance(
       return { ok: false, reason: 'Token trustline not found. Add the token to your wallet first.' };
     }
 
-    const available = BigInt(Math.floor(parseFloat(tokenBalance.balance) * 1e7));
+    const available = amountToStroops(tokenBalance.balance);
     if (available < requiredAmount) {
       return { ok: false, reason: 'Insufficient token balance' };
     }
@@ -116,7 +117,26 @@ export function useDistributionTransaction() {
         return false;
       }
 
-      const recipients = state.recipients.map((r) => r.address);
+      // Filter out zero-amount entries before submission (Issue #437)
+      const activeRecipients = state.recipients.filter((r) => {
+        if (!r.address || r.address.trim() === '') return false;
+        if (state.type === 'weighted') {
+          if (!r.amount || r.amount.trim() === '') return false;
+          try {
+            return amountToStroops(r.amount) > 0n;
+          } catch {
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (activeRecipients.length === 0) {
+        notify.error('No non-zero amount recipients to process');
+        return false;
+      }
+
+      const recipients = activeRecipients.map((r) => r.address);
 
       // Pre-flight: check all recipient accounts exist
       notify.loading('Validating recipients...');
@@ -136,21 +156,6 @@ export function useDistributionTransaction() {
         return false;
       }
 
-      const recipients = state.recipients.map(r => r.address);
-
-      for (const address of recipients) {
-        try {
-          const exists = await stellarService.accountExists(address);
-          if (!exists) {
-            throw new Error(`Account ${address} does not exist or is not funded`);
-          }
-        } catch (e: any) {
-          if (e.message && e.message.includes('not exist')) throw e;
-          throw new Error('Network rate limited while verifying accounts. Please wait a moment and try again.');
-        }
-      }
-
-      let transactionHash: string;
       // Calculate total amount in stroops (7 decimal places)
       let totalStroops: bigint;
       let amountsStroops: bigint[] = [];
@@ -158,7 +163,7 @@ export function useDistributionTransaction() {
       if (state.type === 'equal') {
         totalStroops = amountToStroops(state.totalAmount);
       } else {
-        amountsStroops = state.recipients.map((r) => amountToStroops(r.amount!));
+        amountsStroops = activeRecipients.map((r) => amountToStroops(r.amount!));
         totalStroops = amountsStroops.reduce((sum, a) => sum + a, 0n);
       }
 

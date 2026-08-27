@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import { TokenBalanceProps } from "@/types/token-balance.types";
 import { formatBalance } from "@/utils/format-balance";
@@ -140,6 +140,16 @@ export function TokenBalance({
             </svg>
           </button>
         )}
+  const formattedBalance = formatBalance(balance);
+
+  return (
+    <div className="flex items-center gap-4 p-4 bg-zinc-800 rounded-lg border border-zinc-700 hover:border-zinc-600 transition-colors">
+      {/* Token Icon */}
+      <div
+        key={`${iconUrl ?? "no-icon"}-${assetCode}`}
+        className="shrink-0 w-10 h-10 rounded-full bg-white flex items-center justify-center overflow-hidden p-1.5"
+      >
+        <TokenIcon assetCode={assetCode} iconUrl={iconUrl} />
       </div>
 
       {/* Token Information */}
@@ -164,5 +174,36 @@ export function TokenBalance({
         <div className="text-xs text-zinc-400">{assetCode}</div>
       </div>
     </div>
+  );
+}
+
+function TokenIcon({
+  assetCode,
+  iconUrl,
+}: {
+  assetCode: string;
+  iconUrl?: string;
+}) {
+  const [imageError, setImageError] = useState(false);
+
+  if (iconUrl && !imageError) {
+    return (
+      <Image
+        src={iconUrl}
+        alt={`${assetCode} icon`}
+        width={40}
+        height={40}
+        className="w-full h-full object-contain"
+        onError={() => setImageError(true)}
+        unoptimized // Required for external images without domain configuration
+      />
+    );
+  }
+
+  return (
+    // Fallback icon - displays first letter of asset code
+    <span className="text-lg font-bold text-violet-400">
+      {assetCode.charAt(0)}
+    </span>
   );
 }

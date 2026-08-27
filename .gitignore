@@ -59,3 +59,4 @@ Cargo.lock
 # Local issue tracking / scratch notes
 issues/
 .claude
+test-results

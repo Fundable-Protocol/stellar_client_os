@@ -21,6 +21,8 @@ export interface GasEstimatorOptions {
   rpc?: GasEstimatorRpc;
   /** Soroban RPC endpoint URL. */
   rpcUrl?: string;
+  /** Allow plain-HTTP RPC URLs for local loopback development. */
+  allowHttp?: boolean;
   /** Base Stellar inclusion fee in stroops. Defaults to 100. */
   baseFee?: string;
   /** Multiplier applied to simulated Soroban resource limits. Defaults to 1.2. */

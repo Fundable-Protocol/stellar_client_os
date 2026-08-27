@@ -17,17 +17,19 @@ Shared dependencies, such as the `soroban-sdk`, are managed in the root `Cargo.t
 
 ### 1. Payment Stream (`payment-stream`)
 
-The `payment-stream` contract allows for the creation of linear payment streams, where a specified amount of tokens is released to a recipient over a defined period.
+The `payment-stream` contract allows for the creation of linear payment streams, where a specified amount of tokens is released to a recipient over a defined period. Streams can also be created with a **cliff (lockup) period**, during which nothing is withdrawable before linear vesting begins.
 
 #### Core Concepts
 
--   **Stream:** A `Stream` is the central data structure, containing details about the sender, recipient, token, total amount, withdrawn amount, start and end times, and the stream's status.
+-   **Stream:** A `Stream` is the central data structure, containing details about the sender, recipient, token, total amount, withdrawn amount, start and end times, an optional cliff duration, and the stream's status.
+-   **Cliff Period:** The number of seconds after `start_time` during which the recipient cannot withdraw. Once elapsed, tokens vest linearly across the full stream window, so the pro-rata share accrued during the cliff is released at the cliff boundary.
 -   **Status:** A stream can have one of the following statuses: `Active`, `Paused`, `Canceled`, or `Completed`.
 
 #### Key Functions
 
 -   `initialize(admin: Address)`: Initializes the contract with an administrative address.
--   `create_stream(...)`: Creates a new payment stream with specified parameters.
+-   `create_stream(...)`: Creates a new payment stream with specified parameters (no cliff).
+-   `create_stream_with_cliff(...)`: Creates a payment stream with a cliff (lockup) period.
 -   `get_stream(stream_id: u64)`: Retrieves the details of a specific stream.
 -   `withdrawable_amount(stream_id: u64)`: Calculates the amount that can be withdrawn from a stream at the current time.
 -   `withdraw(stream_id: u64, amount: i128)`: Allows the recipient to withdraw available funds.

@@ -1,6 +1,5 @@
 "use client";
 
-import { X } from "lucide-react";
 import { DistributionAttributes } from "@/types/history";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 

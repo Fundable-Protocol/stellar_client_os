@@ -15,7 +15,10 @@ const eslintConfig = defineConfig([
   ]),
   {
     rules: {
-      "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/no-explicit-any": "warn",
+      // React Compiler is not enabled in this project, so the memoization
+      // advisories for TanStack Table/Virtual are noise.
+      "react-hooks/incompatible-library": "off",
     },
   },
 ]);

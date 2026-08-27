@@ -9,16 +9,29 @@ const DEFAULT_WARNING_MESSAGE = 'You have unsaved changes. Are you sure you want
  */
 export function useUnsavedChanges(isDirty: boolean, message: string = DEFAULT_WARNING_MESSAGE) {
   useEffect(() => {
-    if (!isDirty || typeof window === 'undefined') {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (isDirty) {
+      document.body.dataset.formDirty = 'true';
+    } else {
+      delete document.body.dataset.formDirty;
+    }
+
+    if (!isDirty) {
       return;
     }
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return;
       event.preventDefault();
       event.returnValue = '';
     };
 
     const handleDocumentClick = (event: MouseEvent) => {
+      if (!isDirty) return;
+
       const target = event.target as Element | null;
       const anchor = target?.closest('a[href]') as HTMLAnchorElement | null;
 
@@ -59,6 +72,7 @@ export function useUnsavedChanges(isDirty: boolean, message: string = DEFAULT_WA
     };
 
     const handlePopState = () => {
+      if (!isDirty) return;
       if (!window.confirm(message)) {
         window.history.go(1);
       }

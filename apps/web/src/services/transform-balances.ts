@@ -37,7 +37,10 @@ import { getTokenIconUrl } from "../utils/get-token-icon-url";
  *
  * **Validates: Requirements 1.2, 1.4**
  */
-export function extractBalances(accountInfo: AccountInfo): TokenBalanceData[] {
+export function extractBalances(accountInfo: AccountInfo | null): TokenBalanceData[] {
+  if (!accountInfo) {
+    return [];
+  }
   return accountInfo.balances
     .map((balance) => {
       // Determine asset code based on asset type

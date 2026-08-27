@@ -146,7 +146,7 @@ export interface BatchDistributionResult {
    * Each inner array contains the recipients for that batch.
    * Index corresponds to batch number (0-indexed).
    */
-  recipientBatches: string[][];
+  recipientBatches: AddressParam[][];
 
   /**
    * Amounts split into batches (only for weighted distribution).
@@ -157,6 +157,12 @@ export interface BatchDistributionResult {
    * @optional Only present for weighted distributions.
    */
   amountBatches?: bigint[][];
+}
+
+function assertPositiveInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer (got ${value})`);
+  }
 }
 
 /**

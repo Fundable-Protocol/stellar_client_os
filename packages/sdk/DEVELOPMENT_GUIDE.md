@@ -42,6 +42,24 @@ pnpm build
 
 This runs `tsc` to compile TypeScript to the `dist/` directory.
 
+### Local RPC over HTTP
+
+Production and public testnet/mainnet RPC URLs must use HTTPS. Plain HTTP is
+only accepted for local loopback development endpoints, and the SDK requires an
+explicit opt-in:
+
+```typescript
+const deployer = new ContractDeployer({
+  rpcUrl: 'http://localhost:8000',
+  networkPassphrase: 'Standalone Network ; February 2017',
+  allowHttp: true,
+});
+```
+
+Non-loopback HTTP URLs are rejected even when `allowHttp` is set. This keeps
+signed transactions and authentication payloads from being sent over cleartext
+connections outside local development.
+
 ### 3. Watch Mode (Development)
 
 For incremental builds during development:

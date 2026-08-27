@@ -111,9 +111,11 @@ export function amountToStroops(amount: string, decimals: number = 7): bigint {
     throw new Error('Invalid amount');
   }
 
-  const num = Number(amount.trim());
-  const multiplier = Math.pow(10, decimals);
-  return BigInt(Math.round(num * multiplier));
+  const trimmed = amount.trim();
+  const [integerPart = '0', fractionalPart = ''] = trimmed.split('.');
+  const paddedFraction = fractionalPart.padEnd(decimals, '0').slice(0, decimals);
+  const baseMultiplier = BigInt(10 ** decimals);
+  return BigInt(integerPart) * baseMultiplier + BigInt(paddedFraction || '0');
 }
 
 /**
@@ -160,15 +162,15 @@ export function calculateEqualAmount(totalAmount: string, recipientCount: number
  * @returns Total amount as string
  */
 export function calculateTotalAmount(amounts: string[]): string {
-  let total = 0;
+  let totalStroops = 0n;
   
   for (const amount of amounts) {
     if (isValidAmount(amount)) {
-      total += Number(amount.trim());
+      totalStroops += amountToStroops(amount);
     }
   }
   
-  return total.toFixed(MAX_DECIMAL_PLACES).replace(/0+$/, '').replace(/\.$/, '');
+  return stroopsToAmount(totalStroops);
 }
 
 /**

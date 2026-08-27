@@ -162,6 +162,38 @@ describe('ContractDeployer', () => {
     });
   });
 
+  describe('RPC URL safety', () => {
+    it('rejects non-loopback HTTP RPC URLs by default', () => {
+      expect(
+        () =>
+          new ContractDeployer({
+            rpcUrl: 'http://example.com',
+            networkPassphrase: 'Test SDF Network ; September 2015',
+          })
+      ).toThrow(DeployerError);
+    });
+
+    it('requires explicit opt-in for local HTTP RPC URLs', () => {
+      expect(
+        () =>
+          new ContractDeployer({
+            rpcUrl: 'http://localhost:8000',
+            networkPassphrase: 'Test SDF Network ; September 2015',
+          })
+      ).toThrow(DeployerError);
+    });
+
+    it('allows explicitly opted-in loopback HTTP RPC URLs for local development', () => {
+      const localDeployer = new ContractDeployer({
+        rpcUrl: 'http://127.0.0.1:8000',
+        networkPassphrase: 'Standalone Network ; February 2017',
+        allowHttp: true,
+      });
+
+      expect(localDeployer).toBeInstanceOf(ContractDeployer);
+    });
+  });
+
   // ── WASM validation ────────────────────────────────────────────────────────
   describe('WASM validation', () => {
     it('rejects empty WASM buffer', async () => {

@@ -123,9 +123,18 @@ export function useDistributionState() {
       }
     });
 
-    // Check for duplicate addresses
+    // Check for duplicate addresses and flag recipient objects with warning badge
     const addresses = currentState.recipients.map(r => r.address).filter(addr => addr.trim() !== '');
     const duplicates = findDuplicateAddresses(addresses);
+    const duplicateSet = new Set(duplicates);
+
+    currentState.recipients.forEach((recipient) => {
+      const trimmed = recipient.address.trim();
+      const isDup = trimmed !== '' && duplicateSet.has(trimmed);
+      recipient.isDuplicate = isDup;
+      recipient.warning = isDup ? 'Duplicate recipient public key' : undefined;
+    });
+
     if (duplicates.length > 0) {
       errors.push({
         field: 'recipients',
@@ -133,7 +142,7 @@ export function useDistributionState() {
       });
     }
 
-    // For equal distribution, validate total amount
+    // For equal distribution, validate total amount and guard against division by zero
     if (currentState.type === 'equal') {
       if (!currentState.totalAmount || currentState.totalAmount.trim() === '') {
         errors.push({
@@ -147,6 +156,15 @@ export function useDistributionState() {
             field: 'totalAmount',
             message: totalAmountError,
           });
+        } else if (currentState.recipients.length > 0) {
+          // Perform division calculation safely with recipients.length > 0 guard
+          const perRecipientAmount = calculateEqualAmount(currentState.totalAmount, currentState.recipients.length);
+          if (perRecipientAmount === '0' && Number(currentState.totalAmount) > 0) {
+            errors.push({
+              field: 'totalAmount',
+              message: 'Total amount is too small to distribute among recipients',
+            });
+          }
         }
       }
     }

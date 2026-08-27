@@ -9,6 +9,8 @@ import type {
     CreateOfframpRequest,
     CreateOfframpResponse,
     QuoteStatusResponse,
+    UserLimitsResponse,
+    ProviderLimitsResponse,
 } from "@/types/offramp";
 import { withRetry, RetryableError, isAbortError } from "@/utils/retry";
 import {
@@ -94,6 +96,7 @@ const realOfframpService = {
             if (!res.ok) {
                 return {
                     success: false,
+                    status: res.status,
                     error: data.message || data.error || "Failed to get rates",
                 };
             }
@@ -278,6 +281,113 @@ const realOfframpService = {
             return {
                 success: false,
                 error: error instanceof Error ? error.message : "Failed to update tx hash",
+            };
+        }
+    },
+
+    async getUserLimits(
+        walletId?: string,
+        signal?: AbortSignal
+    ): Promise<UserLimitsResponse> {
+        try {
+            const res = await fetchWithRetry(`${OFFRAMP_API_BASE}/limits`, {
+                method: "GET",
+                headers: getHeaders(walletId),
+            }, signal);
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                return {
+                    success: false,
+                    error: data.message || data.error || "Failed to fetch user limits",
+                };
+            }
+
+            return { success: true, data: data.data || data };
+        } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : "Failed to fetch user limits",
+            };
+        }
+    },
+
+    async getProviderLimits(
+        params: {
+            token: string;
+            country: string;
+            network: string;
+        },
+        signal?: AbortSignal
+    ): Promise<ProviderLimitsResponse> {
+        try {
+            const queryParams = new URLSearchParams(params);
+            const res = await fetchWithRetry(
+                `${OFFRAMP_API_BASE}/limits?${queryParams}`,
+                {
+                    method: "GET",
+                    headers: getHeaders(),
+                },
+                signal
+            );
+
+            const data = await res.json();
+
+            if (!res.ok) {
+                return {
+                    success: false,
+                    error: data.message || data.error || "Failed to fetch provider limits",
+                };
+            }
+
+            const limits = data.data || data;
+            const providers = (Array.isArray(limits.providers)
+                ? limits.providers.filter(
+                    (provider: unknown) =>
+                        typeof provider === "object" &&
+                        provider !== null &&
+                        "providerId" in provider &&
+                        typeof provider.providerId === "string" &&
+                        "minimumAmount" in provider &&
+                        typeof provider.minimumAmount === "number" &&
+                        Number.isFinite(provider.minimumAmount) &&
+                        provider.minimumAmount >= 0
+                )
+                : []) as Array<{ providerId: string; minimumAmount: number }>;
+            const aggregateMinimum =
+                typeof limits.minimumAmount === "number" &&
+                Number.isFinite(limits.minimumAmount) &&
+                limits.minimumAmount >= 0
+                    ? limits.minimumAmount
+                    : providers.length > 0
+                        ? Math.min(...providers.map((provider) => provider.minimumAmount))
+                        : null;
+
+            if (aggregateMinimum === null) {
+                return {
+                    success: false,
+                    error: "Provider limits response did not include a valid minimum amount",
+                };
+            }
+
+            return {
+                success: true,
+                data: {
+                    minimumAmount: aggregateMinimum,
+                    providers,
+                },
+            };
+        } catch (error) {
+            if (isAbortError(error)) {
+                throw error;
+            }
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : "Failed to fetch provider limits",
             };
         }
     },

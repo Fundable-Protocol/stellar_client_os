@@ -5,11 +5,21 @@ import type {
   CreateOfframpResponse,
   OfframpCountry,
   ProviderRate,
+  ProviderLimitsResponse,
   QuoteStatusResponse,
+  UserLimitsResponse,
   VerifyBankAccountResponse,
 } from "@/types/offramp";
-import type { BridgeQuote } from "@/services/allbridge.service";
 import { createAbortError } from "@/utils/retry";
+
+/** Quote shape produced by the mock bridge adapter. */
+export interface BridgeQuote {
+  sendAmount: string;
+  receiveAmount: string;
+  bridgeFee: string;
+  estimatedTimeMinutes: number;
+}
+import { calculateOfframpFee, calculateOfframpFiatAmount } from "@/utils/offramp-fee";
 
 const DEFAULT_DELAYS = {
   sync: 250,
@@ -115,8 +125,8 @@ const buildProviderRates = (
   const baseRate = currencyRates[country];
   const jitter = 1 + (Math.random() * 0.02 - 0.01);
   const rate = baseRate * jitter;
-  const fee = Math.max(0.5, amount * 0.004) * rate;
-  const fiatAmount = Math.max(0, amount * rate - fee);
+  const fee = calculateOfframpFee(amount, rate);
+  const fiatAmount = Math.max(0, calculateOfframpFiatAmount(amount, rate));
 
   const now = Date.now();
   const expiry = new Date(now + 5 * 60 * 1000).toISOString();
@@ -236,7 +246,7 @@ export const mockOfframpService = {
     const reference = createReference();
     const depositAmount = Number(request.amount.toFixed(2));
     const rate = currencyRates[request.country as OfframpCountry] || 1;
-    const fiatAmount = Number((depositAmount * rate * 0.985).toFixed(2));
+    const fiatAmount = Number(calculateOfframpFiatAmount(depositAmount, rate).toFixed(2));
 
     mockQuotes.set(reference, {
       createdAt: Date.now(),
@@ -321,6 +331,47 @@ export const mockOfframpService = {
   }> {
     await sleep(getMockDelay("updateTx"), signal);
     return { success: true, data: { updated: true } };
+  },
+
+  async getUserLimits(
+    _walletId?: string,
+    signal?: AbortSignal,
+  ): Promise<UserLimitsResponse> {
+    await sleep(getMockDelay("sync"), signal);
+    // Mock daily limit of $1000 USDC with $0 used by default
+    const mockDailyLimit = 1000;
+    const mockDailyUsed = 0;
+    return {
+      success: true,
+      data: {
+        dailyLimit: mockDailyLimit,
+        dailyUsed: mockDailyUsed,
+        remainingDaily: mockDailyLimit - mockDailyUsed,
+        tier: "standard",
+      },
+    };
+  },
+
+  async getProviderLimits(
+    params: {
+      token: string;
+      country: string;
+      network: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<ProviderLimitsResponse> {
+    await sleep(getMockDelay("sync"), signal);
+    const minimumAmount = params.country === "NG" ? 10 : 5;
+    return {
+      success: true,
+      data: {
+        minimumAmount,
+        providers: [
+          { providerId: "cashwyre", minimumAmount },
+          { providerId: "autoramp", minimumAmount },
+        ],
+      },
+    };
   },
 
   async getQuoteStatus(

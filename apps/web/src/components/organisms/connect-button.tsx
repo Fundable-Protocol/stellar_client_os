@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useRef, useEffect } from "react";
 import { LogOut } from "lucide-react";
 import { useWallet } from "@/providers/StellarWalletProvider";
+import { WalletStatus } from "@/components/molecules/WalletStatus";
 
 const ArrowDownIcon = ({
   className = "text-white/70",
@@ -26,14 +27,9 @@ const ArrowDownIcon = ({
 );
 
 export function ConnectButton() {
-  const { isConnected, address, openModal, disconnect } = useWallet();
+  const { isConnected, isLocked, address, openModal, disconnect } = useWallet();
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -49,20 +45,21 @@ export function ConnectButton() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  if (!mounted) {
-    return <div className="w-[140px] h-[36px]" aria-hidden="true" />;
-  }
-
   const formatAddress = (addr: string) => {
     if (!addr) return "";
     return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
   };
 
   const handleDisconnect = async () => {
+    if (document.body.dataset.formDirty === 'true') {
+      if (!window.confirm("You have unsaved changes. Are you sure you want to disconnect? All form inputs will be lost.")) {
+        return;
+      }
+    }
     try {
       await disconnect();
       setDropdownOpen(false);
-    } catch (error) {
+    } catch {
       // Silently fail disconnect
     }
   };
@@ -72,6 +69,7 @@ export function ConnectButton() {
       <div className="relative" ref={dropdownRef}>
         <motion.button
           type="button"
+          data-wallet-trigger
           aria-expanded={dropdownOpen}
           aria-haspopup="menu"
           aria-label={`Wallet connected: ${formatAddress(address)}. Click to open wallet menu`}
@@ -120,9 +118,15 @@ export function ConnectButton() {
     );
   }
 
+  // Locked extension wallet — show Locked badge instead of generic Connect CTA.
+  if (isLocked) {
+    return <WalletStatus />;
+  }
+
   return (
     <motion.button
       type="button"
+      data-wallet-trigger
       aria-label="Connect your Stellar wallet"
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useTokenBalance } from "./use-token-balance";
 
 /**
@@ -14,45 +14,45 @@ export function useBalanceValidation(
   delay = 300
 ) {
   const { balance, isLoading } = useTokenBalance(tokenCode);
-  const [error, setError] = useState<string | null>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  useEffect(() => {
-    // Clear immediately when input is empty
-    if (!amount || !balance) {
-      setError(null);
-      return;
+  // Compute error synchronously; debounce via effect side-effect only
+  const error = useMemo(() => {
+    if (!amount || !balance) return null;
+
+    const inputNum = parseFloat(amount);
+    const balanceNum = parseFloat(balance);
+
+    if (isNaN(inputNum) || inputNum <= 0) {
+      return null;
     }
 
+    if (inputNum > balanceNum) {
+      return `Insufficient ${tokenCode} balance. Available: ${balance}`;
+    }
+    return null;
+  }, [amount, balance, tokenCode]);
+
+  // Keep a debounced version for actual validation display
+  const [debouncedError, setDebouncedError] = useState<string | null>(null);
+
+  useEffect(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
     timeoutRef.current = setTimeout(() => {
-      const inputNum = parseFloat(amount);
-      const balanceNum = parseFloat(balance);
-
-      if (isNaN(inputNum) || inputNum <= 0) {
-        setError(null);
-        return;
-      }
-
-      if (inputNum > balanceNum) {
-        setError(
-          `Insufficient ${tokenCode} balance. Available: ${balance}`
-        );
-      } else {
-        setError(null);
-      }
+      setDebouncedError(error);
     }, delay);
 
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [amount, balance, tokenCode, delay]);
+  }, [error, delay]);
+
+  const finalError = debouncedError;
 
   return {
-    balanceError: error,
-    insufficientBalance: !!error,
-    isLoadingBalance: isLoading,
-    availableBalance: balance,
+    error: finalError,
+    insufficientBalance: !!finalError,
+    isLoading,
   };
 }

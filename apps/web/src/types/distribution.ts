@@ -21,6 +21,10 @@ export interface Recipient {
   isValid: boolean;
   /** Validation error message if any */
   validationError?: string;
+  /** Whether the address is a duplicate */
+  isDuplicate?: boolean;
+  /** Warning message if any (e.g. duplicate address warning) */
+  warning?: string;
 }
 
 /**

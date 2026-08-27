@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useOfframpBridge } from "@/hooks/useOfframpBridge";
+import { useTokenBalance } from "@/hooks/use-token-balance";
 import { OfframpForm } from "@/components/offramp/OfframpForm";
 import BankDetailsCard from "@/components/offramp/BankDetailsCard";
 import OfframpSummary from "@/components/offramp/OfframpSummary";
@@ -35,9 +36,11 @@ export default function OfframpPage() {
         payoutStatus,
         reset,
         goBack,
-        currentTokenBalance,
-        isLoadingBalance,
+        providerMinimumAmount,
+        isLoadingProviderMinimum,
     } = useOfframpBridge();
+
+    const { balance: currentTokenBalance, isLoading: isLoadingBalance } = useTokenBalance(formState.token);
 
     const [showQuoteModal, setShowQuoteModal] = useState(false);
     const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -132,8 +135,10 @@ export default function OfframpPage() {
                                             <OfframpForm
                                                 formState={formState}
                                                 onChange={handleFormChange}
-                                                maxBalance={isLoadingBalance ? "Loading..." : currentTokenBalance}
-                                                onMaxClick={handleMaxClick}
+                                                maxBalance={isLoadingBalance ? "Loading..." : (currentTokenBalance ?? undefined)}
+                                                onMaxClick={() => { if (currentTokenBalance) handleMaxClick(currentTokenBalance); }}
+                                                minimumAmount={providerMinimumAmount}
+                                                isLoadingMinimum={isLoadingProviderMinimum}
                                             />
                                         </div>
 
@@ -152,7 +157,6 @@ export default function OfframpPage() {
                                                 quoteError={quoteError}
                                                 onProceed={handleProceedToConfirm}
                                                 isLoading={isLoadingQuote || isLoading}
-                                                isSubmitting={quoteGuard.isGuardActive}
                                             />
                                         </div>
                                     </div>
@@ -200,6 +204,7 @@ export default function OfframpPage() {
                     formState={formState}
                     onClose={handleCloseQuoteModal}
                     onConfirm={handleConfirmBridge}
+                    onRefresh={handleProceedToConfirm}
                     isLoading={isLoading}
                     isSubmitting={bridgeGuard.isGuardActive}
                 />

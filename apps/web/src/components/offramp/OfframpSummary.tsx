@@ -23,24 +23,19 @@ export default function OfframpSummary({
     onProceed,
     isLoading,
 }: OfframpSummaryProps) {
-    const [timeLeft, setTimeLeft] = useState<number | null>(null);
+    // Tick once per second while a quote is live so the "expires in…" hint
+    // stays accurate without calling an impure function during render.
+    const [now, setNow] = useState(() => Date.now());
 
     useEffect(() => {
-        if (!quote?.expiresAt) {
-            setTimeLeft(null);
-            return;
-        }
-
-        const tick = () => {
-            const remaining = Math.floor((new Date(quote.expiresAt!).getTime() - Date.now()) / 1000);
-            setTimeLeft(remaining > 0 ? remaining : 0);
-        };
-
-        tick();
-        const intervalId = setInterval(tick, 1000);
-
-        return () => clearInterval(intervalId);
+        if (!quote?.expiresAt) return;
+        const interval = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(interval);
     }, [quote?.expiresAt]);
+
+    const timeLeft = quote?.expiresAt
+        ? Math.max(0, Math.floor((new Date(quote.expiresAt).getTime() - now) / 1000))
+        : null;
 
     const selectedCountry = SUPPORTED_COUNTRIES.find(
         (c) => c.code === formState.country

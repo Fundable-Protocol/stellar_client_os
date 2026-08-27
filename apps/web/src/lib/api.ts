@@ -1,10 +1,12 @@
 import type { AssembledTransaction } from '@stellar/stellar-sdk/contract';
-import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID, SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
+import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID } from '@/lib/env';
+import { SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from '@/lib/constants';
 import { env } from '@/lib/env';
 import { throwIfAborted } from '@/utils/retry';
 import { StellarService, type Stream as ServiceStream, type AccountInfo } from '@/services';
 import { PaymentStreamClient } from '../../../../packages/sdk/src/PaymentStreamClient';
 import { DistributorClient } from '../../../../packages/sdk/src/DistributorClient';
+import { createBatches } from '../../../../packages/sdk/src/utils/batchDistribution';
 import { Stream, StreamStatus } from '../types';
 
 type WalletSigner = (xdr: string) => Promise<string>;
@@ -47,26 +49,25 @@ function mapServiceStream(stream: ServiceStream): Stream {
     };
 }
 
-function ensureSafeNumber(value: bigint): number {
-    if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new Error('Returned stream id exceeds JavaScript safe integer range');
-    }
-    return Number(value);
+function serializeStreamId(value: bigint): string {
+    return value.toString();
 }
 
-async function signAndSendTx(
-    tx: AssembledTransaction<unknown>,
+async function signAndSendTx<T>(
+    tx: AssembledTransaction<T>,
     signTransaction?: WalletSigner
-): Promise<void> {
+): Promise<string> {
     if (!signTransaction) {
         throw new Error('Wallet signer is required for contract write operations');
     }
 
-    await tx.signAndSend({
+    const result = await tx.signAndSend({
         signTransaction: async (xdr: string) => ({
             signedTxXdr: await signTransaction(xdr),
         }),
     });
+
+    return result.hash;
 }
 
 function createPaymentStreamClient(publicKey: string): PaymentStreamClient {
@@ -109,7 +110,7 @@ export async function createStream(params: {
     startTime: number;
     endTime: number;
     signTransaction?: WalletSigner;
-}): Promise<number> {
+}): Promise<string> {
     const client = createPaymentStreamClient(params.sender);
     const tx = await client.createStream({
         sender: params.sender,
@@ -121,13 +122,13 @@ export async function createStream(params: {
         end_time: BigInt(params.endTime),
     });
 
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    await signAndSendTx(tx, params.signTransaction);
 
     const streamId = tx.result;
     if (typeof streamId !== 'bigint') {
         throw new Error('Contract did not return a stream id');
     }
-    return ensureSafeNumber(streamId);
+    return serializeStreamId(streamId);
 }
 
 export async function withdraw(params: {
@@ -135,7 +136,7 @@ export async function withdraw(params: {
     amount: bigint;
     sender?: string;
     signTransaction?: WalletSigner;
-}): Promise<void> {
+}): Promise<string> {
     let sender = params.sender;
     if (!sender) {
         const stream = await stellarService.getStream(BigInt(params.streamId));
@@ -148,7 +149,8 @@ export async function withdraw(params: {
 
     const client = createPaymentStreamClient(sender);
     const tx = await client.withdraw(BigInt(params.streamId), params.amount);
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    const hash = await signAndSendTx(tx, params.signTransaction);
+    return hash;
 }
 
 export async function distribute(params: {
@@ -159,15 +161,19 @@ export async function distribute(params: {
     signTransaction?: WalletSigner;
 }): Promise<void> {
     const client = createDistributorClient(params.sender);
+    const BATCH_SIZE = 100;
 
     if (typeof params.amounts === 'bigint') {
-        const tx = await client.distributeEqual({
-            sender: params.sender,
-            token: params.token,
-            total_amount: params.amounts,
-            recipients: params.recipients,
-        });
-        await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+        const recipientBatches = createBatches(params.recipients, BATCH_SIZE);
+        for (const batch of recipientBatches) {
+            const tx = await client.distributeEqual({
+                sender: params.sender,
+                token: params.token,
+                total_amount: params.amounts,
+                recipients: batch,
+            });
+            await signAndSendTx(tx, params.signTransaction);
+        }
         return;
     }
 
@@ -175,20 +181,25 @@ export async function distribute(params: {
         throw new Error('Recipients and amounts length mismatch');
     }
 
-    const tx = await client.distributeWeighted({
-        sender: params.sender,
-        token: params.token,
-        recipients: params.recipients,
-        amounts: params.amounts,
-    });
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    const recipientBatches = createBatches(params.recipients, BATCH_SIZE);
+    const amountBatches = createBatches(params.amounts, BATCH_SIZE);
+
+    for (let i = 0; i < recipientBatches.length; i++) {
+        const tx = await client.distributeWeighted({
+            sender: params.sender,
+            token: params.token,
+            recipients: recipientBatches[i],
+            amounts: amountBatches[i],
+        });
+        await signAndSendTx(tx, params.signTransaction);
+    }
 }
 
 export async function fetchAccountInfo(address: string, signal?: AbortSignal): Promise<AccountInfo | null> {
     throwIfAborted(signal);
     try {
         return await stellarService.getAccount(address, signal);
-    } catch (e) {
+    } catch {
         return null;
     }
 }
@@ -201,7 +212,7 @@ export async function pauseStream(params: { id: string; signTransaction: (xdr: s
 
     const tx = await client.pauseStream(BigInt(params.id));
 
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    await signAndSendTx(tx, params.signTransaction);
 }
 
 export async function resumeStream(params: { id: string; signTransaction: (xdr: string) => Promise<string> }) {
@@ -213,7 +224,26 @@ export async function resumeStream(params: { id: string; signTransaction: (xdr: 
 
     const tx = await client.resumeStream(BigInt(params.id));
 
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    await signAndSendTx(tx, params.signTransaction);
+}
+
+export async function depositToStream(params: {
+    streamId: number;
+    amount: bigint;
+    sender: string;
+    signTransaction?: WalletSigner;
+}): Promise<string> {
+    const client = createPaymentStreamClient(params.sender);
+    const tx = await client.deposit(BigInt(params.streamId), params.amount);
+    const hash = await signAndSendTx(tx, params.signTransaction);
+    return hash;
+}
+
+export async function getWithdrawableAmount(params: {
+    streamId: number;
+}): Promise<string> {
+    const amount = await stellarService.getWithdrawableAmount(BigInt(params.streamId));
+    return amount.toString();
 }
 
 export async function cancelStream(params: { id: string; signTransaction: (xdr: string) => Promise<string> }) {
@@ -225,5 +255,5 @@ export async function cancelStream(params: { id: string; signTransaction: (xdr: 
 
     const tx = await client.cancelStream(BigInt(params.id));
 
-    await signAndSendTx(tx as AssembledTransaction<unknown>, params.signTransaction);
+    await signAndSendTx(tx, params.signTransaction);
 }

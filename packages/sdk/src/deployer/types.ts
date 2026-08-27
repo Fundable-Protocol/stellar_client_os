@@ -96,6 +96,13 @@ export interface DeployerConfig {
    */
   rpcUrl: string;
   /**
+   * Allow plain-HTTP RPC URLs for local development only.
+   *
+   * This is intentionally off by default and only works with loopback hosts
+   * such as `localhost`, `127.0.0.1`, or `[::1]`.
+   */
+  allowHttp?: boolean;
+  /**
    * Network passphrase for transaction signing.
    *
    * When omitted, the passphrase is automatically fetched from the RPC server

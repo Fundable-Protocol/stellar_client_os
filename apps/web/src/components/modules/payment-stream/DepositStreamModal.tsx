@@ -17,7 +17,9 @@ import {
 } from "@/components/ui/dialog"
 import { depositStreamSchema, type DepositStreamFormData, type StreamRecord } from "@/lib/validations"
 import { StellarService } from "@/lib/stellar"
+import { depositToStream } from "@/lib/api"
 import { notify } from "@/utils/notification"
+import { useWallet } from "@/providers/StellarWalletProvider"
 
 interface DepositStreamModalProps {
   open: boolean
@@ -35,6 +37,7 @@ export function DepositStreamModal({
   onError,
 }: DepositStreamModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const { signTransaction, address, isConnected } = useWallet()
 
   const {
     register,
@@ -53,11 +56,32 @@ export function DepositStreamModal({
   }, [stream])
 
   const onSubmit = async (data: DepositStreamFormData) => {
+    const parsedAmount = parseFloat(data.amount)
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      notify.error("Deposit amount must be greater than zero")
+      return
+    }
+
     setIsSubmitting(true)
     try {
-      const txHash = await StellarService.depositToStream(stream.id, data)
+      const amount = BigInt(Math.floor(parseFloat(data.amount) * 10000000))
+
+      // Use the real SDK-backed depositToStream from @/lib/api
+      // This routes through PaymentStreamClient.deposit()
+      if (!isConnected || !signTransaction || !address) {
+        notify.error('Wallet not connected');
+        return;
+      }
+
+      const hash = await depositToStream({
+        streamId: stream.contractStreamId,
+        amount,
+        sender: address,
+        signTransaction,
+      });
+
       notify.success("Deposit successful!")
-      onSuccess?.(txHash)
+      onSuccess?.(hash)
       onOpenChange(false)
       reset()
     } catch (error) {
@@ -114,6 +138,7 @@ export function DepositStreamModal({
               <Input
                 id="deposit-amount"
                 type="number"
+                min="0"
                 step="0.0000001"
                 placeholder="0.00"
                 aria-label={`Deposit amount in ${stream.tokenSymbol}`}

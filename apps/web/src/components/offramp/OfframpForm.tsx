@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -18,11 +20,43 @@ interface OfframpFormProps {
     onChange: (field: keyof OfframpFormState, value: string) => void;
     maxBalance?: string;
     onMaxClick?: () => void;
+    minimumAmount: number;
+    isLoadingMinimum?: boolean;
 }
 
-export function OfframpForm({ formState, onChange, maxBalance, onMaxClick }: OfframpFormProps) {
+export function OfframpForm({
+    formState,
+    onChange,
+    maxBalance,
+    onMaxClick,
+    minimumAmount,
+    isLoadingMinimum = false,
+}: OfframpFormProps) {
+    const [isKycNoticeVisible, setIsKycNoticeVisible] = useState(true);
+
     return (
         <div className="bg-fundable-mid-dark rounded-2xl p-6 border border-gray-800">
+            {/* KYC Notice Banner */}
+            {isKycNoticeVisible && (
+                <div className="mb-6 flex items-start gap-3 rounded-xl bg-fundable-dark border border-fundable-purple/30 p-4">
+                    <div className="flex-1">
+                        <p className="text-sm font-medium text-white">KYC Verification Required</p>
+                        <p className="mt-1 text-xs text-fundable-light-grey">
+                            To comply with regulatory requirements, you must complete KYC verification
+                            before proceeding with offramp transactions. Your information is securely
+                            processed and encrypted.
+                        </p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setIsKycNoticeVisible(false)}
+                        className="shrink-0 rounded-full p-1 text-fundable-light-grey hover:bg-white/10 hover:text-white transition-colors"
+                        aria-label="Dismiss KYC notice"
+                    >
+                        <X className="h-4 w-4" />
+                    </button>
+                </div>
+            )}
             <h2 className="text-xl font-syne font-semibold text-white mb-6">
                 Crypto Token
             </h2>
@@ -61,10 +95,9 @@ export function OfframpForm({ formState, onChange, maxBalance, onMaxClick }: Off
                 <div className="space-y-2">
                     <Label htmlFor="amount" className="text-fundable-light-grey text-sm">
                         Amount
-                        {(() => {
-                            const selectedToken = SUPPORTED_OFFRAMP_TOKENS.find(t => t.symbol === formState.token);
-                            return selectedToken ? ` (Minimum: ${selectedToken.minimumAmount} ${selectedToken.symbol})` : '';
-                        })()}
+                        {isLoadingMinimum
+                            ? " (Loading provider minimum...)"
+                            : ` (Minimum: ${minimumAmount} ${formState.token})`}
                     </Label>
                     <div className="relative">
                         <Input

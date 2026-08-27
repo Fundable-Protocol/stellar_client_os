@@ -103,7 +103,7 @@ describe('Amount Validation - Property Tests', () => {
         { amount: '1.12345678', expectedError: 'decimal' },
       ];
 
-      testCases.forEach(({ amount, expectedError }) => {
+      testCases.forEach(({ amount }) => {
         const error = validateAmount(amount);
         expect(error).not.toBeNull();
         // Just check that we get an error, don't be too strict about the exact message
@@ -164,11 +164,11 @@ describe('Amount Validation - Property Tests', () => {
 
     it('should handle edge cases in amount validation', () => {
       const edgeCases = [
-        null as any,
-        undefined as any,
-        123 as any,
-        {} as any,
-        [] as any,
+        null as unknown as string,
+        undefined as unknown as string,
+        123 as unknown as string,
+        {} as unknown as string,
+        [] as unknown as string,
         '0.0000001', // minimum valid
         '0.00000001', // too small precision
         '999999999', // very large

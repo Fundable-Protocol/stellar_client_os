@@ -2,9 +2,16 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import type { Bank, OfframpCountry } from "@/types/offramp";
-import { getAccountNumberRules } from "@/types/offramp";
+import { getAccountNumberRules, SUPPORTED_COUNTRIES } from "@/types/offramp";
 import { offrampService } from "@/services/offramp.service";
 import { notify } from "@/utils/notification";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 interface BankSelectorProps {
     country: OfframpCountry;
@@ -15,6 +22,7 @@ interface BankSelectorProps {
     onBankChange: (bankCode: string, bankName: string) => void;
     onAccountNumberChange: (accountNumber: string) => void;
     onAccountVerified: (accountName: string) => void;
+    onCountryChange: (country: OfframpCountry) => void;
 }
 
 export function BankSelector({
@@ -26,6 +34,7 @@ export function BankSelector({
     onBankChange,
     onAccountNumberChange,
     onAccountVerified,
+    onCountryChange,
 }: BankSelectorProps) {
     const [banks, setBanks] = useState<Bank[]>([]);
     const [isLoadingBanks, setIsLoadingBanks] = useState(false);
@@ -44,7 +53,7 @@ export function BankSelector({
                 if (res.success && res.data) {
                     setBanks(res.data);
                 }
-            } catch (e) {
+            } catch {
                 notify.error("Failed to load banks. Please try again later.");
             } finally {
                 setIsLoadingBanks(false);
@@ -87,7 +96,7 @@ export function BankSelector({
             const timer = setTimeout(verifyAccount, 500);
             return () => clearTimeout(timer);
         }
-    }, [selectedBankCode, accountNumber, verifyAccount]);
+    }, [selectedBankCode, accountNumber, verifyAccount, minLen]);
 
     const filteredBanks = banks.filter((bank) =>
         bank.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -95,6 +104,36 @@ export function BankSelector({
 
     return (
         <div className="space-y-4">
+            {/* Destination Country */}
+            <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Destination Country
+                </label>
+                <Select
+                    value={country}
+                    onValueChange={(value) => onCountryChange(value as OfframpCountry)}
+                >
+                    <SelectTrigger className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-fundable-purple-2 transition-colors">
+                        <SelectValue placeholder="Select country" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#1a1a2e] border border-white/10">
+                        {SUPPORTED_COUNTRIES.map((c) => (
+                            <SelectItem
+                                key={c.code}
+                                value={c.code}
+                                className="text-white hover:bg-white/10 focus:bg-white/10"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <span>{c.flag}</span>
+                                    <span>{c.name}</span>
+                                    <span className="text-gray-400">({c.currency})</span>
+                                </div>
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+
             {/* Bank Selection */}
             <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">
