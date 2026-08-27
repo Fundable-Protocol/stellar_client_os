@@ -187,6 +187,12 @@ impl DistributorContract {
         let mut count: u64 = env.storage().instance()
             .get(&Symbol::new(&env, "hist_cnt"))
             .unwrap_or(0);
+        if count == u64::MAX {
+            // History index space exhausted: reject gracefully instead of overflowing.
+            panic!(
+                "Contract is full: distribution history index exhausted (u64::MAX); no further distributions can be recorded"
+            );
+        }
         
         let history = DistributionHistory {
             sender,
@@ -304,6 +310,39 @@ mod test {
 
         let stored_admin = client.get_admin();
         assert_eq!(stored_admin, Some(admin));
+    }
+
+    #[test]
+    #[should_panic(expected = "Contract is full")]
+    fn test_distribute_rejected_when_history_index_full() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
+        let (contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
+
+        let sender = Address::generate(&env);
+        let recipient1 = Address::generate(&env);
+        let recipient2 = Address::generate(&env);
+        let recipient3 = Address::generate(&env);
+
+        token_admin.mint(&sender, &10000);
+
+        let mut recipients = Vec::new(&env);
+        recipients.push_back(recipient1.clone());
+        recipients.push_back(recipient2.clone());
+        recipients.push_back(recipient3.clone());
+
+        // Exhaust the history index: the next distribution must be rejected
+        // with a descriptive panic instead of overflowing.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&Symbol::new(&env, "hist_cnt"), &u64::MAX);
+        });
+
+        distributor_client.distribute_equal(&sender, &token_address, &900i128, &recipients);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 #![allow(deprecated)]
 use soroban_sdk::{
     contract, contractclient, contracterror, contractevent, contractimpl, contracttype,
-    panic_with_error, token, Address, Env, Vec,
+    panic_with_error, symbol_short, token, Address, Env, Symbol, Vec,
 };
 
 /// Persistent/instance storage keys.
@@ -226,6 +226,17 @@ pub struct EmergencyUnpausedEvent {
     pub unpaused_at: u64,
 }
 
+/// Emitted when an ID counter (`StreamCount` or `DisputeCount`) has reached
+/// `u64::MAX` and a creation attempt is rejected instead of overflowing.
+#[contractevent(topics = ["ContractFull"])]
+#[derive(Clone)]
+pub struct ContractFullEvent {
+    /// The exhausted resource ("streams" or "disputes").
+    pub resource: Symbol,
+    /// Ledger timestamp of the rejected attempt.
+    pub timestamp: u64,
+}
+
 /// Custom errors for the contract
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -278,6 +289,8 @@ pub enum Error {
     TimelockNotElapsed = 30,
     /// The recipient/sender resolution amounts are invalid or exceed the stream's escrowed balance
     InvalidResolutionAmounts = 31,
+    /// An ID counter (streams or disputes) has reached `u64::MAX`; no more records can be created.
+    ContractFull = 32,
 }
 
 // Constants
@@ -642,6 +655,15 @@ impl PaymentStreamContract {
 
         // Get and increment stream count
         let mut stream_count: u64 = env.storage().instance().get(&DataKey::StreamCount).unwrap_or(0);
+        if stream_count == u64::MAX {
+            // Stream ID space exhausted: reject gracefully instead of overflowing.
+            ContractFullEvent {
+                resource: symbol_short!("streams"),
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(&env);
+            panic_with_error!(&env, Error::ContractFull);
+        }
         let stream_id = stream_count + 1;
         stream_count += 1;
         env.storage().instance().set(&DataKey::StreamCount, &stream_count);
@@ -1487,6 +1509,15 @@ impl PaymentStreamContract {
 
         // Allocate a new dispute id
         let mut dispute_count: u64 = env.storage().instance().get(&DataKey::DisputeCount).unwrap_or(0);
+        if dispute_count == u64::MAX {
+            // Dispute ID space exhausted: reject gracefully instead of overflowing.
+            ContractFullEvent {
+                resource: symbol_short!("disputes"),
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(&env);
+            panic_with_error!(&env, Error::ContractFull);
+        }
         dispute_count += 1;
         let dispute_id = dispute_count;
         env.storage().instance().set(&DataKey::DisputeCount, &dispute_count);
