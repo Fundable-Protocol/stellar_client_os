@@ -27,6 +27,10 @@ pub enum DataKey {
     /// Per-contributor escrow balance keyed by `(campaign_id, contributor)`
     /// (persistent storage).
     Contribution(u64, Address),
+    /// Status history entry keyed by `(campaign_id, entry_index)` (persistent storage).
+    StatusHistory(u64, u32),
+    /// Total number of status history entries for a campaign (persistent storage).
+    StatusHistoryCount(u64),
 }
 
 /// Current lifecycle state of a campaign.
@@ -42,6 +46,16 @@ pub enum CampaignStatus {
     Failed,
     /// Creator has already claimed the raised funds.
     Claimed,
+}
+
+/// Single entry in a campaign's status history.
+#[contracttype]
+#[derive(Clone)]
+pub struct StatusHistoryEntry {
+    /// The status that was set at this point in time.
+    pub status: CampaignStatus,
+    /// Unix timestamp (seconds) when this status change occurred.
+    pub timestamp: u64,
 }
 
 /// Core campaign record stored on-chain.
@@ -297,6 +311,7 @@ impl CampaignFundingContract {
         };
 
         Self::save_campaign(&env, count, &campaign);
+        Self::record_status_change(&env, count, CampaignStatus::Active);
 
         env.events().publish(
             ("CampaignCreated", count),
@@ -374,6 +389,7 @@ impl CampaignFundingContract {
         // Auto-succeed when the hard cap is reached.
         if campaign.total_raised >= campaign.target_amount {
             campaign.status = CampaignStatus::Successful;
+            Self::record_status_change(&env, campaign_id, CampaignStatus::Successful);
             env.events().publish(
                 ("CampaignStatusChanged", campaign_id),
                 CampaignStatusChangedEvent {
@@ -428,6 +444,7 @@ impl CampaignFundingContract {
         };
 
         let new_status = campaign.status;
+        Self::record_status_change(&env, campaign_id, new_status);
         Self::save_campaign(&env, campaign_id, &campaign);
 
         env.events().publish(
@@ -467,6 +484,7 @@ impl CampaignFundingContract {
         let net = gross - fee;
 
         campaign.status = CampaignStatus::Claimed;
+        Self::record_status_change(&env, campaign_id, CampaignStatus::Claimed);
         Self::save_campaign(&env, campaign_id, &campaign);
 
         let token_client = token::Client::new(&env, &campaign.token);
@@ -585,6 +603,37 @@ impl CampaignFundingContract {
             .unwrap()
     }
 
+    /// Return the full status history for a campaign.
+    ///
+    /// Returns a vector of `(status, timestamp)` tuples representing all
+    /// status changes in chronological order, starting from the initial
+    /// `Active` status at campaign creation.
+    ///
+    /// # Arguments
+    /// * `campaign_id` — The campaign to query.
+    ///
+    /// # Returns
+    /// A vector of status history entries ordered from oldest to newest.
+    pub fn get_status_history(env: Env, campaign_id: u64) -> Vec<StatusHistoryEntry> {
+        let count: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::StatusHistoryCount(campaign_id))
+            .unwrap_or(0);
+
+        let mut history = Vec::new(&env);
+        for i in 0..count {
+            if let Some(entry) = env
+                .storage()
+                .persistent()
+                .get(&DataKey::StatusHistory(campaign_id, i))
+            {
+                history.push_back(entry);
+            }
+        }
+        history
+    }
+
     // -----------------------------------------------------------------------
     // Admin setters
     // -----------------------------------------------------------------------
@@ -664,6 +713,29 @@ impl CampaignFundingContract {
             .persistent()
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    /// Record a status change in the campaign's status history.
+    fn record_status_change(env: &Env, campaign_id: u64, status: CampaignStatus) {
+        let count_key = DataKey::StatusHistoryCount(campaign_id);
+        let mut count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+
+        let entry = StatusHistoryEntry {
+            status,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        let entry_key = DataKey::StatusHistory(campaign_id, count);
+        env.storage().persistent().set(&entry_key, &entry);
+        env.storage()
+            .persistent()
+            .extend_ttl(&entry_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        count += 1;
+        env.storage().persistent().set(&count_key, &count);
+        env.storage()
+            .persistent()
+            .extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     /// Compute the protocol fee for `amount` using the stored fee rate.
@@ -1496,5 +1568,112 @@ mod tests {
         // fee = 9_999 * 100 / 10_000 = 99 (integer division); net = 9_900.
         assert_eq!(token_client.balance(&creator), 9_900);
         assert_eq!(token_client.balance(&fee_collector), 99);
+    }
+
+    // -----------------------------------------------------------------------
+    // Status history
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_status_history_records_initial_active() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+        assert_eq!(history.get(0).unwrap().timestamp, 1_000);
+    }
+
+    #[test]
+    fn test_status_history_records_successful_transition() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        set_time(&env, 1_500);
+        client.contribute(&contributor, &id, &10_000); // Auto-succeed
+
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+        assert_eq!(history.get(0).unwrap().timestamp, 1_000);
+        assert_eq!(history.get(1).unwrap().status, CampaignStatus::Successful);
+        assert_eq!(history.get(1).unwrap().timestamp, 1_500);
+    }
+
+    #[test]
+    fn test_status_history_records_failed_transition() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&contributor, &3_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.contribute(&contributor, &id, &3_000); // Below min_target
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id); // → Failed
+
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+        assert_eq!(history.get(0).unwrap().timestamp, 1_000);
+        assert_eq!(history.get(1).unwrap().status, CampaignStatus::Failed);
+        assert_eq!(history.get(1).unwrap().timestamp, 3_000);
+    }
+
+    #[test]
+    fn test_status_history_records_claimed_transition() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.contribute(&contributor, &id, &10_000); // Auto-succeed
+        set_time(&env, 3_000);
+        client.claim_funds(&id);
+
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 3);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+        assert_eq!(history.get(1).unwrap().status, CampaignStatus::Successful);
+        assert_eq!(history.get(2).unwrap().status, CampaignStatus::Claimed);
+    }
+
+    #[test]
+    fn test_status_history_empty_for_nonexistent_campaign() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+
+        let history = client.get_status_history(&99);
+        assert_eq!(history.len(), 0);
     }
 }
