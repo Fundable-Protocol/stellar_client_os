@@ -68,18 +68,37 @@ export function TokenBalance({
   iconUrl,
 }: TokenBalanceProps) {
   const [imageError, setImageError] = useState(false);
+  const [imageTimedOut, setImageTimedOut] = useState(false);
   const formattedBalance = formatBalance(balance);
 
   // Reset error state when icon URL or asset code changes
   // This allows the component to attempt loading the new icon
   useEffect(() => {
     setImageError(false);
+    setImageTimedOut(false);
   }, [iconUrl, assetCode]);
+
+  // Handle image timeout for slow connections (3G)
+  useEffect(() => {
+    if (!iconUrl) return;
+
+    const timeoutId = setTimeout(() => {
+      setImageTimedOut(true);
+      setImageError(true);
+    }, 15000); // 15 second timeout for slow 3G connections
+
+    return () => clearTimeout(timeoutId);
+  }, [iconUrl]);
+
+  const handleRetry = () => {
+    setImageError(false);
+    setImageTimedOut(false);
+  };
 
   return (
     <div className="flex items-center gap-4 p-4 bg-zinc-800 rounded-lg border border-zinc-700 hover:border-zinc-600 transition-colors">
       {/* Token Icon */}
-      <div className="shrink-0 w-10 h-10 rounded-full bg-white flex items-center justify-center overflow-hidden p-1.5">
+      <div className="shrink-0 w-10 h-10 rounded-full bg-white flex items-center justify-center overflow-hidden p-1.5 relative">
         {iconUrl && !imageError ? (
           <Image
             src={iconUrl}
@@ -95,6 +114,31 @@ export function TokenBalance({
           <span className="text-lg font-bold text-violet-400">
             {assetCode.charAt(0)}
           </span>
+        )}
+        {/* Retry button on timeout/error */}
+        {imageTimedOut && (
+          <button
+            onClick={handleRetry}
+            className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-full hover:bg-black/70 transition-colors"
+            title="Retry loading image"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="white"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+              <path d="M3 3v5h5" />
+              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+              <path d="M16 21h5v-5" />
+            </svg>
+          </button>
         )}
       </div>
 
