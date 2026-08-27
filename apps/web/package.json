@@ -17,6 +17,7 @@
     "@graphql-tools/schema": "^10.0.7",
     "graphql": "^16.9.0",
     "graphql-yoga": "^5.7.0",
+    "ioredis": "^5.4.2",
     "@fundable/sdk": "workspace:*",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",

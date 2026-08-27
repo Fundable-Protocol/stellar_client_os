@@ -17,6 +17,7 @@ import { useBalanceValidation } from "@/hooks/use-balance-validation";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { createTestnetService } from "@/services/stellar.service";
 import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID } from "@/lib/env";
+import { createStream } from "@/lib/api";
 
 // Stream form state type
 interface StreamFormData {
@@ -197,10 +198,6 @@ const CreatePaymentStream = () => {
         throw new Error('Invalid token selected');
       }
 
-      const amount = BigInt(Math.floor(parseFloat(streamData.amount) * 10000000));
-      const durationMultiplier = streamData.duration === 'hour' ? 3600 :
-        streamData.duration === 'day' ? 86400 :
-          streamData.duration === 'week' ? 604800 :
       const amount = BigInt(Math.floor(parseFloat(streamData.amount) * 10000000));
       const durationMultiplier = streamData.duration === 'hour' ? 3600 :
         streamData.duration === 'day' ? 86400 :

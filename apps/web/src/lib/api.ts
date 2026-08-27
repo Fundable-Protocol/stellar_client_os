@@ -67,7 +67,7 @@ async function signAndSendTx<T>(
         }),
     });
 
-    return result.hash;
+    return result.sendTransactionResponse?.hash ?? '';
 }
 
 function createPaymentStreamClient(publicKey: string): PaymentStreamClient {

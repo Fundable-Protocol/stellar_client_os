@@ -4,11 +4,23 @@
  * or the SDK client wrappers in {@link @/lib/api.ts}.
  */
 import { Keypair, Networks, Horizon } from '@stellar/stellar-sdk'
-import { StreamRecord } from './validations'
+import { StreamRecord, PaymentStreamFormData, SUPPORTED_TOKENS } from './validations'
 
 // Use testnet for development
 export const server = new Horizon.Server('https://horizon-testnet.stellar.org')
 export const networkPassphrase = Networks.TESTNET
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError')
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason ?? new DOMException('Aborted', 'AbortError')); return }
+    const id = setTimeout(resolve, ms)
+    signal?.addEventListener('abort', () => { clearTimeout(id); reject(signal.reason ?? new DOMException('Aborted', 'AbortError')) }, { once: true })
+  })
+}
 
 export class StellarService {
   static async createPaymentStream(formData: PaymentStreamFormData, signal?: AbortSignal): Promise<string> {
