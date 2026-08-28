@@ -129,7 +129,54 @@ export const typeDefs = /* GraphQL */ `
     toTimestamp: Int
   }
 
+  input TreeFilter {
+    planter: String
+    region: String
+    status: StreamStatus
+    search: String
+  }
+
+  type Tree {
+    id: ID!
+    planter: String!
+    region: String
+    category: String
+    status: StreamStatus!
+    asset: String!
+    sponsoredAmount: String!
+    createdAt: Int!
+  }
+
+  type Planter {
+    address: ID!
+    region: String
+    treeCount: Int!
+    sponsoredAmount: String!
+  }
+
+  type Contract {
+    address: ID!
+    symbol: String!
+    streamCount: Int!
+    totalVolume: String!
+  }
+
   type Query {
+    """
+    Search individual sponsored trees derived from indexed payment streams.
+    """
+    trees(filter: TreeFilter, pagination: PaginationInput, network: Network): [Tree!]!
+
+    """
+    List planters with aggregate sponsorship counts and volume.
+    """
+    planters(region: String, pagination: PaginationInput, network: Network): [Planter!]!
+
+    """
+    List contract/token aggregates used by the payment-stream protocol.
+    """
+    contracts(pagination: PaginationInput, network: Network): [Contract!]!
+
     """
     Global aggregate metrics across all streams on the specified network.
     """

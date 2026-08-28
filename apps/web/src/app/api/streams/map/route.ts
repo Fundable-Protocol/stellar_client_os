@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getGeoCache, type BoundingBox, type RadiusQuery } from "@/lib/geo-cache";
+import { getGeoCache, isValidBoundingBox, type BoundingBox, type RadiusQuery } from "@/lib/geo-cache";
 import { withRateLimit } from "@/middlewares/rate-limit.middleware";
 
 /**
@@ -126,14 +126,13 @@ async function handler(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (swLat >= neLat || swLng >= neLng) {
+  const bbox: BoundingBox = { swLat, swLng, neLat, neLng };
+  if (!isValidBoundingBox(bbox)) {
     return NextResponse.json(
-      { error: "swLat/swLng must be less than neLat/neLng", code: "VALIDATION_ERROR" },
+      { error: "Bounding box longitudes must be valid and within +/-180°, including date-line crossings", code: "VALIDATION_ERROR" },
       { status: 400 }
     );
   }
-
-  const bbox: BoundingBox = { swLat, swLng, neLat, neLng };
   const cached = await cache.getBboxStreams(bbox, filters);
 
   if (cached !== null) {

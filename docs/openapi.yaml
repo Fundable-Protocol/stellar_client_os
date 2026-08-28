@@ -1,0 +1,892 @@
+openapi: 3.0.3
+info:
+  title: Fundable Stellar API
+  version: 0.1.0
+  description: |
+    HTTP API exposed by the Fundable Stellar Next.js application.
+
+    The API includes contribution certificates, Soroban compilation, public
+    stream-map queries, milestone-photo verification, S3 upload presigning,
+    GraphQL analytics, and webhook subscriptions.
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit/
+security: []
+servers:
+  - url: https://api.fundable.network
+    description: Fundable API server
+  - url: https://{host}
+    description: Deployed application
+    variables:
+      host:
+        default: fundable.network
+        description: Application hostname
+
+tags:
+  - name: Certificates
+    description: Contribution receipt and invoice generation
+  - name: Compilation
+    description: Soroban source compilation
+  - name: GraphQL
+    description: Aggregate payment-stream queries
+  - name: Milestone photos
+    description: Photo uniqueness checks and hash-index monitoring
+  - name: Uploads
+    description: Presigned evidence uploads
+  - name: Streams map
+    description: Public geographic stream queries
+  - name: Webhooks
+    description: Subscription registration and event dispatch
+
+paths:
+  /api/certificates:
+    post:
+      tags: [Certificates]
+      summary: Generate a contribution receipt or invoice
+      operationId: generateCertificate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertificateInput'
+            example:
+              donorName: Alice
+              donorAddress: GABC...2BVN7
+              recipientName: Green Planet Fund
+              transactionHash: abc123
+              network: testnet
+              lineItems:
+                - description: Stream #1
+                  token: USDC
+                  amount: '500.00'
+                  timestamp: 1700000000
+              totalAmount: 500.00 USDC
+      responses:
+        '200':
+          description: PDF certificate generated successfully
+          headers:
+            Content-Disposition:
+              $ref: '#/components/headers/ContentDisposition'
+            X-Certificate-Id:
+              description: Generated certificate UUID
+              schema:
+                type: string
+                format: uuid
+            X-Generated-At:
+              description: ISO-8601 generation timestamp
+              schema:
+                type: string
+                format: date-time
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/compile:
+    post:
+      tags: [Compilation]
+      summary: Compile Soroban Rust source to WebAssembly
+      operationId: compileSorobanSource
+      description: Compiles the submitted source in an isolated temporary Cargo project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompileRequest'
+      responses:
+        '200':
+          description: Compiled WebAssembly module
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompileResponse'
+        '400':
+          description: Source failed to compile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompilationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/extract-addresses:
+    get:
+      tags: [Compilation]
+      summary: Extract Stellar addresses from replies to an X post
+      operationId: extractAddresses
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: URL of the X/Twitter post whose replies should be searched
+          schema:
+            type: string
+            format: uri
+      responses:
+        '200':
+          description: Unique Stellar addresses found in replies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddressesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: X API rate limit reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: X API request failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: X API credentials are not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/graphql:
+    get:
+      tags: [GraphQL]
+      summary: Execute a GraphQL query over GET
+      operationId: graphqlGet
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: GraphQL document
+          schema:
+            type: string
+        - name: operationName
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: variables
+          in: query
+          required: false
+          description: JSON-encoded GraphQL variables object
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/GraphQLResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [GraphQL]
+      summary: Execute a GraphQL query over POST
+      operationId: graphqlPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GraphQLRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/GraphQLResponse'
+        '400':
+          description: Invalid GraphQL document or variables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphQLResponse'
+        '413':
+          description: Request body exceeds the configured GraphQL limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphQLResponse'
+
+  /api/milestone-photos:
+    post:
+      tags: [Milestone photos]
+      summary: Check and index a milestone photo
+      operationId: checkMilestonePhoto
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MilestonePhotoUpload'
+      responses:
+        '200':
+          description: Photo is unique and was indexed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedPhoto'
+        '400':
+          description: Missing fields, invalid MIME type, image dimensions, or threshold
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoError'
+        '409':
+          description: Duplicate or near-duplicate photo detected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicatePhoto'
+        '413':
+          description: Upload exceeds the 10 MB limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags: [Milestone photos]
+      summary: Remove a photo hash from the index
+      operationId: removeMilestonePhotoHash
+      parameters:
+        - name: hash
+          in: query
+          required: true
+          description: 16-character hexadecimal perceptual hash
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{16}$'
+      responses:
+        '200':
+          description: Hash removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemovedHash'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Hash is not present in the index
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [Milestone photos]
+      summary: Get photo-index statistics
+      operationId: getMilestonePhotoStats
+      responses:
+        '200':
+          description: Number of indexed hashes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoStats'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/presign-upload:
+    post:
+      tags: [Uploads]
+      summary: Create a short-lived S3 upload URL
+      operationId: presignEvidenceUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignUploadRequest'
+            example:
+              campaignId: '42'
+              milestoneId: '1'
+              contentType: image/jpeg
+      responses:
+        '200':
+          description: Presigned PUT URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          description: S3 storage is not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/streams/map:
+    get:
+      tags: [Streams map]
+      summary: Query public stream locations
+      operationId: getStreamMap
+      description: |
+        Use either bounding-box parameters (`swLat`, `swLng`, `neLat`, `neLng`)
+        or radius parameters (`lat`, `lng`, `radius`). Radius is measured in
+        kilometres and is limited to 500 km. Responses include X-Cache and
+        Cache-Control headers.
+      parameters:
+        - name: swLat
+          in: query
+          required: false
+          description: Bounding-box south-west latitude
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: swLng
+          in: query
+          required: false
+          description: Bounding-box south-west longitude
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+        - name: neLat
+          in: query
+          required: false
+          description: Bounding-box north-east latitude
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: neLng
+          in: query
+          required: false
+          description: Bounding-box north-east longitude
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+        - name: lat
+          in: query
+          required: false
+          description: Radius-search centre latitude
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: lng
+          in: query
+          required: false
+          description: Radius-search centre longitude
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+        - name: radius
+          in: query
+          required: false
+          description: Radius in kilometres, maximum 500
+          schema:
+            type: number
+            format: double
+            minimum: 0
+            exclusiveMinimum: true
+            maximum: 500
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, completed, cancelled, paused]
+        - name: token
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Stream locations matching the query
+          headers:
+            X-Cache:
+              description: Whether the response came from Redis
+              schema:
+                type: string
+                enum: [HIT, MISS]
+            Cache-Control:
+              description: Public cache lifetime
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamMapResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/webhooks/subscriptions:
+    get:
+      tags: [Webhooks]
+      summary: List active webhook subscriptions
+      operationId: listWebhookSubscriptions
+      responses:
+        '200':
+          description: Active subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookSubscription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Webhooks]
+      summary: Register a webhook subscription
+      operationId: createWebhookSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookSubscriptionRequest'
+            example:
+              url: https://example.com/webhooks/fundable
+              events: [stream.status_updated, milestone.funds_released]
+              secret: replace-with-a-secret
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+        '400':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/webhooks/subscriptions/{id}:
+    delete:
+      tags: [Webhooks]
+      summary: Delete a webhook subscription
+      operationId: deleteWebhookSubscription
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Subscription was not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/webhooks/trigger:
+    post:
+      tags: [Webhooks]
+      summary: Dispatch a webhook event
+      operationId: triggerWebhook
+      description: Intended for testing and administrative event dispatch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerWebhookRequest'
+      responses:
+        '200':
+          description: Event dispatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+        '400':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  headers:
+    ContentDisposition:
+      description: Attachment filename for the generated PDF
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    GraphQLResponse:
+      description: GraphQL execution result
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GraphQLResponse'
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          description: Structured validation details or upstream error information
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            details:
+              type: object
+              additionalProperties: true
+    CertificateInput:
+      type: object
+      required: [donorName, donorAddress, recipientName, transactionHash, lineItems, totalAmount]
+      properties:
+        donorName:
+          type: string
+        donorAddress:
+          type: string
+          description: Stellar public address
+        recipientName:
+          type: string
+        transactionHash:
+          type: string
+        network:
+          type: string
+          enum: [testnet, mainnet]
+          default: testnet
+        documentType:
+          type: string
+          enum: [certificate, invoice]
+          default: certificate
+        issuedAt:
+          type: string
+          format: date
+        lineItems:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CertificateLineItem'
+        totalAmount:
+          type: string
+    CertificateLineItem:
+      type: object
+      required: [description, token, amount, timestamp]
+      properties:
+        description:
+          type: string
+        token:
+          type: string
+        amount:
+          type: string
+        timestamp:
+          oneOf:
+            - type: integer
+              format: int64
+            - type: string
+              format: date-time
+    CompileRequest:
+      type: object
+      required: [sourceCode]
+      properties:
+        sourceCode:
+          type: string
+          minLength: 1
+    CompileResponse:
+      type: object
+      required: [wasmBase64]
+      properties:
+        wasmBase64:
+          type: string
+          format: byte
+    CompilationError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: Compilation failed
+        details:
+          type: string
+    AddressesResponse:
+      type: object
+      required: [addresses]
+      properties:
+        addresses:
+          type: array
+          items:
+            type: string
+            pattern: '^G[A-Z2-7]{55}$'
+    GraphQLRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        operationName:
+          type: string
+          nullable: true
+        variables:
+          type: object
+          nullable: true
+          additionalProperties: true
+    GraphQLResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          nullable: true
+          additionalProperties: true
+        errors:
+          type: array
+          items:
+            type: object
+            required: [message]
+            properties:
+              message:
+                type: string
+              path:
+                type: array
+                items: {}
+              extensions:
+                type: object
+                additionalProperties: true
+    MilestonePhotoUpload:
+      type: object
+      required: [photo, submissionId]
+      properties:
+        photo:
+          type: string
+          format: binary
+          description: PNG, JPEG, or WebP milestone photo
+        submissionId:
+          type: string
+        threshold:
+          type: integer
+          minimum: 0
+          maximum: 64
+          default: 8
+    AcceptedPhoto:
+      type: object
+      required: [accepted, hash, hammingDistance]
+      properties:
+        accepted:
+          type: boolean
+          enum: [true]
+        hash:
+          type: string
+        hammingDistance:
+          type: integer
+        duplicateOf:
+          type: string
+          nullable: true
+        message:
+          type: string
+    DuplicatePhoto:
+      type: object
+      required: [accepted, hash, hammingDistance, duplicateOf]
+      properties:
+        accepted:
+          type: boolean
+          enum: [false]
+        hash:
+          type: string
+        hammingDistance:
+          type: integer
+        duplicateOf:
+          type: string
+        message:
+          type: string
+    PhotoError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            code:
+              type: string
+              enum: [UNSUPPORTED_FORMAT, IMAGE_TOO_SMALL]
+    RemovedHash:
+      type: object
+      required: [removed, hash]
+      properties:
+        removed:
+          type: boolean
+          enum: [true]
+        hash:
+          type: string
+    PhotoStats:
+      type: object
+      required: [indexSize]
+      properties:
+        indexSize:
+          type: integer
+          minimum: 0
+    PresignUploadRequest:
+      type: object
+      required: [campaignId, milestoneId, contentType]
+      properties:
+        campaignId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        milestoneId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png, image/webp, image/heic, application/pdf]
+    PresignUploadResponse:
+      type: object
+      required: [url, key, contentType, expiresAt, requestId]
+      properties:
+        url:
+          type: string
+          format: uri
+        key:
+          type: string
+        contentType:
+          type: string
+        expiresAt:
+          type: integer
+          format: int64
+        requestId:
+          type: string
+    StreamMapResponse:
+      type: object
+      required: [streams, count]
+      properties:
+        streams:
+          type: array
+          items:
+            $ref: '#/components/schemas/MapStream'
+        count:
+          type: integer
+          minimum: 0
+    MapStream:
+      type: object
+      description: Stream-map record returned by the configured geographic data source.
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+    WebhookSubscription:
+      type: object
+      required: [id, url, events, secret, createdAt]
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [stream.status_updated, milestone.funds_released, '*']
+        secret:
+          type: string
+          writeOnly: true
+        createdAt:
+          type: string
+          format: date-time
+    CreateWebhookSubscriptionRequest:
+      type: object
+      required: [url, events]
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [stream.status_updated, milestone.funds_released, '*']
+        secret:
+          type: string
+          minLength: 8
+          writeOnly: true
+    TriggerWebhookRequest:
+      type: object
+      required: [event, payload]
+      properties:
+        event:
+          type: string
+          minLength: 1
+        payload:
+          type: object
+          additionalProperties: true
+    SuccessMessage:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string

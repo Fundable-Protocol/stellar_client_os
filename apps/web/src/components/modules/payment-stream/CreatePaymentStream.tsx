@@ -198,6 +198,7 @@ const CreatePaymentStream = () => {
         throw new Error('Invalid token selected');
       }
 
+      const amount = BigInt(Math.floor(parseFloat(streamData.amount) * 10000000));
       const durationMultiplier = streamData.duration === 'hour' ? 3600 :
         streamData.duration === 'day' ? 86400 :
           streamData.duration === 'week' ? 604800 :
@@ -225,7 +226,10 @@ const CreatePaymentStream = () => {
       );
 
       // Reset form
-      setStreamData(initialStreamData);
+      setStreamData({
+        ...initialStreamData,
+        token: tokenOptions[0]?.value || "XLM",
+      });
       setFormKey((k) => k + 1);
 
       // Invalidate streams queries

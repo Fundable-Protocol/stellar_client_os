@@ -111,11 +111,18 @@ export const StellarWalletProvider = ({
     return null;
   });
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() => {
-    const { address: savedAddress, walletId: savedWalletId, network: savedNetwork } = loadPersistedSession();
+    const persisted = loadPersistedSession();
     // Start as "connecting" when we have a persisted session so the UI
     // correctly reflects the pending auto-reconnect verification.
-    if (savedAddress && savedWalletId && savedNetwork) {
+    if (persisted.address && persisted.walletId && persisted.network) {
       return "connecting";
+    }
+    if (typeof window === "undefined") return "idle";
+    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
+    const savedWalletId = safeGetItem("@fundable/web:selected_wallet") ?? safeGetItem("stellar_wallet_id");
+    const savedNetwork = safeGetItem("stellar_wallet_network");
+    if (savedAddress && isValidStellarAddress(savedAddress) && savedWalletId && savedNetwork === WalletNetwork.TESTNET) {
+      return "connected";
     }
     return "idle";
   });
@@ -150,6 +157,11 @@ export const StellarWalletProvider = ({
     // or clear stale state when it no longer does.
     const { address: savedAddress, walletId: savedWalletId, network: savedNetwork } = loadPersistedSession();
     // RESTORE SESSION
+    const persisted = loadPersistedSession();
+    const savedAddress = persisted.address ?? safeGetItem("stellar_wallet_address")?.toUpperCase();
+    const savedWalletId = persisted.walletId ?? safeGetItem("@fundable/web:selected_wallet") ?? safeGetItem("stellar_wallet_id");
+    const savedNetwork = persisted.network ?? safeGetItem("stellar_wallet_network");
+
     if (savedAddress && savedWalletId && savedNetwork) {
       if (savedNetwork !== network) {
         // The user previously connected on a different network — do not restore.

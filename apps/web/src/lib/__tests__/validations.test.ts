@@ -7,9 +7,10 @@
 import { describe, it, expect } from 'vitest';
 import { getTokenSymbol, SUPPORTED_TOKENS } from '../validations';
 
-// Collect known values and addresses for parameterized tests
+// Optional stablecoin contracts are omitted from address assertions until configured.
+const configuredTokens = SUPPORTED_TOKENS.filter((token) => token.address.length > 0);
 const knownTokenValues = SUPPORTED_TOKENS.map((t) => t.value);
-const knownTokenAddresses = SUPPORTED_TOKENS.map((t) => t.address);
+const knownTokenAddresses = configuredTokens.map((t) => t.address);
 
 describe('getTokenSymbol', () => {
   // --- Success path: resolve by value ---
@@ -55,7 +56,7 @@ describe('getTokenSymbol', () => {
   });
 
   it('should resolve all known contract addresses to their ticker symbols', () => {
-    const expected = ['USDC', 'XLM', 'AQUA'];
+    const expected = configuredTokens.map((token) => token.value);
     for (let i = 0; i < knownTokenAddresses.length; i++) {
       expect(getTokenSymbol(knownTokenAddresses[i])).toBe(expected[i]);
     }
@@ -108,7 +109,7 @@ describe('getTokenSymbol', () => {
   });
 
   it('should produce the same output for a value and its matching address', () => {
-    for (const token of SUPPORTED_TOKENS) {
+    for (const token of configuredTokens) {
       const byValue = getTokenSymbol(token.value);
       const byAddress = getTokenSymbol(token.address);
       expect(byValue).toBe(byAddress);
