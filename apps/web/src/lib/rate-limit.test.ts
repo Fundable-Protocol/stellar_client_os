@@ -4,6 +4,9 @@ import {
   RateLimiter,
   buildRateLimitHeaders,
   createRateLimiter,
+  getTierConfig,
+  RATE_LIMIT_TIERS,
+  resolveTier,
   type RateLimitResult,
 } from "./rate-limit";
 
@@ -186,5 +189,51 @@ describe("createRateLimiter", () => {
     await limiter.check("x");
     expect((redis.eval as ReturnType<typeof vi.fn>).mock.calls[0][4]).toBe("5");
     expect((redis.eval as ReturnType<typeof vi.fn>).mock.calls[0][2]).toBe("rl:test:x");
+  });
+});
+
+// ── Rate Limit Tiers & Resolver ───────────────────────────────────────────────
+
+describe("RATE_LIMIT_TIERS & tier resolver", () => {
+  it("defines free tier with 100 req/day ($0/mo)", () => {
+    const freeTier = RATE_LIMIT_TIERS.free;
+    expect(freeTier.id).toBe("free");
+    expect(freeTier.dailyLimit).toBe(100);
+    expect(freeTier.monthlyPriceUsd).toBe(0);
+    expect(freeTier.burstLimitPerMin).toBe(10);
+  });
+
+  it("defines paid tier 1 with 1,000 req/day ($10/mo)", () => {
+    const tier1 = RATE_LIMIT_TIERS.tier1;
+    expect(tier1.id).toBe("tier1");
+    expect(tier1.dailyLimit).toBe(1000);
+    expect(tier1.monthlyPriceUsd).toBe(10);
+    expect(tier1.burstLimitPerMin).toBe(60);
+  });
+
+  it("defines paid tier 2 with 10,000 req/day ($50/mo)", () => {
+    const tier2 = RATE_LIMIT_TIERS.tier2;
+    expect(tier2.id).toBe("tier2");
+    expect(tier2.dailyLimit).toBe(10000);
+    expect(tier2.monthlyPriceUsd).toBe(50);
+    expect(tier2.burstLimitPerMin).toBe(300);
+  });
+
+  it("resolves tier by id via getTierConfig", () => {
+    expect(getTierConfig("free").dailyLimit).toBe(100);
+    expect(getTierConfig("tier1").dailyLimit).toBe(1000);
+    expect(getTierConfig("tier2").dailyLimit).toBe(10000);
+    expect(getTierConfig("non_existent").id).toBe("free");
+    expect(getTierConfig(null).id).toBe("free");
+  });
+
+  it("resolves tier from API key format via resolveTier", () => {
+    expect(resolveTier(null).id).toBe("free");
+    expect(resolveTier("").id).toBe("free");
+    expect(resolveTier("pk_live_t1_secret123").id).toBe("tier1");
+    expect(resolveTier("tier1_key_abc").id).toBe("tier1");
+    expect(resolveTier("pk_live_t2_secret456").id).toBe("tier2");
+    expect(resolveTier("tier2_key_xyz").id).toBe("tier2");
+    expect(resolveTier("invalid_key").id).toBe("free");
   });
 });

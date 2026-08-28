@@ -8,10 +8,24 @@ info:
     The API includes contribution certificates, Soroban compilation, public
     stream-map queries, milestone-photo verification, S3 upload presigning,
     GraphQL analytics, and webhook subscriptions.
+
+    ### Rate Limits & Tier-Based Pricing
+
+    Fundable enforces sliding-window rate limiting to protect public infrastructure:
+    - **Free Tier:** 100 requests/day ($0/month, default unauthenticated IP-based)
+    - **Paid Tier 1:** 1,000 requests/day ($10/month, bearer token / API key authenticated)
+    - **Paid Tier 2:** 10,000 requests/day ($50/month, high-throughput dedicated quota)
+    - **Enterprise Tier:** Custom / Unlimited (Contact support for custom capacity)
+
+    Standard rate-limiting headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`)
+    are returned on all responses. Exceeded limits return `429 Too Many Requests` with a `Retry-After` header.
   license:
     name: MIT
     url: https://opensource.org/license/mit/
-security: []
+security:
+  - apiKeyAuth: []
+  - bearerAuth: []
+  - {}
 servers:
   - url: https://api.fundable.network
     description: Fundable API server
@@ -547,11 +561,43 @@ paths:
           $ref: '#/components/responses/InternalServerError'
 
 components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for Paid Tier 1 ($10/mo) or Paid Tier 2 ($50/mo) access.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: APIKey
+      description: Bearer token for Paid Tier 1 or Tier 2 subscriptions.
+
   headers:
     ContentDisposition:
       description: Attachment filename for the generated PDF
       schema:
         type: string
+    RateLimitLimit:
+      description: The maximum number of requests allowed within the current window
+      schema:
+        type: integer
+        example: 1000
+    RateLimitRemaining:
+      description: The number of remaining requests allowed within the current window
+      schema:
+        type: integer
+        example: 842
+    RateLimitReset:
+      description: The time in seconds remaining until the rate limit resets
+      schema:
+        type: integer
+        example: 45
+    RetryAfter:
+      description: Number of seconds to wait before retrying after being rate-limited
+      schema:
+        type: integer
+        example: 60
 
   responses:
     BadRequest:
@@ -572,8 +618,47 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/GraphQLResponse'
+    RateLimitExceeded:
+      description: Rate limit exceeded (Free Tier 100 req/day, Tier 1 1000 req/day, Tier 2 10k req/day)
+      headers:
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitError'
 
   schemas:
+    RateLimitError:
+      type: object
+      required: [error, code, retryAfter]
+      properties:
+        error:
+          type: string
+          example: Too many requests
+        code:
+          type: string
+          example: RATE_LIMIT_EXCEEDED
+        message:
+          type: string
+          example: Daily rate limit exceeded for Free Tier (100 req/day). Upgrade to Tier 1 ($10/mo) or Tier 2 ($50/mo).
+        retryAfter:
+          type: integer
+          example: 45
+        currentTier:
+          type: string
+          enum: [free, tier1, tier2, enterprise]
+          example: free
+        upgradeUrl:
+          type: string
+          format: uri
+          example: https://fundable.network/pricing
     Error:
       type: object
       required: [error]

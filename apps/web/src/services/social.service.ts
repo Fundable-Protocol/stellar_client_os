@@ -1,4 +1,6 @@
-export const REFERRAL_REWARD_STROOPS = 10_000_000n; // 1 XLM
+export const STROOPS_PER_XLM = 10_000_000n;
+export const REFERRAL_BONUS_XLM = 5;
+export const REFERRAL_REWARD_STROOPS = 50_000_000n; // 5 XLM bonus (50,000,000 stroops)
 export const MONTHLY_REFERRAL_CAP = 10;
 
 export type TeamMember = {
@@ -30,6 +32,15 @@ export interface SocialStore {
   setItem(key: string, value: string): void;
 }
 
+export interface PlanterReferralStats {
+  totalReferrals: number;
+  totalRewardsStroops: string;
+  totalBonusXlm: number;
+  monthlyCount: number;
+  monthlyCap: number;
+  rewards: ReferralReward[];
+}
+
 const TEAMS_KEY = "fundable:sponsor-teams";
 const REWARDS_KEY = "fundable:referral-rewards";
 
@@ -53,8 +64,19 @@ function write<T>(store: SocialStore, key: string, value: T): void {
   store.setItem(key, JSON.stringify(value));
 }
 
-function monthKey(date = new Date()): string {
+export function monthKey(date = new Date()): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Generate a planter's unique referral link with address query parameter */
+export function getPlanterReferralUrl(address: string, baseUrl?: string): string {
+  if (!address) return "";
+  const origin =
+    baseUrl ||
+    (typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "https://fundable.network");
+  return `${origin}/?ref=${encodeURIComponent(address)}`;
 }
 
 export function listSponsorTeams(store: SocialStore = browserStore): SponsorTeam[] {
@@ -119,6 +141,43 @@ export function recordTeamTreeSponsorship(
 
 export function listReferralRewards(store: SocialStore = browserStore): ReferralReward[] {
   return read<ReferralReward[]>(store, REWARDS_KEY, []);
+}
+
+/** Calculate aggregated referral metrics for a specific planter address */
+export function getPlanterReferralStats(
+  planterAddress: string,
+  store: SocialStore = browserStore,
+  now = new Date(),
+): PlanterReferralStats {
+  if (!planterAddress) {
+    return {
+      totalReferrals: 0,
+      totalRewardsStroops: "0",
+      totalBonusXlm: 0,
+      monthlyCount: 0,
+      monthlyCap: MONTHLY_REFERRAL_CAP,
+      rewards: [],
+    };
+  }
+
+  const currentMonth = monthKey(now);
+  const allRewards = listReferralRewards(store);
+  const planterRewards = allRewards.filter((reward) => reward.referrer === planterAddress);
+  const monthlyRewards = planterRewards.filter((reward) => reward.month === currentMonth);
+
+  const totalStroops = planterRewards.reduce((sum, r) => sum + BigInt(r.rewardStroops || 0), 0n);
+  const bonusXlm = Number(totalStroops) / Number(STROOPS_PER_XLM);
+
+  return {
+    totalReferrals: planterRewards.length,
+    totalRewardsStroops: totalStroops.toString(),
+    totalBonusXlm: bonusXlm,
+    monthlyCount: monthlyRewards.length,
+    monthlyCap: MONTHLY_REFERRAL_CAP,
+    rewards: planterRewards.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    ),
+  };
 }
 
 /** Record the first completed tree for a referred sponsor, capped at 10 rewards/month. */
