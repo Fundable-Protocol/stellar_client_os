@@ -53,6 +53,14 @@ The Fundable Webhook Delivery System enables real-time notification of events on
 
 ---
 
+## ♻️ Idempotent Event Delivery
+
+When the same source event can be observed through more than one backend path, include a stable identity in the event payload so it can be delivered only once to each subscriber. The webhook service recognizes `idempotencyKey`, `eventId`, `notificationId`, `verificationId`, `nullifier`, `txHash`, and their snake-case equivalents. For tree-verification events, the verification event ID or nullifier is the appropriate identity; the generated `X-Webhook-Delivery-Id` must not be used because it changes on every attempt.
+
+Successful identities are persisted in `apps/web/data/webhook_delivered_events.json`, and concurrent dispatches are reserved before delivery. De-duplication is scoped to the subscription, so the same event is still delivered once to every distinct subscriber. Events without a stable identity retain the existing at-least-once behavior, and failed deliveries are not marked as complete so a later dispatch can retry them.
+
+---
+
 ## 🔒 Signature Verification
 
 Every webhook payload delivered includes the following headers to enable authenticity verification and prevent replay attacks:

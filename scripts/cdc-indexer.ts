@@ -71,6 +71,8 @@ import {
   type SorobanEvent,
 } from "@stellar/stellar-sdk";
 import { Server as RpcServer } from "@stellar/stellar-sdk/rpc";
+import { WebhookService } from "../apps/web/src/services/webhook.service";
+import path from "path";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -562,12 +564,33 @@ export async function runPollCycle(
     }
   }
 
-  // Step 4: write to DB (unless dry run)
+  // Step 4: write to DB and dispatch webhooks (unless dry run)
   let indexed = 0;
   if (!config.dryRun) {
     try {
       indexed = await insertEvents(db, parsedEvents);
       await setCursor(db, config.indexerId, currentLedger);
+      
+      // Dispatch Webhooks
+      if (indexed > 0) {
+        try {
+          const webhookService = new WebhookService({
+            subscriptionsPath: path.join(process.cwd(), 'apps', 'web', 'data', 'webhook_subscriptions.json'),
+            deadLetterPath: path.join(process.cwd(), 'apps', 'web', 'data', 'webhook_dead_letter.json'),
+          });
+          
+          for (const ev of parsedEvents) {
+            if (ev.eventType !== 'unknown') {
+              // Fire and forget - WebhookService handles retries/dlq internally
+              webhookService.dispatchEvent(ev.eventType, ev as unknown as Record<string, unknown>).catch(err => {
+                log("error", "Failed to dispatch webhook for event", { eventId: ev.eventId, error: err.message });
+              });
+            }
+          }
+        } catch (err) {
+           log("error", "Failed to initialize or dispatch webhooks", { error: (err as Error).message });
+        }
+      }
     } catch (err) {
       log("error", "Failed to write events to database", {
         error: (err as Error).message,

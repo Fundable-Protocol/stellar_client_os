@@ -1,4 +1,5 @@
-import { z } from "zod"
+import { z } from 'zod'
+import { env } from './env'
 import { StellarService } from "./stellar"
 import { validateContractId } from "./stream-validation"
 
@@ -69,9 +70,16 @@ export type PaymentStreamFormData = z.infer<typeof paymentStreamSchema>
 
 export const SUPPORTED_TOKENS = [
   { value: "USDC", label: "USDC", address: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA" },
+  { value: "USDT", label: "USDT", address: env.NEXT_PUBLIC_USDT_CONTRACT_ID },
+  { value: "EURC", label: "EURC", address: env.NEXT_PUBLIC_EURC_CONTRACT_ID },
   { value: "XLM", label: "XLM (Native)", address: "native" },
   { value: "AQUA", label: "AQUA", address: "CAQCFVLOBK5GIULPNZRGATJJMIZL5BSP7X5YJVMGCPTUEPFM4AVSDF4Y" },
 ] as const
+
+/** Only pairs with a configured Soroban token contract can be selected for a live transaction. */
+export const CONFIGURED_ESCROW_TOKENS = SUPPORTED_TOKENS.filter(
+  (token) => token.value === "XLM" || Boolean(token.address),
+)
 
 /**
  * Type representing a supported token entry

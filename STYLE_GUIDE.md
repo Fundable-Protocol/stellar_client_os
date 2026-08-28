@@ -2,6 +2,52 @@
 
 This document outlines the coding style and conventions to be followed when contributing to the Fundable Stellar project. Adhering to these guidelines ensures consistency and readability across the codebase.
 
+## Branches, Commits, and Pull Requests
+
+These conventions apply to every contribution. Keeping the branch name, commit history, and pull request focused makes changes easier to review, test, and release.
+
+### Branch Naming
+
+Create every feature branch from an up-to-date `main` branch. Use one of the following prefixes, followed by the issue number and a short, lowercase, hyphen-separated description:
+
+- **Feature work:** `feature/<issue>-<short-description>`
+- **Bug fixes:** `bugfix/<issue>-<short-description>`
+- **Maintenance or documentation:** `chore/<issue>-<short-description>`
+
+For example, use `feature/637-sponsor-pdf`, `bugfix/455-sanitize-telemetry`, or `chore/635-contributing-guide`. Do not commit directly to `main`, and do not combine unrelated issues in one branch. Keep branch names stable after opening a pull request so reviewers and automation can follow the change.
+
+### Commit Messages
+
+Use the [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```text
+<type>(<optional-scope>): <imperative summary>
+```
+
+Use a concise imperative subject, keep it to roughly 72 characters, and omit the final period. The supported types are `feat` for user-facing functionality, `fix` for bug fixes, `chore` for maintenance, `docs` for documentation, `refactor` for behavior-preserving restructuring, `test` for tests, `build` for build tooling, and `ci` for automation. Add a scope when it clarifies the affected area, such as `feat(api): add stream pagination`.
+
+Use the commit body for context when the reason or trade-off is not clear from the subject. Wrap longer lines for readability. A commit should represent one coherent change and should not include generated files, secrets, or unrelated formatting churn. Reference an issue or breaking change in the footer when appropriate, for example `Closes #637` or `BREAKING CHANGE: ...`.
+
+### Pull Request Requirements
+
+Open one pull request per issue and target `main` in the upstream repository. The pull request title should use the same Conventional Commit style as the primary commit, followed by the issue number when useful, for example `feat(ux): add sponsor forest PDF export (#637)`.
+
+Every pull request description must explain the motivation, name the related issue with `Closes #<issue>` when the change completes it, summarize the implementation, list verification commands and results, and call out any known limitations or follow-up work. UI changes should include screenshots or a short recording when practical. Do not include credentials, private keys, environment files, or other sensitive data in commits, logs, screenshots, or descriptions.
+
+Before requesting review, update the branch from `main`, run the relevant tests and lint/build checks, inspect the diff for unrelated changes, and confirm that the CI workflow passes. Keep review fixes on the same branch and respond to feedback with focused follow-up commits rather than force-pushing unless a maintainer explicitly requests it.
+
+A typical contribution workflow is:
+
+```bash
+git switch main
+git pull --ff-only upstream main
+git switch --create feature/123-short-description
+# make and test the change
+git add <files>
+git commit -m "feat(scope): describe the change"
+git push --set-upstream origin feature/123-short-description
+```
+
 ## General Principles
 
 -   **Follow Existing Conventions:** When in doubt, look at the existing code in the file or related files and follow its patterns.
