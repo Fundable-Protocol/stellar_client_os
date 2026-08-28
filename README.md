@@ -245,6 +245,26 @@ Allowed content types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `a
 
 Required environment variables (see `.env.example`): `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; optional `AWS_SESSION_TOKEN` (temporary STS credentials) and `S3_PRESIGN_EXPIRES_SECONDS` (60–900). The IAM user needs only `s3:PutObject` on the evidence bucket.
 
+### 🌿 Planter Profile & Referral Commission (5 XLM Bonus)
+
+Planters can access their profile at `/profile` to view their personal identity, track metrics, and manage their unique embedded referral link (`https://fundable.network/?ref=<address>`).
+
+- **Commission:** Planters earn an instant **5 XLM bonus** (`50,000,000` stroops) for every new sponsor who joins via their referral link and completes their first tree sponsorship.
+- **Sharing & Tracking:** Includes 1-click copy with feedback, dynamic QR code generation, direct social sharing (X/Twitter, Telegram, WhatsApp), and real-time monthly quota tracking (up to 10 rewards/month).
+
+### ⚡ Public API Rate Limits & Tier-Based Pricing
+
+Fundable enforces a sliding-window rate limiter backed by Redis to protect public endpoints while offering scalable tiers:
+
+| Tier | Daily Limit | Monthly Price (USD) | Burst Limit | Recommended For |
+|---|---|---|---|---|
+| **Free Tier** | **100 req / day** | **$0.00** | 10 req / min | Development, indie planters, testing |
+| **Paid Tier 1** | **1,000 req / day** | **$10.00 / mo** | 60 req / min | Production dApps, community bots |
+| **Paid Tier 2** | **10,000 req / day** | **$50.00 / mo** | 300 req / min | High-volume indexers, analytics, enterprise |
+| **Enterprise** | **100,000+ req / day** | **Custom ($250+)** | 1,000+ req / min | Institutional partners, registries |
+
+- For complete integration guides, authentication headers (`Authorization: Bearer <key>` or `X-API-Key`), standard response headers (`RateLimit-*`), and 429 error handling, see **[docs/rate-limits.md](docs/rate-limits.md)** and the **[OpenAPI Specification](docs/openapi.yaml)**.
+
 ## 📦 Packages
 
 ### `apps/web`
