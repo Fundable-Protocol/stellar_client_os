@@ -215,6 +215,42 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
           args.network ?? "testnet"
         );
       },
+
+      /**
+       * A sponsor's impact (estimated CO2 offset) vs the global average
+       * sponsor, including a percentile ranking (top 10%, etc.).
+       *
+       * @example
+       * query {
+       *   sponsorImpact(address: "GAAA") {
+       *     myVolumeUsd myCo2OffsetKg globalAverageCo2OffsetKg
+       *     globalSponsorCount percentile rankingBand
+       *   }
+       * }
+       */
+      sponsorImpact: async (
+        _: unknown,
+        args: { address: string; network?: Network },
+        ctx: ResolverContext
+      ) => {
+        const service = getAnalyticsService(ctx.dataSource ?? defaultDataSource);
+        return service.getSponsorImpact(args.address, args.network ?? "testnet");
+      },
+    },
+    Mutation: {
+      cloneCampaign: async (
+        _: unknown,
+        args: { id: string; network?: Network },
+        ctx: ResolverContext
+      ) => {
+        const streams = await resolveDataSource(ctx, defaultDataSource).getStreams(args.network ?? "testnet");
+        const campaign = streams.find((stream) => stream.id === args.id);
+        if (!campaign) throw new Error(`Campaign ${args.id} not found`);
+        return {
+          ...campaign,
+          id: `cloned-${campaign.id}`,
+        };
+      },
     },
   };
 }

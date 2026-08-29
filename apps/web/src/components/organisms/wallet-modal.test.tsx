@@ -119,8 +119,8 @@ describe("WalletModal – rendering", () => {
 describe("WalletModal – wallet selection", () => {
   it("Connect Now button is disabled by default (no selection)", () => {
     renderModal();
-    const btn = screen.getByTestId("connect-now-button");
-    expect(btn).toBeDisabled();
+    const btn = screen.getByTestId("connect-now-button") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
   });
 
   it("selecting a wallet marks it as aria-checked=true", () => {
@@ -141,7 +141,8 @@ describe("WalletModal – wallet selection", () => {
   it("enables the Connect Now button after a wallet is selected", () => {
     renderModal();
     fireEvent.click(screen.getByTestId("wallet-option-freighter"));
-    expect(screen.getByTestId("connect-now-button")).not.toBeDisabled();
+    const btn = screen.getByTestId("connect-now-button") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
   });
 
   it("Space key selects a wallet", () => {
@@ -182,8 +183,8 @@ describe("WalletModal – connect action", () => {
     renderModal();
     expect(screen.getByText(/connecting/i)).toBeTruthy();
     // All wallet option buttons should be disabled
-    const radios = screen.getAllByRole("radio");
-    radios.forEach((r) => expect(r).toBeDisabled());
+    const radios = screen.getAllByRole("radio") as HTMLButtonElement[];
+    radios.forEach((r) => expect(r.disabled).toBe(true));
   });
 });
 

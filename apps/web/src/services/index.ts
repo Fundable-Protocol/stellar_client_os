@@ -61,3 +61,5 @@ export {
   ValidationError,
   parseError,
 } from './errors';
+
+export { socialService, SocialService } from './social.service';

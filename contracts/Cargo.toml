@@ -4,11 +4,17 @@ resolver = "2"
 members = [
     "payment-stream",
     "distributor",
+    "nft-stream",
+    "planter"
     "dispute-arbiter",
     "nft-stream",
     "campaign-funding",
     "soulbound-badge",
-    "planter"
+    "planter",
+    "timelock",
+    "upgrade-proxy",
+    "sponsor-crowdfunding",
+    "sponsor-insurance",
 ]
 
 [workspace.package]
@@ -18,7 +24,6 @@ license = "MIT"
 repository = "https://github.com/Fundable-Protocol/stellar_client"
 
 [workspace.dependencies]
-soroban-sdk = "=27.0.6"
 soroban-sdk = "=25.3.2"
 
 [profile.release]

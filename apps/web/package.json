@@ -10,9 +10,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "storybook": "start-storybook -p 6006 -s public",
+    "build-storybook": "build-storybook -o storybook-static"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.71.0",
     "@creit.tech/stellar-wallets-kit": "^1.9.5",
     "@fundable/sdk": "workspace:*",
     "@graphql-tools/schema": "^10.0.7",

@@ -25,6 +25,8 @@ servers:
 tags:
   - name: Certificates
     description: Contribution receipt and invoice generation
+  - name: Campaigns
+    description: Campaign discovery and trending rankings
   - name: Compilation
     description: Soroban source compilation
   - name: GraphQL
@@ -37,6 +39,63 @@ tags:
     description: Public geographic stream queries
   - name: Webhooks
     description: Subscription registration and event dispatch
+  /api/campaigns/trending:
+    get:
+      tags: [Campaigns]
+      summary: Rank active campaigns by trending score
+      operationId: getTrendingCampaigns
+      description: |
+        Returns active campaigns ranked by a tunable composite score built from
+        daily velocity, engagement rate, and completion probability. Scoring
+        weights are configurable via the `TRENDING_*_WEIGHT` environment
+        variables (defaults: velocity 0.4, engagement 0.3, completion 0.3).
+      parameters:
+        - name: network
+          in: query
+          required: false
+          description: Soroban network to rank.
+          schema:
+            type: string
+            enum: [testnet, mainnet]
+            default: testnet
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of ranked campaigns to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Zero-based offset into the ranked list.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: includeNonActive
+          in: query
+          required: false
+          description: Include non-Active campaigns (e.g. recently completed).
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Ranked campaigns with their composite scores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendingCampaignsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/certificates:
+
 
 paths:
   /api/certificates:
@@ -882,6 +941,142 @@ components:
         payload:
           type: object
           additionalProperties: true
+    TrendingCampaignsResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendingCampaign'
+        meta:
+          $ref: '#/components/schemas/TrendingCampaignMeta'
+    TrendingCampaign:
+      type: object
+      required: [id, score, rank, components, raw]
+      properties:
+        id:
+          type: string
+          description: On-chain campaign id (numeric string).
+        creator:
+          type: string
+        token:
+          type: string
+        targetAmount:
+          type: string
+          description: Hard-cap target in stroops.
+        minTarget:
+          type: string
+          description: Minimum success threshold in stroops.
+        createdAt:
+          type: integer
+          format: int64
+        deadline:
+          type: integer
+          format: int64
+        totalRaised:
+          type: string
+        status:
+          type: string
+          enum: [Active, Successful, Failed, Claimed]
+        score:
+          type: number
+          format: double
+          description: Composite trending score in [0, 100].
+        rank:
+          type: integer
+          minimum: 1
+        components:
+          $ref: '#/components/schemas/TrendingComponents'
+        raw:
+          $ref: '#/components/schemas/TrendingRaw'
+    TrendingComponents:
+      type: object
+      required: [velocity, engagement, completion]
+      properties:
+        velocity:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        engagement:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        completion:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+    TrendingRaw:
+      type: object
+      required:
+        - dailyVelocity
+        - engagementRate
+        - completionProbability
+        - uniqueContributors
+        - contributionCount
+        - progressPercent
+      properties:
+        dailyVelocity:
+          type: number
+          description: Stroops raised in the trailing 24 h window.
+        engagementRate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        completionProbability:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        uniqueContributors:
+          type: integer
+          minimum: 0
+        contributionCount:
+          type: integer
+          minimum: 0
+        progressPercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+    TrendingWeights:
+      type: object
+      required: [velocity, engagement, completion]
+      properties:
+        velocity:
+          type: number
+          format: double
+          minimum: 0
+        engagement:
+          type: number
+          format: double
+          minimum: 0
+        completion:
+          type: number
+          format: double
+          minimum: 0
+    TrendingCampaignMeta:
+      type: object
+      required: [total, evaluated, weights, generatedAt, network]
+      properties:
+        total:
+          type: integer
+          description: Number of ranked campaigns in the eligible set.
+        evaluated:
+          type: integer
+          description: Total campaigns loaded from the data source.
+        weights:
+          $ref: '#/components/schemas/TrendingWeights'
+        generatedAt:
+          type: integer
+          format: int64
+        network:
+          type: string
+          enum: [testnet, mainnet]
     SuccessMessage:
       type: object
       required: [success, message]

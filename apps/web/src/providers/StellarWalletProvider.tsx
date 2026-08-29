@@ -20,7 +20,7 @@ import { isValidStellarAddress } from "@/utils/stellar-validation";
 
 import { offrampService } from "@/services/offramp.service";
 import { notify } from "@/utils/notification";
-import { isLockedWalletError } from "@/utils/wallet-errors";
+import { isLockedWalletError, isWalletCancellationError } from "@/utils/wallet-errors";
 
 export type WalletId = string;
 export type ConnectionStatus =
@@ -101,28 +101,14 @@ export const StellarWalletProvider = ({
   // All three pieces of state are derived from the same storage snapshot so
   // they are always consistent with one another.
   const [address, setAddress] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
-    const savedNetwork = safeGetItem("stellar_wallet_network");
-    console.log('Lazy init address:', { savedAddress, savedNetwork });
-    if (savedNetwork === WalletNetwork.TESTNET && savedAddress && isValidStellarAddress(savedAddress)) {
-      return savedAddress;
-    }
-    return null;
+    return loadPersistedSession().address;
   });
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() => {
-    const persisted = loadPersistedSession();
+    const { address: savedAddress, walletId: savedWalletId, network: savedNetwork } = loadPersistedSession();
     // Start as "connecting" when we have a persisted session so the UI
     // correctly reflects the pending auto-reconnect verification.
-    if (persisted.address && persisted.walletId && persisted.network) {
+    if (savedAddress && savedWalletId && savedNetwork) {
       return "connecting";
-    }
-    if (typeof window === "undefined") return "idle";
-    const savedAddress = safeGetItem("stellar_wallet_address")?.toUpperCase();
-    const savedWalletId = safeGetItem("@fundable/web:selected_wallet") ?? safeGetItem("stellar_wallet_id");
-    const savedNetwork = safeGetItem("stellar_wallet_network");
-    if (savedAddress && isValidStellarAddress(savedAddress) && savedWalletId && savedNetwork === WalletNetwork.TESTNET) {
-      return "connected";
     }
     return "idle";
   });
@@ -157,10 +143,7 @@ export const StellarWalletProvider = ({
     // restored address/walletId from storage so the UI can render immediately;
     // here we confirm the extension responds and either promote to "connected"
     // or clear stale state when it no longer does.
-    const persisted = loadPersistedSession();
-    const savedAddress = persisted.address ?? safeGetItem("stellar_wallet_address")?.toUpperCase();
-    const savedWalletId = persisted.walletId ?? safeGetItem("@fundable/web:selected_wallet") ?? safeGetItem("stellar_wallet_id");
-    const savedNetwork = persisted.network ?? safeGetItem("stellar_wallet_network");
+    const { address: savedAddress, walletId: savedWalletId, network: savedNetwork } = loadPersistedSession();
 
     if (savedAddress && savedWalletId && savedNetwork) {
       if (savedNetwork !== network) {
@@ -337,6 +320,12 @@ export const StellarWalletProvider = ({
       else if (error && typeof error === "object" && "message" in error)
         errorMessage = String((error as { message: unknown }).message);
 
+      // Gracefully handle user cancellation / closing modal silently without console error or toast
+      if (isWalletCancellationError(error) || isWalletCancellationError({ message: errorMessage })) {
+        setConnectionStatus("idle");
+        return;
+      }
+
       if (isLockedWalletError(error) || isLockedWalletError({ message: errorMessage })) {
         notify.error(
           "Your wallet extension is locked. Unlock it and try connecting again.",
@@ -367,11 +356,6 @@ export const StellarWalletProvider = ({
             )}
           </div>,
         );
-      } else if (
-        errorMessage.toLowerCase().includes("user rejected") ||
-        errorMessage.toLowerCase().includes("permission denied")
-      ) {
-        notify.error("Connection rejected by user");
       } else {
         // Show a generic but helpful error for other errors
         notify.error(`Failed to connect to ${walletId}: ${errorMessage}`);
