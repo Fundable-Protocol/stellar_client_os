@@ -27,6 +27,12 @@ pub enum DataKey {
     /// Per-contributor escrow balance keyed by `(campaign_id, contributor)`
     /// (persistent storage).
     Contribution(u64, Address),
+    /// Campaign metadata IPFS CID or hex hash keyed by campaign ID.
+    CampaignIpfsHash(u64),
+    /// Total count of tree planting records.
+    PlantingCount(u64),
+    /// Tree planting verification SLA record keyed by `(campaign_id, planting_id)`.
+    PlantingSla(u64, u64),
 }
 
 /// Current lifecycle state of a campaign.
@@ -125,6 +131,59 @@ pub struct RefundIssuedEvent {
     pub amount: i128,
 }
 
+/// Emitted when campaign IPFS metadata hash is updated.
+#[contracttype]
+#[derive(Clone)]
+pub struct CampaignIpfsHashUpdatedEvent {
+    pub campaign_id: u64,
+    pub ipfs_hash: soroban_sdk::String,
+}
+
+/// Tree planting verification SLA record.
+#[contracttype]
+#[derive(Clone)]
+pub struct PlantingSlaRecord {
+    pub planting_id: u64,
+    pub campaign_id: u64,
+    pub planter: Address,
+    pub tree_count: u32,
+    pub planted_at: u64,
+    pub verification_deadline: u64,
+    pub is_verified: bool,
+    pub verified_at: u64,
+    pub is_refunded: bool,
+}
+
+/// Emitted when a tree planting batch is recorded with 30-day SLA window.
+#[contracttype]
+#[derive(Clone)]
+pub struct TreePlantingRecordedEvent {
+    pub campaign_id: u64,
+    pub planting_id: u64,
+    pub planter: Address,
+    pub tree_count: u32,
+    pub verification_deadline: u64,
+}
+
+/// Emitted when tree planting is verified on-chain.
+#[contracttype]
+#[derive(Clone)]
+pub struct TreePlantingVerifiedEvent {
+    pub campaign_id: u64,
+    pub planting_id: u64,
+    pub verified_at: u64,
+}
+
+/// Emitted when SLA verification refund is issued for unverified tree planting.
+#[contracttype]
+#[derive(Clone)]
+pub struct SlaRefundIssuedEvent {
+    pub campaign_id: u64,
+    pub planting_id: u64,
+    pub contributor: Address,
+    pub amount: i128,
+}
+
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
@@ -170,6 +229,12 @@ pub enum Error {
     TargetExceeded = 16,
     /// The supplied deadline exceeds the maximum allowed duration of 180 days.
     DeadlineTooFar = 17,
+    /// Verification SLA period has not expired yet.
+    SlaNotBreached = 18,
+    /// Requested tree planting record was not found.
+    PlantingNotFound = 19,
+    /// Tree planting is already verified.
+    AlreadyVerified = 20,
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +249,8 @@ const LEDGER_THRESHOLD: u32 = 518_400;
 const LEDGER_BUMP: u32 = 535_680;
 /// Maximum duration for a campaign (180 days in seconds).
 const MAX_CAMPAIGN_DURATION_SECONDS: u64 = 180 * 24 * 60 * 60;
+/// 30-day Tree Verification SLA duration in seconds (30 * 24 * 60 * 60).
+const VERIFICATION_SLA_SECONDS: u64 = 2_592_000;
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -633,6 +700,181 @@ impl CampaignFundingContract {
             .instance()
             .set(&DataKey::FeeCollector, &new_fee_collector);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    // -----------------------------------------------------------------------
+    // IPFS Metadata Storage (issue #743)
+    // -----------------------------------------------------------------------
+
+    /// Set or update the decentralized IPFS metadata hash for a campaign.
+    pub fn set_campaign_ipfs_hash(env: Env, campaign_id: u64, ipfs_hash: soroban_sdk::String) {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        let key = DataKey::CampaignIpfsHash(campaign_id);
+        env.storage().persistent().set(&key, &ipfs_hash);
+        env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.events().publish(
+            ("CampaignIpfsHashUpdated", campaign_id),
+            CampaignIpfsHashUpdatedEvent {
+                campaign_id,
+                ipfs_hash,
+            },
+        );
+    }
+
+    /// Retrieve the IPFS metadata hash associated with a campaign.
+    pub fn get_campaign_ipfs_hash(env: Env, campaign_id: u64) -> soroban_sdk::String {
+        let key = DataKey::CampaignIpfsHash(campaign_id);
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| soroban_sdk::String::from_str(&env, ""))
+    }
+
+    // -----------------------------------------------------------------------
+    // Tree Verification SLA (issue #742)
+    // -----------------------------------------------------------------------
+
+    /// Record a tree planting batch with a strict 30-day verification SLA.
+    pub fn record_tree_planting(
+        env: Env,
+        campaign_id: u64,
+        planter: Address,
+        tree_count: u32,
+    ) -> u64 {
+        planter.require_auth();
+        let _campaign = Self::load_campaign(&env, campaign_id);
+
+        let count_key = DataKey::PlantingCount(campaign_id);
+        let mut planting_count: u64 = env
+            .storage()
+            .instance()
+            .get(&count_key)
+            .unwrap_or(0);
+        planting_count += 1;
+
+        let planted_at = env.ledger().timestamp();
+        let verification_deadline = planted_at + VERIFICATION_SLA_SECONDS;
+
+        let record = PlantingSlaRecord {
+            planting_id: planting_count,
+            campaign_id,
+            planter: planter.clone(),
+            tree_count,
+            planted_at,
+            verification_deadline,
+            is_verified: false,
+            verified_at: 0,
+            is_refunded: false,
+        };
+
+        let key = DataKey::PlantingSla(campaign_id, planting_count);
+        env.storage().persistent().set(&key, &record);
+        env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.storage().instance().set(&count_key, &planting_count);
+
+        env.events().publish(
+            ("TreePlantingRecorded", campaign_id),
+            TreePlantingRecordedEvent {
+                campaign_id,
+                planting_id: planting_count,
+                planter,
+                tree_count,
+                verification_deadline,
+            },
+        );
+
+        planting_count
+    }
+
+    /// Mark a tree planting batch as verified on-chain.
+    pub fn verify_tree_planting(env: Env, campaign_id: u64, planting_id: u64) {
+        Self::assert_initialized(&env);
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let key = DataKey::PlantingSla(campaign_id, planting_id);
+        let mut record: PlantingSlaRecord = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound));
+
+        if record.is_verified {
+            panic_with_error!(&env, Error::AlreadyVerified);
+        }
+
+        record.is_verified = true;
+        record.verified_at = env.ledger().timestamp();
+
+        env.storage().persistent().set(&key, &record);
+
+        env.events().publish(
+            ("TreePlantingVerified", campaign_id),
+            TreePlantingVerifiedEvent {
+                campaign_id,
+                planting_id,
+                verified_at: record.verified_at,
+            },
+        );
+    }
+
+    /// Claim SLA auto-refund if 30-day verification deadline passes without proof verification.
+    pub fn claim_sla_refund(
+        env: Env,
+        campaign_id: u64,
+        planting_id: u64,
+        contributor: Address,
+    ) {
+        contributor.require_auth();
+
+        let key = DataKey::PlantingSla(campaign_id, planting_id);
+        let record: PlantingSlaRecord = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound));
+
+        if record.is_verified {
+            panic_with_error!(&env, Error::AlreadyVerified);
+        }
+        if env.ledger().timestamp() <= record.verification_deadline {
+            panic_with_error!(&env, Error::SlaNotBreached);
+        }
+
+        let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
+        let amount: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
+        if amount <= 0 {
+            panic_with_error!(&env, Error::NoContributionFound);
+        }
+
+        env.storage().persistent().remove(&contrib_key);
+
+        let campaign = Self::load_campaign(&env, campaign_id);
+        let token_client = token::Client::new(&env, &campaign.token);
+        token_client.transfer(&env.current_contract_address(), &contributor, &amount);
+
+        env.events().publish(
+            ("SlaRefundIssued", campaign_id),
+            SlaRefundIssuedEvent {
+                campaign_id,
+                planting_id,
+                contributor,
+                amount,
+            },
+        );
+    }
+
+    /// Retrieve tree planting SLA record.
+    pub fn get_planting_sla(env: Env, campaign_id: u64, planting_id: u64) -> PlantingSlaRecord {
+        let key = DataKey::PlantingSla(campaign_id, planting_id);
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound))
     }
 
     // -----------------------------------------------------------------------
