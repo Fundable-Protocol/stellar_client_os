@@ -682,6 +682,14 @@ impl PaymentStreamContract {
         env.storage().persistent().extend_ttl(&DataKey::Stream(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
         env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
+        // Update donor cumulative volume for fee tier calculation
+        let donor_volume_key = (Symbol::new(&env, "donor_volume"), sender.clone());
+        let current_volume: i128 = env.storage().persistent().get(&donor_volume_key).unwrap_or(0);
+        let new_volume = current_volume.checked_add(total_amount)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        env.storage().persistent().set(&donor_volume_key, &new_volume);
+        env.storage().persistent().extend_ttl(&donor_volume_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
         // Update protocol metrics
         let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
             .get(&DataKey::ProtocolMetrics)
@@ -1099,13 +1107,35 @@ impl PaymentStreamContract {
     fn calculate_protocol_fee(env: &Env, amount: i128) -> i128 {
         let fee_rate: u32 = env.storage().instance().get(&DataKey::FeeRate).unwrap_or(0);
 
-        if fee_rate == 0 || amount <= 0 {
+        // Get donor's cumulative volume
+        let donor_volume_key = (Symbol::new(env, "donor_volume"), donor.clone());
+        let cumulative_volume: i128 = env.storage().persistent().get(&donor_volume_key).unwrap_or(0);
+
+        // Get fee tiers (fallback to flat fee if tiers not configured)
+        let tiers: soroban_sdk::Vec<FeeTier> = match env.storage().instance().get(&Symbol::new(env, "fee_tiers")) {
+            Some(tiers) => tiers,
+            None => {
+                // Fallback: use general fee rate if tiers not set up
+                let fee_rate: u32 = env.storage().instance().get(&Symbol::new(env, "general_protocol_fee_rate")).unwrap_or(0);
+                let rate = fee_rate as i128;
+                return (amount / 10000) * rate + ((amount % 10000) * rate) / 10000;
+            }
+        };
+
+        // Determine applicable tier
+        let mut applicable_fee_rate: u32 = 0;
+        for tier in tiers.iter() {
+            if cumulative_volume >= tier.threshold {
+                applicable_fee_rate = tier.fee_rate;
+            }
+        }
+
+        // Calculate fee with the determined rate
+        if applicable_fee_rate == 0 {
             return 0;
         }
 
-        // fee = (amount * fee_rate) / 10000
-        // Split calculation to avoid overflow while preserving precision
-        let rate = fee_rate as i128;
+        let rate = applicable_fee_rate as i128;
         let fee = (amount / 10000) * rate + ((amount % 10000) * rate) / 10000;
         fee.max(0)
     }
@@ -1169,8 +1199,8 @@ impl PaymentStreamContract {
             panic_with_error!(&env, Error::InsufficientWithdrawable);
         }
 
-        // Calculate protocol fee
-        let fee = Self::calculate_protocol_fee(&env, amount);
+        // Calculate protocol fee based on donor's cumulative volume
+        let fee = Self::calculate_protocol_fee(&env, &stream.sender, amount);
         let net_amount = amount - fee;
 
         stream.withdrawn_amount += amount;

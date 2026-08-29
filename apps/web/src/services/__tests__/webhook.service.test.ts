@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { WebhookService } from '../webhook.service';
+import { getEventIdempotencyKey, WebhookService } from '../webhook.service';
 import fs from 'fs/promises';
 import path from 'path';
 import { createHmac } from 'crypto';
@@ -7,6 +7,7 @@ import { createHmac } from 'crypto';
 const testDir = path.join(process.cwd(), 'data', 'test-webhooks');
 const subsPath = path.join(testDir, 'subscriptions.json');
 const deadLetterPath = path.join(testDir, 'dead_letter.json');
+const deduplicationPath = path.join(testDir, 'delivered_events.json');
 
 describe('WebhookService', () => {
   let service: WebhookService;
@@ -20,8 +21,10 @@ describe('WebhookService', () => {
       maxRetries: 3,
       baseDelay: 50, // Short delay for fast testing
       subscriptionsPath: subsPath,
-      deadLetterPath: deadLetterPath,
+      deadLetterPath,
+      deduplicationPath,
     });
+
 
     // Mock global fetch
     mockFetch = vi.fn();
@@ -100,6 +103,13 @@ describe('WebhookService', () => {
   });
 
   describe('Webhook Dispatcher & Signature Delivery', () => {
+    it('builds an idempotency key from a stable source event identifier', () => {
+      expect(getEventIdempotencyKey('tree.verification.completed', { nullifier: 'n-123' })).toBe(
+        'tree.verification.completed:nullifier:n-123',
+      );
+      expect(getEventIdempotencyKey('tree.verification.completed', { status: 'verified' })).toBeNull();
+    });
+
     it('should dispatch matching events to subscribers', async () => {
       mockFetch.mockResolvedValue({ ok: true, status: 200 });
 
@@ -132,6 +142,72 @@ describe('WebhookService', () => {
       const expectedHmac = createHmac('sha256', sub.secret);
       const expectedSig = expectedHmac.update(`${timestamp}.${calledInit.body}`).digest('hex');
       expect(signature).toBe(expectedSig);
+    });
+
+    it('should deliver a stable tree-verification event only once', async () => {
+      mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+      await service.createSubscription('https://example.com/verification', ['tree.verification.completed']);
+      const eventData = { nullifier: 'nullifier-123', donor: 'G...' };
+
+      await service.dispatchEvent('tree.verification.completed', eventData);
+      await service.awaitPendingDeliveries();
+      await service.dispatchEvent('tree.verification.completed', eventData);
+      await service.awaitPendingDeliveries();
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('suppresses concurrent duplicate dispatches without affecting other subscribers', async () => {
+      mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+      await service.createSubscription('https://example.com/one', ['tree.verification.completed']);
+      await service.createSubscription('https://example.com/two', ['tree.verification.completed']);
+      const eventData = { verificationId: 'verification-123' };
+
+      await Promise.all([
+        service.dispatchEvent('tree.verification.completed', eventData),
+        service.dispatchEvent('tree.verification.completed', eventData),
+      ]);
+      await service.awaitPendingDeliveries();
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('retains the delivered-event identity after a service restart', async () => {
+      mockFetch.mockResolvedValue({ ok: true, status: 200 });
+
+      await service.createSubscription('https://example.com/verification', ['tree.verification.completed']);
+      const eventData = { eventId: 'ledger-123-event-456' };
+      await service.dispatchEvent('tree.verification.completed', eventData);
+      await service.awaitPendingDeliveries();
+
+      service = new WebhookService({
+        maxRetries: 3,
+        baseDelay: 50,
+        subscriptionsPath: subsPath,
+        deadLetterPath,
+        deduplicationPath,
+      });
+      await service.dispatchEvent('tree.verification.completed', eventData);
+      await service.awaitPendingDeliveries();
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('allows a failed stable event to be retried by a later dispatch', async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 500 });
+
+      await service.createSubscription('https://example.com/verification', ['tree.verification.completed']);
+      const eventData = { verificationId: 'verification-that-retries' };
+      await service.dispatchEvent('tree.verification.completed', eventData);
+      await service.awaitPendingDeliveries();
+
+      mockFetch.mockResolvedValue({ ok: true, status: 200 });
+      await service.dispatchEvent('tree.verification.completed', eventData);
+      await service.awaitPendingDeliveries();
+
+      expect(mockFetch).toHaveBeenCalledTimes(4);
     });
 
     it('should dispatch to wildcard * subscriptions', async () => {

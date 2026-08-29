@@ -1,9 +1,8 @@
 "use client";
-import { motion } from "framer-motion";
-import { Wallet, Check } from "lucide-react";
+
+import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Loader2 } from "lucide-react";
-import React from "react";
 import { useWallet, WalletId } from "@/providers/StellarWalletProvider";
 import {
   Dialog,
@@ -126,13 +125,6 @@ export function WalletModal() {
     <Dialog open={isModalOpen} onOpenChange={(open) => !open && closeModal()}>
       <DialogContent
         onCloseAutoFocus={handleCloseAutoFocus}
-        className="max-w-md p-1 overflow-hidden border-white/10 bg-[#0F1621] rounded-3xl shadow-2xl"
-      >
-        {/* Glossy overlay effect */}
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 bg-linear-to-br from-white/5 to-transparent pointer-events-none"
-        />
         className="w-full max-w-sm sm:max-w-md p-1 overflow-hidden border-white/10 bg-[#0F1621] rounded-3xl shadow-2xl mx-4 sm:mx-auto"
         aria-modal="true"
       >

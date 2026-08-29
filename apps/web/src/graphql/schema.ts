@@ -21,6 +21,19 @@ export const typeDefs = /* GraphQL */ `
     Completed
   }
 
+  """
+  Leaderboard bucket for a sponsor based on their impact percentile
+  (e.g. 'top_10' means the sponsor ranks in the top 10% of all sponsors).
+  """
+  enum RankingBand {
+    top_1
+    top_5
+    top_10
+    top_25
+    top_50
+    below_average
+  }
+
   """Aggregated metrics for a single asset (token)."""
   type AssetMetrics {
     """Token contract address (C… Stellar address)."""
@@ -65,6 +78,34 @@ export const typeDefs = /* GraphQL */ `
     sharePercent: Float!
     """Per-asset breakdown within this category."""
     assetBreakdown: [AssetMetrics!]!
+  }
+
+  """
+  A single sponsor's impact compared with the global average sponsor.
+  CO2 figures are estimates derived from funded volume (see co2PerUsdKg).
+  """
+  type SponsorImpact {
+    """The sponsor's Stellar address."""
+    address: String!
+    """Total volume funded by this sponsor (USDC-equivalent, as string)."""
+    myVolumeUsd: String!
+    """Estimated CO2 offset from this sponsor's funding (kg CO2e)."""
+    myCo2OffsetKg: Float!
+    """Average volume funded per sponsor (USDC-equivalent, as string)."""
+    globalAverageVolumeUsd: String!
+    """Estimated CO2 offset of the average sponsor (kg CO2e)."""
+    globalAverageCo2OffsetKg: Float!
+    """Number of unique sponsors (senders) in the dataset."""
+    globalSponsorCount: Int!
+    """
+    Percentage of sponsors this sponsor beats (0–100).
+    Null when there is no sponsor data to compare against.
+    """
+    percentile: Int
+    """Ranking band (e.g. top_10). Null when there is no data."""
+    rankingBand: RankingBand
+    """CO2 conversion factor applied (kg CO2e per 1 USD funded)."""
+    co2PerUsdKg: Float!
   }
 
   """Top-level aggregate across all streams."""
@@ -129,7 +170,54 @@ export const typeDefs = /* GraphQL */ `
     toTimestamp: Int
   }
 
+  input TreeFilter {
+    planter: String
+    region: String
+    status: StreamStatus
+    search: String
+  }
+
+  type Tree {
+    id: ID!
+    planter: String!
+    region: String
+    category: String
+    status: StreamStatus!
+    asset: String!
+    sponsoredAmount: String!
+    createdAt: Int!
+  }
+
+  type Planter {
+    address: ID!
+    region: String
+    treeCount: Int!
+    sponsoredAmount: String!
+  }
+
+  type Contract {
+    address: ID!
+    symbol: String!
+    streamCount: Int!
+    totalVolume: String!
+  }
+
   type Query {
+    """
+    Search individual sponsored trees derived from indexed payment streams.
+    """
+    trees(filter: TreeFilter, pagination: PaginationInput, network: Network): [Tree!]!
+
+    """
+    List planters with aggregate sponsorship counts and volume.
+    """
+    planters(region: String, pagination: PaginationInput, network: Network): [Planter!]!
+
+    """
+    List contract/token aggregates used by the payment-stream protocol.
+    """
+    contracts(pagination: PaginationInput, network: Network): [Contract!]!
+
     """
     Global aggregate metrics across all streams on the specified network.
     """
@@ -163,5 +251,11 @@ export const typeDefs = /* GraphQL */ `
       pagination: PaginationInput
       network: Network
     ): [AssetMetrics!]!
+
+    """
+    A sponsor's impact (estimated CO2 offset) compared with the global
+    average sponsor, including a percentile ranking (top 10%, etc.).
+    """
+    sponsorImpact(address: String!, network: Network): SponsorImpact!
   }
 `;

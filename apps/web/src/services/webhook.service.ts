@@ -3,11 +3,58 @@ import path from 'path';
 import { createHmac, randomUUID } from 'crypto';
 import type { WebhookSubscription, WebhookDeliveryAttempt, WebhookPayload } from '../types/webhook';
 
+const IDEMPOTENCY_FIELDS = [
+  'idempotencyKey',
+  'idempotency_key',
+  'eventId',
+  'event_id',
+  'notificationId',
+  'notification_id',
+  'verificationId',
+  'verification_id',
+  'nullifier',
+  'txHash',
+  'tx_hash',
+  'transactionHash',
+  'transaction_hash',
+] as const;
+
+/**
+ * Return the caller-provided identity for an event, if one is available.
+ *
+ * A generated webhook delivery ID is deliberately not used here: it changes
+ * every time the same source event is dispatched and therefore cannot prevent
+ * duplicate notifications. Events without a stable identity retain the
+ * existing at-least-once delivery behavior.
+ */
+export function getEventIdempotencyKey(
+  event: string,
+  eventData: Record<string, unknown>,
+): string | null {
+  for (const field of IDEMPOTENCY_FIELDS) {
+    const value = eventData[field];
+    if (typeof value === 'string' && value.length > 0) {
+      return `${event}:${field}:${value}`;
+    }
+    if (typeof value === 'number' || typeof value === 'bigint') {
+      return `${event}:${field}:${String(value)}`;
+    }
+  }
+
+  return null;
+}
+
 export interface WebhookServiceOptions {
   maxRetries?: number;
   baseDelay?: number; // ms
   subscriptionsPath?: string;
   deadLetterPath?: string;
+  /** Persistent store for successfully delivered event identities. */
+  deduplicationPath?: string;
+}
+
+interface DedupeState {
+  delivered: string[];
 }
 
 export class WebhookService {
@@ -15,13 +62,19 @@ export class WebhookService {
   private readonly baseDelay: number;
   private readonly subscriptionsPath: string;
   private readonly deadLetterPath: string;
+  private readonly deduplicationPath: string;
   private readonly pendingDeliveries: Set<Promise<void>> = new Set();
+  private readonly inFlightEventKeys = new Set<string>();
+  private readonly deliveredEventKeys = new Set<string>();
+  private deduplicationLoaded = false;
+  private deduplicationLock: Promise<void> = Promise.resolve();
 
   constructor(options: WebhookServiceOptions = {}) {
     this.maxRetries = options.maxRetries ?? 5;
     this.baseDelay = options.baseDelay ?? 1000;
     this.subscriptionsPath = options.subscriptionsPath ?? path.join(process.cwd(), 'data', 'webhook_subscriptions.json');
     this.deadLetterPath = options.deadLetterPath ?? path.join(process.cwd(), 'data', 'webhook_dead_letter.json');
+    this.deduplicationPath = options.deduplicationPath ?? path.join(process.cwd(), 'data', 'webhook_delivered_events.json');
   }
 
   // ============================================
@@ -109,6 +162,77 @@ export class WebhookService {
   }
 
   // ============================================
+  // Idempotency Methods
+  // ============================================
+
+  /** Serialize mutations to the persistent idempotency store. */
+  private async withDeduplicationLock<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.deduplicationLock;
+    let release!: () => void;
+    this.deduplicationLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
+  private async loadDeduplicationState(): Promise<void> {
+    if (this.deduplicationLoaded) return;
+
+    try {
+      const data = await fs.readFile(this.deduplicationPath, 'utf-8');
+      const state = JSON.parse(data) as DedupeState;
+      if (Array.isArray(state.delivered)) {
+        for (const key of state.delivered) {
+          if (typeof key === 'string') this.deliveredEventKeys.add(key);
+        }
+      }
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code !== 'ENOENT') throw err;
+    }
+
+    this.deduplicationLoaded = true;
+  }
+
+  private async persistDeduplicationState(): Promise<void> {
+    const state: DedupeState = {
+      delivered: Array.from(this.deliveredEventKeys),
+    };
+    await this.writeJsonAtomic(this.deduplicationPath, state);
+  }
+
+  /** Reserve an event identity so concurrent dispatches cannot deliver twice. */
+  private async reserveEvent(eventKey: string | null): Promise<boolean> {
+    if (!eventKey) return true;
+
+    return this.withDeduplicationLock(async () => {
+      await this.loadDeduplicationState();
+      if (this.deliveredEventKeys.has(eventKey) || this.inFlightEventKeys.has(eventKey)) {
+        return false;
+      }
+      this.inFlightEventKeys.add(eventKey);
+      return true;
+    });
+  }
+
+  private async completeEvent(eventKey: string | null, delivered: boolean): Promise<void> {
+    if (!eventKey) return;
+
+    await this.withDeduplicationLock(async () => {
+      this.inFlightEventKeys.delete(eventKey);
+      if (!delivered) return;
+
+      this.deliveredEventKeys.add(eventKey);
+      await this.persistDeduplicationState();
+    });
+  }
+
+  // ============================================
   // Log / Dead-Letter Queue (DLQ) Methods
   // ============================================
 
@@ -172,13 +296,24 @@ export class WebhookService {
       (sub) => sub.events.includes(event) || sub.events.includes('*')
     );
 
-    matchingSubs.forEach((sub) => {
-      const deliveryPromise = this.deliverWithRetry(sub, event, eventData);
+    for (const sub of matchingSubs) {
+      // Dedupe per subscription: one subscriber must not suppress delivery to
+      // another subscriber that is also listening for the same source event.
+      const sourceKey = getEventIdempotencyKey(event, eventData);
+      const eventKey = sourceKey ? `${sub.id}:${sourceKey}` : null;
+      if (!(await this.reserveEvent(eventKey))) continue;
+
+      const deliveryPromise = this.deliverWithRetry(sub, event, eventData).then(
+        (delivered) => this.completeEvent(eventKey, delivered),
+        async () => {
+          await this.completeEvent(eventKey, false);
+        },
+      );
       this.pendingDeliveries.add(deliveryPromise);
       deliveryPromise.finally(() => {
         this.pendingDeliveries.delete(deliveryPromise);
       });
-    });
+    }
   }
 
   /**
@@ -189,7 +324,7 @@ export class WebhookService {
     event: string,
     eventData: Record<string, unknown>,
     attemptNum = 1
-  ): Promise<void> {
+  ): Promise<boolean> {
     const deliveryId = 'del_' + randomUUID().replace(/-/g, '').slice(0, 16);
     const timestamp = Date.now();
 
@@ -252,7 +387,7 @@ export class WebhookService {
 
     if (success) {
       console.log(`[Webhook success] Event: ${event}, Sub: ${sub.id}, Url: ${sub.url}`);
-      return;
+      return true;
     }
 
     console.warn(
@@ -262,9 +397,9 @@ export class WebhookService {
     if (attemptNum < this.maxRetries) {
       const backoffDelay = this.baseDelay * Math.pow(2, attemptNum - 1);
       
-      const retryPromise = new Promise<void>((resolve) => {
+      const retryPromise = new Promise<boolean>((resolve) => {
         setTimeout(() => {
-          this.deliverWithRetry(sub, event, eventData, attemptNum + 1).then(resolve, resolve);
+          this.deliverWithRetry(sub, event, eventData, attemptNum + 1).then(resolve, () => resolve(false));
         }, backoffDelay);
       });
 
@@ -273,12 +408,13 @@ export class WebhookService {
         this.pendingDeliveries.delete(retryPromise);
       });
       
-      await retryPromise;
+      return retryPromise;
     } else {
       console.error(
         `[Webhook dead-letter] All retries (${this.maxRetries}) exhausted for ${sub.url}. Writing to DLQ.`
       );
       await this.logToDeadLetter(attemptRecord);
+      return false;
     }
   }
 }

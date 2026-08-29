@@ -182,6 +182,8 @@ pub enum Error {
     /// The contribution would push `total_raised` above the hard cap
     /// (`target_amount`).
     TargetExceeded = 16,
+    /// The supplied deadline exceeds the maximum allowed duration of 180 days.
+    DeadlineTooFar = 17,
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +196,8 @@ const MAX_FEE: u32 = 500;
 const LEDGER_THRESHOLD: u32 = 518_400;
 /// Storage TTL bump: ~31 days at 5 s/ledger.
 const LEDGER_BUMP: u32 = 535_680;
+/// Maximum duration for a campaign (180 days in seconds).
+const MAX_CAMPAIGN_DURATION_SECONDS: u64 = 180 * 24 * 60 * 60;
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -288,6 +292,9 @@ impl CampaignFundingContract {
         }
         if deadline <= env.ledger().timestamp() {
             panic_with_error!(&env, Error::InvalidDeadline);
+        }
+        if deadline > env.ledger().timestamp() + MAX_CAMPAIGN_DURATION_SECONDS {
+            panic_with_error!(&env, Error::DeadlineTooFar);
         }
 
         let mut count: u64 = env
@@ -957,6 +964,45 @@ mod tests {
         let token = Address::generate(&env);
         // deadline (2_000) < current time (5_000)
         client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+    }
+
+    #[test]
+    fn test_create_campaign_deadline_within_180_days_succeeds() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let deadline = 1_000 + (90 * 24 * 60 * 60);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline);
+        assert_eq!(id, 1);
+    }
+
+    #[test]
+    fn test_create_campaign_deadline_exactly_180_days_succeeds() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let deadline = 1_000 + MAX_CAMPAIGN_DURATION_SECONDS;
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline);
+        assert_eq!(id, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #17)")]
+    fn test_create_campaign_deadline_exceeds_180_days_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let deadline = 1_000 + MAX_CAMPAIGN_DURATION_SECONDS + 1;
+        client.create_campaign(&creator, &token, &10_000, &5_000, &deadline);
     }
 
     // -----------------------------------------------------------------------

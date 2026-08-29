@@ -106,7 +106,7 @@ export class DistributorClient {
 
   /**
    * Get stats for a specific user.
-   * @param user The address of the user, or an object containing the user address.
+   * @param user The address of the user.
    * @throws {FundableStellarError} If fetch fails with a human-readable error message
    */
   public async getUserStats(
@@ -123,7 +123,7 @@ export class DistributorClient {
 
   /**
    * Get stats for a specific token.
-   * @param token The address of the token (contract ID), or an object containing the token address.
+   * @param token The address of the token contract.
    * @throws {FundableStellarError} If fetch fails with a human-readable error message
    */
   public async getTokenStats(
