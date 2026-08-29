@@ -173,6 +173,10 @@ pub enum Error {
     TargetExceeded = 16,
     /// The supplied deadline exceeds the maximum allowed duration of 180 days.
     DeadlineTooFar = 17,
+    /// Creator and share lists are invalid or do not total 10,000 bps.
+    InvalidCreators = 18,
+    /// The requested creator is already part of the campaign.
+    CreatorAlreadyExists = 19,
 }
 
 // ---------------------------------------------------------------------------
