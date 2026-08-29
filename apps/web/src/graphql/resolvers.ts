@@ -251,6 +251,34 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
           id: `cloned-${campaign.id}`,
         };
       },
+
+      /**
+       * Update campaign details before launch (issue #721).
+       * Allows updating name, description, goalAmount, and deadline before campaign goes live.
+       */
+      updateCampaign: async (
+        _: unknown,
+        args: {
+          id: string;
+          input: { name?: string; description?: string; goalAmount?: string; deadline?: number };
+          network?: Network;
+        },
+        ctx: ResolverContext
+      ) => {
+        const streams = await resolveDataSource(ctx, defaultDataSource).getStreams(args.network ?? "testnet");
+        const campaign = streams.find((stream) => stream.id === args.id);
+        if (!campaign) throw new Error(`Campaign ${args.id} not found`);
+        if (campaign.status !== "Draft" && campaign.status !== "Active") {
+          throw new Error("Campaign details cannot be modified after launch");
+        }
+        return {
+          ...campaign,
+          name: args.input.name ?? campaign.name,
+          description: args.input.description ?? campaign.description,
+          totalAmount: args.input.goalAmount ?? campaign.totalAmount,
+          endTime: args.input.deadline ?? campaign.endTime,
+        };
+      },
     },
   };
 }

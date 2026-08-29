@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -27,6 +27,10 @@ pub enum DataKey {
     /// Per-contributor escrow balance keyed by `(campaign_id, contributor)`
     /// (persistent storage).
     Contribution(u64, Address),
+    /// Governance ERC20 reward token address for top sponsors (instance storage) (issue #719).
+    RewardToken,
+    /// Vector of unique sponsor addresses for a campaign (persistent storage) (issue #719).
+    CampaignSponsors(u64),
 }
 
 /// Current lifecycle state of a campaign.
@@ -70,6 +74,8 @@ pub struct Campaign {
     pub total_raised: i128,
     /// Current lifecycle state.
     pub status: CampaignStatus,
+    /// CO2 credit bonus multiplier for rainy season creation (May-October = 2x) (issue #714).
+    pub co2_multiplier: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +92,7 @@ pub struct CampaignCreatedEvent {
     pub target_amount: i128,
     pub min_target: i128,
     pub deadline: u64,
+    pub co2_multiplier: u32,
 }
 
 /// Emitted each time a contributor adds tokens to a campaign.
@@ -123,6 +130,16 @@ pub struct RefundIssuedEvent {
     pub campaign_id: u64,
     pub contributor: Address,
     pub amount: i128,
+}
+
+/// Emitted when governance ERC20 tokens are distributed to top 10 campaign sponsors (issue #719).
+#[contracttype]
+#[derive(Clone)]
+pub struct SponsorRewardsDistributedEvent {
+    pub campaign_id: u64,
+    pub reward_token: Address,
+    pub total_reward_distributed: i128,
+    pub sponsor_count: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +187,8 @@ pub enum Error {
     TargetExceeded = 16,
     /// The supplied deadline exceeds the maximum allowed duration of 180 days.
     DeadlineTooFar = 17,
+    /// Governance reward token not initialized (issue #719).
+    RewardTokenNotSet = 18,
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +311,8 @@ impl CampaignFundingContract {
         env.storage().instance().set(&DataKey::CampaignCount, &count);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
+        let co2_multiplier = Self::calculate_co2_multiplier(env.ledger().timestamp());
+
         let campaign = Campaign {
             id: count,
             creator: creator.clone(),
@@ -301,6 +322,7 @@ impl CampaignFundingContract {
             deadline,
             total_raised: 0,
             status: CampaignStatus::Active,
+            co2_multiplier,
         };
 
         Self::save_campaign(&env, count, &campaign);
@@ -314,6 +336,7 @@ impl CampaignFundingContract {
                 target_amount,
                 min_target,
                 deadline,
+                co2_multiplier,
             },
         );
 
@@ -375,6 +398,21 @@ impl CampaignFundingContract {
         env.storage()
             .persistent()
             .extend_ttl(&contrib_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        // Record unique sponsor for top-10 reward calculation (issue #719)
+        let sponsors_key = DataKey::CampaignSponsors(campaign_id);
+        let mut sponsors: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&sponsors_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        if !sponsors.contains(&contributor) {
+            sponsors.push_back(contributor.clone());
+            env.storage().persistent().set(&sponsors_key, &sponsors);
+            env.storage()
+                .persistent()
+                .extend_ttl(&sponsors_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
 
         campaign.total_raised = new_total;
 
@@ -633,6 +671,139 @@ impl CampaignFundingContract {
             .instance()
             .set(&DataKey::FeeCollector, &new_fee_collector);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    // -----------------------------------------------------------------------
+    // Rainy season CO2 multiplier & Sponsor token rewards (issues #714 & #719)
+    // -----------------------------------------------------------------------
+
+    /// Convert Unix timestamp into 1-indexed month of year (1=Jan, 5=May, 10=Oct, 12=Dec).
+    fn get_month_from_timestamp(timestamp: u64) -> u32 {
+        let days = (timestamp / 86400) as i64;
+        let z = days + 719468;
+        let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+        let doe = (z - era * 146097) as u64;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        m as u32
+    }
+
+    /// Calculate CO2 multiplier based on creation timestamp (issue #714).
+    /// Campaigns created during rainy season (May-October, months 5..=10) get 2x CO2 multiplier.
+    pub fn calculate_co2_multiplier(timestamp: u64) -> u32 {
+        let month = Self::get_month_from_timestamp(timestamp);
+        if (5..=10).contains(&month) {
+            2
+        } else {
+            1
+        }
+    }
+
+    /// Return the CO2 credit multiplier for a campaign (issue #714).
+    pub fn get_co2_multiplier(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.co2_multiplier
+    }
+
+    /// Set the ERC20 governance reward token address for top sponsors (issue #719).
+    pub fn set_reward_token(env: Env, token: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+        env.storage().instance().set(&DataKey::RewardToken, &token);
+        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    /// Return the configured governance reward token address (issue #719).
+    pub fn get_reward_token(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::RewardToken)
+    }
+
+    /// Issue ERC20 governance tokens to top 10 sponsors per campaign proportional to their contribution (issue #719).
+    pub fn distribute_sponsor_rewards(env: Env, campaign_id: u64, total_reward_amount: i128) {
+        Self::assert_initialized(&env);
+        if total_reward_amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
+        let reward_token: Address = match env.storage().instance().get(&DataKey::RewardToken) {
+            Some(t) => t,
+            None => panic_with_error!(&env, Error::RewardTokenNotSet),
+        };
+
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        let sponsors_key = DataKey::CampaignSponsors(campaign_id);
+        let sponsors: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&sponsors_key)
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let len = sponsors.len();
+        if len == 0 {
+            return;
+        }
+
+        let mut sponsor_contribs = Vec::new(&env);
+        for sponsor in sponsors.iter() {
+            let contrib = Self::get_contribution(env.clone(), campaign_id, sponsor.clone());
+            if contrib > 0 {
+                sponsor_contribs.push_back((sponsor, contrib));
+            }
+        }
+
+        let sc_len = sponsor_contribs.len();
+        let mut sorted = sponsor_contribs.clone();
+        for i in 0..sc_len {
+            for j in (i + 1)..sc_len {
+                let item_i = sorted.get(i).unwrap();
+                let item_j = sorted.get(j).unwrap();
+                if item_j.1 > item_i.1 {
+                    sorted.set(i, item_j);
+                    sorted.set(j, item_i);
+                }
+            }
+        }
+
+        let limit = if sc_len < 10 { sc_len } else { 10 };
+        let mut top_10_total: i128 = 0;
+        for i in 0..limit {
+            let item = sorted.get(i).unwrap();
+            top_10_total += item.1;
+        }
+
+        if top_10_total == 0 {
+            return;
+        }
+
+        let token_client = token::Client::new(&env, &reward_token);
+        let mut distributed_count: u32 = 0;
+
+        for i in 0..limit {
+            let (sponsor, contrib) = sorted.get(i).unwrap();
+            let reward = (contrib * total_reward_amount) / top_10_total;
+            if reward > 0 {
+                token_client.transfer(&env.current_contract_address(), &sponsor, &reward);
+                distributed_count += 1;
+            }
+        }
+
+        env.events().publish(
+            ("SponsorRewardsDistributed", campaign_id),
+            SponsorRewardsDistributedEvent {
+                campaign_id,
+                reward_token,
+                total_reward_distributed: total_reward_amount,
+                sponsor_count: distributed_count,
+            },
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1542,5 +1713,36 @@ mod tests {
         // fee = 9_999 * 100 / 10_000 = 99 (integer division); net = 9_900.
         assert_eq!(token_client.balance(&creator), 9_900);
         assert_eq!(token_client.balance(&fee_collector), 99);
+    }
+
+    #[test]
+    fn test_rainy_season_co2_multiplier() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        // May 15, 2026 (rainy season -> 2x multiplier)
+        set_time(&env, 1_778_800_000);
+        let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000);
+        assert_eq!(client.get_co2_multiplier(&id_rainy), 2);
+
+        // January 15, 2026 (non-rainy season -> 1x multiplier)
+        set_time(&env, 1_768_400_000);
+        let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000);
+        assert_eq!(client.get_co2_multiplier(&id_dry), 1);
+    }
+
+    #[test]
+    fn test_set_and_get_reward_token() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+        let reward_token = Address::generate(&env);
+
+        assert_eq!(client.get_reward_token(), None);
+        client.set_reward_token(&reward_token);
+        assert_eq!(client.get_reward_token(), Some(reward_token));
     }
 }

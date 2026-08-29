@@ -29,11 +29,14 @@ export interface Campaign {
   id: number;
   creator: string; // Address
   species: string;
+  name?: string;
+  description?: string;
   goal_amount: bigint;
   raised_amount: bigint;
   start_time: number;
   end_time: number;
   status: CampaignStatus;
+  co2_multiplier?: number;
 }
 
 export interface CloneCampaignInput {
