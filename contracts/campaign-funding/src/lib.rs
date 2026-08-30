@@ -30,8 +30,17 @@ pub enum DataKey {
     /// Full [`Campaign`] struct keyed by campaign ID (persistent storage).
     Campaign(u64),
     /// Per-contributor escrow balance keyed by `(campaign_id, contributor)`
-    /// (persistent storage).
+    /// (persistent storage). This remains the sponsor's gross contribution,
+    /// independent of protocol fees and matching funds.
     Contribution(u64, Address),
+    /// Original sponsor contribution, preserved independently of fees.
+    OriginalContribution(u64, Address),
+    /// Admin-funded matching budget for a campaign.
+    MatchingCap(u64),
+    /// Matching amount already applied to campaign contributions.
+    MatchingUsed(u64),
+    /// Unspent admin-funded matching balance.
+    MatchingBalance(u64),
 }
 
 /// Current lifecycle state of a campaign.
@@ -133,7 +142,17 @@ pub struct RefundIssuedEvent {
     pub amount: i128,
 }
 
-/// Emitted when the protocol fee is collected during
+    /// Emitted when the administrator deposits matching funds.
+    #[contracttype]
+    #[derive(Clone)]
+    pub struct MatchingFundsAddedEvent {
+        pub campaign_id: u64,
+        pub admin: Address,
+        pub amount: i128,
+        pub cap: i128,
+    }
+
+    /// Emitted when the protocol fee is collected during
 /// [`CampaignFundingContract::claim_funds`].
 ///
 /// Together with [`ContributionMadeEvent`], [`FundsClaimedEvent`], and
@@ -536,18 +555,37 @@ impl CampaignFundingContract {
         let token_client = token::Client::new(&env, &campaign.token);
         token_client.transfer(&contributor, &env.current_contract_address(), &amount);
 
-        // Update per-contributor balance.
+        // Update per-contributor balance. This is always the sponsor's gross
+        // amount, so a later refund returns the original contribution rather
+        // than any fee-adjusted net amount.
         let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
         let prev: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
         let new_contrib = prev
             .checked_add(amount)
             .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
         env.storage().persistent().set(&contrib_key, &new_contrib);
-        env.storage()
-            .persistent()
-            .extend_ttl(&contrib_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        // Keep the gross sponsor amount separate from any future fee or
+        // matching accounting so refunds always return the original deposit.
+        let original_key = DataKey::OriginalContribution(campaign_id, contributor.clone());
+        let original = prev.checked_add(amount).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        env.storage().persistent().set(&original_key, &original);
+        env.storage().persistent().extend_ttl(&contrib_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&original_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-        campaign.total_raised = new_total;
+        // Apply available admin-funded matching dollar-for-dollar. Matching
+        // is bounded by both the remaining campaign target and its budget.
+        let matching_cap: i128 = env.storage().persistent().get(&DataKey::MatchingCap(campaign_id)).unwrap_or(0);
+        let matching_used: i128 = env.storage().persistent().get(&DataKey::MatchingUsed(campaign_id)).unwrap_or(0);
+        let matching_balance: i128 = env.storage().persistent().get(&DataKey::MatchingBalance(campaign_id)).unwrap_or(0);
+        let remaining_budget = matching_cap.saturating_sub(matching_used);
+        let remaining_target = campaign.target_amount.saturating_sub(new_total);
+        let matched = amount.min(remaining_budget).min(matching_balance).min(remaining_target);
+        if matched > 0 {
+            let updated_matching = matching_used.checked_add(matched).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+            env.storage().persistent().set(&DataKey::MatchingUsed(campaign_id), &updated_matching);
+            env.storage().persistent().set(&DataKey::MatchingBalance(campaign_id), &(matching_balance - matched));
+        }
+        campaign.total_raised = new_total.checked_add(matched).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
 
         // Auto-succeed when the hard cap is reached.
         if campaign.total_raised >= campaign.target_amount {
@@ -682,6 +720,34 @@ impl CampaignFundingContract {
         );
     }
 
+    /// Add admin-funded dollar-for-dollar matching budget to a campaign.
+    /// The deposit is held by the campaign contract and is applied to future
+    /// contributions up to `cap`; sponsor contribution records remain gross.
+    pub fn add_matching_funds(env: Env, campaign_id: u64, amount: i128, cap: i128) {
+        Self::assert_initialized(&env);
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if amount <= 0 || cap <= 0 || amount > cap {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let token_client = token::Client::new(&env, &campaign.token);
+        token_client.transfer(&admin, &env.current_contract_address(), &amount);
+        let previous: i128 = env.storage().persistent().get(&DataKey::MatchingCap(campaign_id)).unwrap_or(0);
+        let next_cap = previous.checked_add(cap).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        env.storage().persistent().set(&DataKey::MatchingCap(campaign_id), &next_cap);
+        let balance: i128 = env.storage().persistent().get(&DataKey::MatchingBalance(campaign_id)).unwrap_or(0);
+        let next_balance = balance.checked_add(amount).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        env.storage().persistent().set(&DataKey::MatchingBalance(campaign_id), &next_balance);
+        env.storage().persistent().extend_ttl(&DataKey::MatchingCap(campaign_id), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.events().publish(("MatchingFundsAdded", campaign_id), MatchingFundsAddedEvent { campaign_id, admin, amount, cap: next_cap });
+    }
+
+    /// Return the total matching budget and the amount already applied.
+    pub fn get_matching_funds(env: Env, campaign_id: u64) -> (i128, i128) {
+        (env.storage().persistent().get(&DataKey::MatchingCap(campaign_id)).unwrap_or(0), env.storage().persistent().get(&DataKey::MatchingUsed(campaign_id)).unwrap_or(0))
+    }
+
     /// Claim a full refund after a failed campaign.
     ///
     /// Each contributor calls this individually to recover exactly the amount
@@ -706,7 +772,13 @@ impl CampaignFundingContract {
         }
 
         let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
-        let amount: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
+        // Prefer the gross ledger. The fallback lets pre-upgrade records
+        // continue to refund correctly because Contribution was historically
+        // the gross sponsor amount.
+        let original_key = DataKey::OriginalContribution(campaign_id, contributor.clone());
+        let amount: i128 = env.storage().persistent().get(&original_key)
+            .or_else(|| env.storage().persistent().get(&contrib_key))
+            .unwrap_or(0);
 
         if amount <= 0 {
             panic_with_error!(&env, Error::NoContributionFound);
@@ -714,6 +786,7 @@ impl CampaignFundingContract {
 
         // Clear before transferring (check-effects-interactions).
         env.storage().persistent().remove(&contrib_key);
+        env.storage().persistent().remove(&original_key);
 
         let token_client = token::Client::new(&env, &campaign.token);
         token_client.transfer(&env.current_contract_address(), &contributor, &amount);
