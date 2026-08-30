@@ -4,6 +4,8 @@ import {
   createCampaign,
   exportCampaignCsv,
   queryCampaigns,
+  getCampaignCreatorBadge,
+  getCampaignCreatorBadges,
   transitionCampaignStatus,
   type CampaignRecord,
 } from "./campaign.service";
@@ -33,6 +35,14 @@ describe("campaign service", () => {
     await source.saveCampaign(fixture({ id: "campaign-2", name: "Forest", goalAmount: "9000000000000000000", createdAt: 2_000 }));
     const result = await queryCampaigns({ filter: { search: "forest" }, sort: { field: "goalAmount", direction: "DESC" } }, source);
     expect(result.map((campaign) => campaign.id)).toEqual(["campaign-2"]);
+  });
+
+  it("awards creator badges at 10, 50, and 100 campaigns", () => {
+    expect(getCampaignCreatorBadge(9)).toBeNull();
+    expect(getCampaignCreatorBadge(10)?.name).toBe("Campaign Starter");
+    expect(getCampaignCreatorBadge(50)?.name).toBe("Campaign Builder");
+    expect(getCampaignCreatorBadge(100)?.name).toBe("Campaign Champion");
+    expect(getCampaignCreatorBadges(99).map((badge) => badge.threshold)).toEqual([10, 50]);
   });
 
   it("persists verification transitions with timestamp and audit actor", async () => {
