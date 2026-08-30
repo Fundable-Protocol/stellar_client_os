@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
-    Address, Env,
+    Address, Env, Vec,
 };
 
 // ---------------------------------------------------------------------------
@@ -32,6 +32,9 @@ pub enum DataKey {
     /// Per-contributor escrow balance keyed by `(campaign_id, contributor)`
     /// (persistent storage).
     Contribution(u64, Address),
+    /// Bitmask of campaign goal milestones (25 %, 50 %, 75 %, 100 %) that
+    /// have been reached so far, keyed by campaign ID (persistent storage).
+    MilestonesReached(u64),
 }
 
 /// Current lifecycle state of a campaign.
@@ -131,6 +134,24 @@ pub struct RefundIssuedEvent {
     pub campaign_id: u64,
     pub contributor: Address,
     pub amount: i128,
+}
+
+/// Emitted when cumulative contributions cross one of a campaign's funding
+/// milestones (25 %, 50 %, 75 % or 100 % of `target_amount`).
+///
+/// Milestones are tracked against the campaign's hard cap (`target_amount`)
+/// and each one is emitted exactly once, the first time it is crossed.
+#[contractevent(topics = ["MilestoneReached"])]
+#[derive(Clone)]
+pub struct MilestoneReachedEvent {
+    pub campaign_id: u64,
+    /// The percentage of `target_amount` reached: 25, 50, 75 or 100.
+    pub percentage: u32,
+    /// Running total of escrowed contributions at the time the milestone was
+    /// crossed.
+    pub total_raised: i128,
+    /// The campaign goal this milestone is measured against.
+    pub target_amount: i128,
 }
 
 /// Emitted when the protocol fee is collected during
@@ -261,12 +282,16 @@ impl CampaignFundingContract {
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::CampaignCount, &0u64);
-        env.storage().instance().set(&DataKey::FeeCollector, &fee_collector);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeCollector, &fee_collector);
         env.storage().instance().set(&DataKey::FeeRate, &fee_rate);
         env.storage()
             .instance()
             .set(&DataKey::InsuranceFeeRate, &insurance_fee_rate);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     // -----------------------------------------------------------------------
@@ -334,11 +359,7 @@ impl CampaignFundingContract {
         token_client.transfer(&creator, &env.current_contract_address(), &insurance_fee);
 
         let pool_key = DataKey::InsurancePool(token.clone());
-        let mut pool_balance: i128 = env
-            .storage()
-            .instance()
-            .get(&pool_key)
-            .unwrap_or(0);
+        let mut pool_balance: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
         pool_balance += insurance_fee;
         env.storage().instance().set(&pool_key, &pool_balance);
 
@@ -348,8 +369,12 @@ impl CampaignFundingContract {
             .get(&DataKey::CampaignCount)
             .unwrap_or(0);
         count += 1;
-        env.storage().instance().set(&DataKey::CampaignCount, &count);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .instance()
+            .set(&DataKey::CampaignCount, &count);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         let campaign = Campaign {
             id: count,
@@ -466,11 +491,7 @@ impl CampaignFundingContract {
 
         // Deduct from the insurance pool.
         let pool_key = DataKey::InsurancePool(campaign.token.clone());
-        let mut pool_balance: i128 = env
-            .storage()
-            .instance()
-            .get(&pool_key)
-            .unwrap_or(0);
+        let mut pool_balance: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
         if pool_balance < amount {
             panic_with_error!(&env, Error::ArithmeticOverflow);
         }
@@ -560,6 +581,9 @@ impl CampaignFundingContract {
                 },
             );
         }
+
+        // Emit milestone events for every goal threshold newly crossed.
+        Self::update_milestones(&env, campaign_id, &campaign);
 
         Self::save_campaign(&env, campaign_id, &campaign);
 
@@ -751,6 +775,32 @@ impl CampaignFundingContract {
             .unwrap_or(0)
     }
 
+    /// Return the funding milestones (as percentages of `target_amount`) that
+    /// have been reached so far for a campaign, sorted ascending.
+    ///
+    /// Each milestone is one of `25`, `50`, `75` or `100`. A freshly created
+    /// campaign (or one that has not crossed the 25 % mark) returns `[]`.
+    ///
+    /// # Errors
+    /// * [`Error::CampaignNotFound`] — no campaign with this ID exists.
+    pub fn get_milestones_reached(env: Env, campaign_id: u64) -> Vec<u32> {
+        // Validate the campaign exists before reading its milestone mask.
+        Self::load_campaign(&env, campaign_id);
+        let mask: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MilestonesReached(campaign_id))
+            .unwrap_or(0);
+        let thresholds: [u32; 4] = [25, 50, 75, 100];
+        let mut reached: Vec<u32> = Vec::new(&env);
+        for (i, pct) in thresholds.iter().enumerate() {
+            if mask & (1u32 << i) != 0 {
+                reached.push_back(*pct);
+            }
+        }
+        reached
+    }
+
     /// Return the total number of campaigns ever created.
     pub fn get_campaign_count(env: Env) -> u64 {
         env.storage()
@@ -761,10 +811,7 @@ impl CampaignFundingContract {
 
     /// Return the current protocol fee rate in basis points.
     pub fn get_fee_rate(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&DataKey::FeeRate)
-            .unwrap_or(0)
+        env.storage().instance().get(&DataKey::FeeRate).unwrap_or(0)
     }
 
     /// Return the current fee collector address.
@@ -796,8 +843,12 @@ impl CampaignFundingContract {
             panic_with_error!(&env, Error::FeeTooHigh);
         }
 
-        env.storage().instance().set(&DataKey::FeeRate, &new_fee_rate);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeRate, &new_fee_rate);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     /// Update the fee collector address.
@@ -815,7 +866,9 @@ impl CampaignFundingContract {
         env.storage()
             .instance()
             .set(&DataKey::FeeCollector, &new_fee_collector);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     // -----------------------------------------------------------------------
@@ -853,7 +906,57 @@ impl CampaignFundingContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    /// Emit [`MilestoneReachedEvent`]s for every goal threshold newly crossed
+    /// by `campaign.total_raised`, and record them so each milestone is only
+    /// ever emitted once.
+    ///
+    /// A milestone `pct` is reached once `total_raised / target_amount >= pct
+    /// / 100`, evaluated exactly with cross-multiplication to avoid rounding.
+    /// Because `target_amount` is the hard cap, the 100 % milestone corresponds
+    /// to `total_raised == target_amount`.
+    fn update_milestones(env: &Env, campaign_id: u64, campaign: &Campaign) {
+        let thresholds: [u32; 4] = [25, 50, 75, 100];
+        let key = DataKey::MilestonesReached(campaign_id);
+        let mut mask: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+        let mut changed = false;
+
+        for (i, pct) in thresholds.iter().enumerate() {
+            let bit = 1u32 << i;
+            if mask & bit != 0 {
+                continue;
+            }
+            let lhs = campaign
+                .total_raised
+                .checked_mul(100)
+                .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow));
+            let rhs = campaign
+                .target_amount
+                .checked_mul(*pct as i128)
+                .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow));
+            if lhs >= rhs {
+                mask |= bit;
+                changed = true;
+                MilestoneReachedEvent {
+                    campaign_id,
+                    percentage: *pct,
+                    total_raised: campaign.total_raised,
+                    target_amount: campaign.target_amount,
+                }
+                .publish(env);
+            }
+        }
+
+        if changed {
+            env.storage().persistent().set(&key, &mask);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
     }
 
     /// Compute the protocol fee for `amount` using the stored fee rate.
@@ -861,11 +964,7 @@ impl CampaignFundingContract {
     /// Uses the same split-calculation as the payment-stream contract to
     /// preserve precision without overflow.
     fn calculate_fee(env: &Env, amount: i128) -> i128 {
-        let fee_rate: u32 = env
-            .storage()
-            .instance()
-            .get(&DataKey::FeeRate)
-            .unwrap_or(0);
+        let fee_rate: u32 = env.storage().instance().get(&DataKey::FeeRate).unwrap_or(0);
         if fee_rate == 0 || amount <= 0 {
             return 0;
         }
@@ -897,21 +996,21 @@ mod tests {
         env: &Env,
         admin: &Address,
     ) -> (Address, TokenClient<'a>, StellarAssetClient<'a>) {
-        let addr = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let addr = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
         let token = TokenClient::new(env, &addr);
         let token_admin = StellarAssetClient::new(env, &addr);
         (addr, token, token_admin)
     }
 
     /// Deploy and initialise a `CampaignFundingContract` with a 2.5 % fee.
-    fn setup_contract(
-        env: &Env,
-    ) -> (Address, CampaignFundingContractClient, Address, Address) {
+    fn setup_contract(env: &Env) -> (Address, CampaignFundingContractClient, Address, Address) {
         let contract_id = env.register(CampaignFundingContract, ());
         let client = CampaignFundingContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
         let fee_collector = Address::generate(env);
-        client.initialize(&admin, &fee_collector, &250); // 2.5 %
+        client.initialize(&admin, &fee_collector, &250, &0); // 2.5 %
         (contract_id, client, admin, fee_collector)
     }
 
@@ -942,7 +1041,7 @@ mod tests {
 
         let admin = Address::generate(&env);
         let fee_collector = Address::generate(&env);
-        client.initialize(&admin, &fee_collector, &250);
+        client.initialize(&admin, &fee_collector, &250, &0);
 
         assert_eq!(client.get_fee_rate(), 250);
         assert_eq!(client.get_fee_collector(), fee_collector);
@@ -956,7 +1055,7 @@ mod tests {
         env.mock_all_auths();
         let (_, client, admin, fee_collector) = setup_contract(&env);
         // Second call must panic.
-        client.initialize(&admin, &fee_collector, &250);
+        client.initialize(&admin, &fee_collector, &250, &0);
     }
 
     #[test]
@@ -969,7 +1068,7 @@ mod tests {
         let admin = Address::generate(&env);
         let fee_collector = Address::generate(&env);
         // 501 bps > MAX_FEE (500)
-        client.initialize(&admin, &fee_collector, &501);
+        client.initialize(&admin, &fee_collector, &501, &0);
     }
 
     // -----------------------------------------------------------------------
@@ -983,9 +1082,11 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
         assert_eq!(id, 1);
         assert_eq!(client.get_campaign_count(), 1);
 
@@ -1005,10 +1106,12 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &1_000);
 
-        let id1 = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
-        let id2 = client.create_campaign(&creator, &token, &20_000, &10_000, &3_000);
+        let id1 = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id2 = client.create_campaign(&creator, &token, &20_000, &10_000, &3_000, &500);
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
         assert_eq!(client.get_campaign_count(), 2);
@@ -1024,7 +1127,7 @@ mod tests {
         let client = CampaignFundingContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
     }
 
     #[test]
@@ -1036,7 +1139,7 @@ mod tests {
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        client.create_campaign(&creator, &token, &0, &0, &2_000);
+        client.create_campaign(&creator, &token, &0, &0, &2_000, &500);
     }
 
     #[test]
@@ -1049,7 +1152,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
         // min_target (6_000) > target_amount (5_000)
-        client.create_campaign(&creator, &token, &5_000, &6_000, &2_000);
+        client.create_campaign(&creator, &token, &5_000, &6_000, &2_000, &500);
     }
 
     #[test]
@@ -1061,7 +1164,7 @@ mod tests {
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        client.create_campaign(&creator, &token, &10_000, &0, &2_000);
+        client.create_campaign(&creator, &token, &10_000, &0, &2_000, &500);
     }
 
     #[test]
@@ -1074,7 +1177,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
         // deadline (2_000) < current time (5_000)
-        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
     }
 
     #[test]
@@ -1084,9 +1187,11 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
         let deadline = 1_000 + (90 * 24 * 60 * 60);
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500);
         assert_eq!(id, 1);
     }
 
@@ -1097,9 +1202,11 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
         let deadline = 1_000 + MAX_CAMPAIGN_DURATION_SECONDS;
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500);
         assert_eq!(id, 1);
     }
 
@@ -1113,7 +1220,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
         let deadline = 1_000 + MAX_CAMPAIGN_DURATION_SECONDS + 1;
-        client.create_campaign(&creator, &token, &10_000, &5_000, &deadline);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500);
     }
 
     // -----------------------------------------------------------------------
@@ -1132,9 +1239,10 @@ mod tests {
 
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &3_000);
 
         let campaign = client.get_campaign(&id);
@@ -1156,9 +1264,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &1_000);
         client.contribute(&contributor, &id, &2_000);
 
@@ -1178,10 +1287,11 @@ mod tests {
         let creator = Address::generate(&env);
         let contrib1 = Address::generate(&env);
         let contrib2 = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contrib1, &5_000);
         token_admin_client.mint(&contrib2, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contrib1, &id, &3_000);
         client.contribute(&contrib2, &id, &2_000);
 
@@ -1202,9 +1312,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
 
         // Advance past deadline.
         set_time(&env, 3_000);
@@ -1220,11 +1331,12 @@ mod tests {
         let (_, client, _, _) = setup_contract(&env);
 
         let token_admin = Address::generate(&env);
-        let (token_addr, _, _) = create_token(&env, &token_admin);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &0);
     }
 
@@ -1240,9 +1352,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &20_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         // 11_000 > target_amount (10_000)
         client.contribute(&contributor, &id, &11_000);
     }
@@ -1274,9 +1387,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         // Contribute the full hard cap in one shot.
         client.contribute(&contributor, &id, &10_000);
 
@@ -1300,9 +1414,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &6_000); // > min_target
 
         // Advance past deadline.
@@ -1323,9 +1438,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &3_000); // < min_target
 
         set_time(&env, 3_000);
@@ -1341,9 +1457,11 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
 
@@ -1358,9 +1476,11 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
         // Still before deadline — must panic.
         client.trigger_expiry(&id);
     }
@@ -1377,9 +1497,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &3_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // First call → Failed
@@ -1395,9 +1516,11 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
         set_time(&env, 3_000);
         // Called with no auth mocking — just default env.
         client.trigger_expiry(&id);
@@ -1419,9 +1542,10 @@ mod tests {
         let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &8_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -1443,15 +1567,16 @@ mod tests {
         let client = CampaignFundingContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let fee_collector = Address::generate(&env);
-        client.initialize(&admin, &fee_collector, &0); // 0 % fee
+        client.initialize(&admin, &fee_collector, &0, &0); // 0 % fee
 
         let token_admin = Address::generate(&env);
         let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -1469,9 +1594,11 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
         client.claim_funds(&id); // Still Active — must panic.
     }
 
@@ -1483,12 +1610,14 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
-        client.claim_funds(&id);    // Must panic.
+        client.claim_funds(&id); // Must panic.
     }
 
     #[test]
@@ -1503,9 +1632,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -1528,9 +1658,10 @@ mod tests {
         let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &3_000); // < min_target
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
@@ -1556,18 +1687,19 @@ mod tests {
         let contrib1 = Address::generate(&env);
         let contrib2 = Address::generate(&env);
         let contrib3 = Address::generate(&env);
+        token_admin_client.mint(&creator, &1_000);
         token_admin_client.mint(&contrib1, &3_000);
         token_admin_client.mint(&contrib2, &1_500);
         token_admin_client.mint(&contrib3, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contrib1, &id, &3_000);
         client.contribute(&contrib2, &id, &1_500);
         client.contribute(&contrib3, &id, &500); // total = 5_000 == min_target
 
         // Bring total below min_target by using a campaign where min > raised.
         // (For simplicity create a new campaign with higher min_target.)
-        let id2 = client.create_campaign(&creator, &token_addr, &10_000, &6_000, &2_000);
+        let id2 = client.create_campaign(&creator, &token_addr, &10_000, &6_000, &2_000, &500);
         let contrib4 = Address::generate(&env);
         token_admin_client.mint(&contrib4, &4_000);
         client.contribute(&contrib4, &id2, &4_000); // 4_000 < 6_000 (min)
@@ -1591,9 +1723,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &1_000);
         // Campaign still Active — refund must panic.
         client.refund(&contributor, &id);
@@ -1611,9 +1744,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &7_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Successful
@@ -1628,13 +1762,15 @@ mod tests {
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
-        let token = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
         let outsider = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
-        // `outsider` never contributed — must panic.
+                                    // `outsider` never contributed — must panic.
         client.refund(&outsider, &id);
     }
 
@@ -1650,9 +1786,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &2_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -1708,15 +1845,16 @@ mod tests {
         let client = CampaignFundingContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let fee_collector = Address::generate(&env);
-        client.initialize(&admin, &fee_collector, &100);
+        client.initialize(&admin, &fee_collector, &100, &0);
 
         let token_admin = Address::generate(&env);
         let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &9_999);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -1742,9 +1880,10 @@ mod tests {
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &8_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -1774,15 +1913,16 @@ mod tests {
         let client = CampaignFundingContractClient::new(&env, &contract_id);
         let admin = Address::generate(&env);
         let fee_collector = Address::generate(&env);
-        client.initialize(&admin, &fee_collector, &0); // 0 % fee
+        client.initialize(&admin, &fee_collector, &0, &0); // 0 % fee
 
         let token_admin = Address::generate(&env);
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -1801,5 +1941,212 @@ mod tests {
             !events.events().iter().any(|e| *e == unexpected),
             "no ProtocolFeeCollectedEvent should be emitted when the fee is zero"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Campaign milestone tracking
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_no_milestone_below_25_percent() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &2_000); // 20 % < 25 %
+
+        assert_eq!(client.get_milestones_reached(&id).len(), 0);
+    }
+
+    #[test]
+    fn test_milestone_25_percent_reached() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (contract_id, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &3_000); // 30 % -> 25 % milestone
+
+        // env.events() reflects only the last external call, so capture it
+        // immediately after the emitting contribution.
+        let events = env.events().all();
+        let expected = MilestoneReachedEvent {
+            campaign_id: id,
+            percentage: 25,
+            total_raised: 3_000,
+            target_amount: 10_000,
+        }
+        .to_xdr(&env, &contract_id);
+        assert!(
+            events.events().iter().any(|e| *e == expected),
+            "expected a MilestoneReachedEvent at 25 %"
+        );
+
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(ms.get(0).unwrap(), 25);
+    }
+
+    #[test]
+    fn test_milestone_multiple_in_one_contribution() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (contract_id, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        // A single 6_000 contribution crosses both the 25 % and 50 % marks.
+        client.contribute(&contributor, &id, &6_000);
+
+        let events = env.events().all();
+        for percentage in [25u32, 50u32] {
+            let expected = MilestoneReachedEvent {
+                campaign_id: id,
+                percentage,
+                total_raised: 6_000,
+                target_amount: 10_000,
+            }
+            .to_xdr(&env, &contract_id);
+            assert!(
+                events.events().iter().any(|e| *e == expected),
+                "expected a MilestoneReachedEvent at {percentage} %"
+            );
+        }
+
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 2);
+        assert_eq!(ms.get(0).unwrap(), 25);
+        assert_eq!(ms.get(1).unwrap(), 50);
+    }
+
+    #[test]
+    fn test_milestone_100_percent_on_auto_succeed() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &10_000); // reaches the hard cap
+
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Successful);
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 4);
+        assert_eq!(ms.get(0).unwrap(), 25);
+        assert_eq!(ms.get(1).unwrap(), 50);
+        assert_eq!(ms.get(2).unwrap(), 75);
+        assert_eq!(ms.get(3).unwrap(), 100);
+    }
+
+    #[test]
+    fn test_milestones_emitted_once() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (contract_id, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &3_000); // 30 % -> crosses 25 %
+
+        // Capture events after the first contribution to assert the 25 % event.
+        let events1 = env.events().all();
+        let expected25 = MilestoneReachedEvent {
+            campaign_id: id,
+            percentage: 25,
+            total_raised: 3_000,
+            target_amount: 10_000,
+        }
+        .to_xdr(&env, &contract_id);
+        let count25 = events1
+            .events()
+            .iter()
+            .filter(|e| **e == expected25)
+            .count();
+        assert_eq!(
+            count25, 1,
+            "the 25 % milestone must be emitted exactly once"
+        );
+
+        client.contribute(&contributor, &id, &2_000); // 50 % now
+        let events2 = env.events().all();
+        let expected50 = MilestoneReachedEvent {
+            campaign_id: id,
+            percentage: 50,
+            total_raised: 5_000,
+            target_amount: 10_000,
+        }
+        .to_xdr(&env, &contract_id);
+        assert!(
+            events2.events().iter().any(|e| *e == expected50),
+            "expected the 50 % milestone to be emitted on the second contribution"
+        );
+
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 2);
+        assert_eq!(ms.get(0).unwrap(), 25);
+        assert_eq!(ms.get(1).unwrap(), 50);
+    }
+
+    #[test]
+    fn test_milestones_persist_for_failed_campaign() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &3_000); // crosses 25 %
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id); // 3_000 < 5_000 min -> Failed
+
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Failed);
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(ms.get(0).unwrap(), 25);
     }
 }
