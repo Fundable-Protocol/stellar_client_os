@@ -125,6 +125,32 @@ function round(n: number, precision = GEO_PRECISION): number {
 }
 
 /**
+ * Validate a geographic bounding box.
+ *
+ * A box can legitimately cross the antimeridian, e.g. swLng=170 and neLng=-170.
+ * In that case, the width is computed as a wrapped range and must stay within one
+ * 180° hemisphere rather than assuming everything is expressed as a single monotonic
+ * longitude interval.
+ */
+export function isValidBoundingBox(bbox: BoundingBox): boolean {
+  const { swLat, swLng, neLat, neLng } = bbox;
+
+  if (![swLat, swLng, neLat, neLng].every(Number.isFinite)) return false;
+  if (swLat < -90 || swLat > 90 || neLat < -90 || neLat > 90) return false;
+  if (swLng < -180 || swLng > 180 || neLng < -180 || neLng > 180) return false;
+  if (swLat >= neLat) return false;
+  if (swLng === neLng) return false;
+
+  const normalWidth = neLng - swLng;
+  const wrappedWidth = 360 - Math.abs(swLng - neLng);
+
+  const isNormalRange = swLng < neLng && normalWidth > 0 && normalWidth <= 180;
+  const crossesAntimeridian = swLng > neLng && wrappedWidth > 0 && wrappedWidth <= 180;
+
+  return isNormalRange || crossesAntimeridian;
+}
+
+/**
  * Build a deterministic cache key for a bounding-box query.
  * Coordinates are rounded to GEO_PRECISION decimal places.
  */

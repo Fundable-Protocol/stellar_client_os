@@ -17,3 +17,25 @@ export interface Stream {
   status: StreamStatus;
   delegateAddress?: string | null; // Delegate address for withdrawal rights
 }
+
+export enum CampaignStatus {
+  Draft = 'Draft',
+  Active = 'Active',
+  Completed = 'Completed',
+  Canceled = 'Canceled',
+}
+
+export interface Campaign {
+  id: number;
+  creator: string; // Address
+  species: string;
+  goal_amount: bigint;
+  raised_amount: bigint;
+  start_time: number;
+  end_time: number;
+  status: CampaignStatus;
+}
+
+export interface CloneCampaignInput {
+  sourceCampaignId: number;
+}

@@ -6,6 +6,7 @@ import {
   buildRadiusKey,
   buildAggregatesKey,
   buildDetailKey,
+  isValidBoundingBox,
   type BoundingBox,
   type RadiusQuery,
   type StreamLocation,
@@ -128,6 +129,30 @@ describe("buildAggregatesKey", () => {
   it("includes the scope in the key", () => {
     expect(buildAggregatesKey("global")).toBe("geo:aggs:global");
     expect(buildAggregatesKey("NG")).toBe("geo:aggs:NG");
+  });
+});
+
+describe("isValidBoundingBox", () => {
+  it("allows longitude ranges that cross the antimeridian", () => {
+    expect(
+      isValidBoundingBox({
+        swLat: -10,
+        swLng: 170,
+        neLat: 10,
+        neLng: -170,
+      })
+    ).toBe(true);
+  });
+
+  it("rejects zero-width longitude ranges", () => {
+    expect(
+      isValidBoundingBox({
+        swLat: -10,
+        swLng: 170,
+        neLat: 10,
+        neLng: 170,
+      })
+    ).toBe(false);
   });
 });
 

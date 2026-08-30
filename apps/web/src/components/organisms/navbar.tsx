@@ -29,6 +29,12 @@ export function Navbar() {
             Balances
           </Link>
           <Link
+            href="/social"
+            className="hover:text-white transition-colors uppercase pb-1 border-b-2 border-transparent hover:border-white/50"
+          >
+            Social
+          </Link>
+          <Link
             href="#"
             className="hover:text-white transition-colors uppercase pb-1 border-b-2 border-transparent hover:border-white/50"
           >

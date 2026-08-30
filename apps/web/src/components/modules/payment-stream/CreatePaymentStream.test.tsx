@@ -31,6 +31,10 @@ vi.mock("@/services/stellar.service", () => ({
   }),
 }));
 
+vi.mock("@/lib/api", () => ({
+  createStream: vi.fn().mockResolvedValue("1234567890abcdef"),
+}));
+
 vi.mock("@/lib/stellar", () => ({
   StellarService: {
     validateStellarAddress: (addr: string) => addr.startsWith("G") && addr.length === 56,

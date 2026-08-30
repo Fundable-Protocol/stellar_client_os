@@ -285,6 +285,34 @@ export class StellarService {
   }
 
   /**
+   * Clone an existing payment stream's structure to create a new stream.
+   * Used by the campaign "Clone" button to copy recipient, goal, and timeline
+   * from a successful campaign.
+   *
+   * @param streamId - ID of the stream/campaign to clone
+   * @param signerKeypair - Keypair for signing the new stream (becomes the new sender)
+   * @returns Transaction result with the new stream ID
+   */
+  async cloneStream(
+    streamId: bigint,
+    signerKeypair: Keypair
+  ): Promise<TransactionResult<bigint>> {
+    const existing = await this.getStream(streamId);
+
+    if (!existing) {
+      throw new StreamNotFoundError(streamId, new Error('Stream not found'));
+    }
+
+    return this.createStream({
+      recipient: existing.recipient,
+      token: existing.token,
+      totalAmount: existing.totalAmount,
+      startTime: existing.startTime,
+      endTime: existing.endTime,
+    }, signerKeypair);
+  }
+
+  /**
    * Create a new payment stream
    * @param params - Stream creation parameters
    * @param signerKeypair - Keypair for signing the transaction
