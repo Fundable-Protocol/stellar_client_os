@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { creator?: string; name?: string; description?: string; goalAmount?: string; network?: "testnet" | "mainnet" };
+    const body = await request.json() as { creator?: string; creatorEmail?: string; name?: string; description?: string; goalAmount?: string; network?: "testnet" | "mainnet" };
     if (!body.creator || !body.name || !body.goalAmount) {
       return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
     }
@@ -30,6 +30,7 @@ export async function POST(request: Request) {
     }
     const campaign = await createCampaign({
       creator: body.creator,
+      creatorEmail: body.creatorEmail,
       name: body.name,
       description: body.description,
       goalAmount: body.goalAmount,

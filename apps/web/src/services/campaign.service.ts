@@ -1,3 +1,5 @@
+import { EmailService } from "./email.service";
+
 export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
 
 export type CampaignSortField =
@@ -34,6 +36,7 @@ export interface StatusHistoryEntry {
 export interface CampaignRecord {
   id: string;
   creator: string;
+  creatorEmail?: string;
   name: string;
   description?: string;
   status: CampaignStatus;
@@ -47,6 +50,8 @@ export interface CampaignRecord {
   network?: "testnet" | "mainnet";
   sponsors: SponsorRecord[];
   statusHistory: StatusHistoryEntry[];
+  /** Completion milestones already notified to the creator. */
+  milestonesNotified?: number[];
 }
 
 export interface CampaignDataSource {
@@ -108,6 +113,7 @@ export async function getCampaign(campaignId: string, dataSource = getCampaignDa
 export async function createCampaign(input: {
   id?: string;
   creator: string;
+  creatorEmail?: string;
   name: string;
   description?: string;
   goalAmount: string;
@@ -116,6 +122,7 @@ export async function createCampaign(input: {
   const campaign: CampaignRecord = {
     id: input.id ?? crypto.randomUUID(),
     creator: input.creator,
+    creatorEmail: input.creatorEmail,
     name: input.name,
     description: input.description,
     status: "DRAFT",
@@ -128,6 +135,7 @@ export async function createCampaign(input: {
     statusChangedAt: now,
     network: input.network,
     sponsors: [],
+    milestonesNotified: [],
     statusHistory: [{
       id: `${input.id ?? "campaign"}:${now}:0`,
       campaignId: input.id ?? "",
@@ -141,6 +149,61 @@ export async function createCampaign(input: {
   campaign.statusHistory[0].campaignId = campaign.id;
   campaign.statusHistory[0].id = `${campaign.id}:${now}:0`;
   return dataSource.saveCampaign(campaign);
+}
+
+export const CAMPAIGN_MILESTONES = [25, 50, 75, 100] as const;
+
+export function crossedCampaignMilestones(
+  previousRaised: string,
+  nextRaised: string,
+  goalAmount: string,
+  alreadyNotified: readonly number[] = [],
+): number[] {
+  const previous = BigInt(previousRaised);
+  const next = BigInt(nextRaised);
+  const goal = BigInt(goalAmount);
+  if (goal <= 0n || next < previous) return [];
+  return CAMPAIGN_MILESTONES.filter((milestone) => {
+    const threshold = (goal * BigInt(milestone)) / 100n;
+    return previous < threshold && next >= threshold && !alreadyNotified.includes(milestone);
+  });
+}
+
+export async function recordCampaignContribution(
+  campaignId: string,
+  amount: string,
+  dataSource = getCampaignDataSource(),
+  emailService = new EmailService(),
+  now = Date.now(),
+): Promise<{ campaign: CampaignRecord; milestones: number[] } | null> {
+  if (!/^\d+$/.test(amount) || BigInt(amount) <= 0n) {
+    throw new Error("amount must be a positive integer string");
+  }
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) return null;
+  const nextRaised = (BigInt(campaign.raisedAmount) + BigInt(amount)).toString();
+  const milestones = crossedCampaignMilestones(
+    campaign.raisedAmount,
+    nextRaised,
+    campaign.goalAmount,
+    campaign.milestonesNotified,
+  );
+  const updated: CampaignRecord = {
+    ...campaign,
+    raisedAmount: nextRaised,
+    updatedAt: now,
+    milestonesNotified: [...(campaign.milestonesNotified ?? []), ...milestones],
+  };
+  await dataSource.saveCampaign(updated);
+
+  if (campaign.creatorEmail) {
+    await Promise.all(milestones.map((milestone) => emailService.sendEmail({
+      to: campaign.creatorEmail as string,
+      subject: `${campaign.name} reached ${milestone}% of its goal`,
+      html: `<p>Your campaign <strong>${campaign.name}</strong> has reached <strong>${milestone}%</strong> of its funding goal.</p><p>Current progress: ${nextRaised} of ${campaign.goalAmount}.</p>`,
+    })));
+  }
+  return { campaign: updated, milestones };
 }
 
 export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource = getCampaignDataSource()): Promise<CampaignRecord[]> {
