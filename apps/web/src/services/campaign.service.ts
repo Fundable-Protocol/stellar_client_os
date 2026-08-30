@@ -49,6 +49,27 @@ export interface CampaignRecord {
   statusHistory: StatusHistoryEntry[];
 }
 
+export interface CampaignCreatorBadge {
+  name: "Campaign Starter" | "Campaign Builder" | "Campaign Champion";
+  threshold: number;
+  description: string;
+}
+
+export const CAMPAIGN_CREATOR_BADGES: readonly CampaignCreatorBadge[] = [
+  { name: "Campaign Starter", threshold: 10, description: "Created 10 campaigns" },
+  { name: "Campaign Builder", threshold: 50, description: "Created 50 campaigns" },
+  { name: "Campaign Champion", threshold: 100, description: "Created 100 campaigns" },
+];
+
+export function getCampaignCreatorBadges(campaignCount: number): CampaignCreatorBadge[] {
+  const safeCount = Number.isFinite(campaignCount) ? Math.max(0, Math.floor(campaignCount)) : 0;
+  return CAMPAIGN_CREATOR_BADGES.filter((badge) => safeCount >= badge.threshold);
+}
+
+export function getCampaignCreatorBadge(campaignCount: number): CampaignCreatorBadge | null {
+  return getCampaignCreatorBadges(campaignCount).at(-1) ?? null;
+}
+
 export interface CampaignDataSource {
   getCampaigns(network?: string): Promise<CampaignRecord[]>;
   saveCampaign(campaign: CampaignRecord): Promise<CampaignRecord>;
