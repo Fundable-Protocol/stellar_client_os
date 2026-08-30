@@ -170,6 +170,82 @@ export const typeDefs = /* GraphQL */ `
     toTimestamp: Int
   }
 
+  enum CampaignStatus {
+    DRAFT
+    PENDING_VERIFICATION
+    ACTIVE
+    PAUSED
+    COMPLETED
+    FAILED
+  }
+
+  enum CampaignSortField {
+    createdAt
+    updatedAt
+    name
+    status
+    goalAmount
+    raisedAmount
+    sponsorCount
+    treeCount
+  }
+
+  enum SortDirection {
+    ASC
+    DESC
+  }
+
+  input CampaignFilter {
+    status: CampaignStatus
+    creator: String
+    search: String
+    minGoalAmount: String
+    maxGoalAmount: String
+    createdAfter: Int
+    createdBefore: Int
+  }
+
+  input CampaignSort {
+    field: CampaignSortField
+    direction: SortDirection
+  }
+
+  type CampaignSponsor {
+    id: ID!
+    campaignId: ID!
+    address: String!
+    amount: String!
+    token: String!
+    sponsoredAt: Int!
+  }
+
+  type CampaignStatusHistory {
+    id: ID!
+    campaignId: ID!
+    fromStatus: CampaignStatus
+    toStatus: CampaignStatus!
+    changedBy: String!
+    changedAt: Int!
+    reason: String
+  }
+
+  type Campaign {
+    id: ID!
+    creator: String!
+    name: String!
+    description: String
+    status: CampaignStatus!
+    goalAmount: String!
+    raisedAmount: String!
+    sponsorCount: Int!
+    treeCount: Int!
+    createdAt: Int!
+    updatedAt: Int!
+    statusChangedAt: Int!
+    sponsors: [CampaignSponsor!]!
+    statusHistory: [CampaignStatusHistory!]!
+  }
+
   input TreeFilter {
     planter: String
     region: String
@@ -206,6 +282,8 @@ export const typeDefs = /* GraphQL */ `
     """
     Search individual sponsored trees derived from indexed payment streams.
     """
+    campaigns(filter: CampaignFilter, sort: CampaignSort, pagination: PaginationInput, network: Network): [Campaign!]!
+
     trees(filter: TreeFilter, pagination: PaginationInput, network: Network): [Tree!]!
 
     """

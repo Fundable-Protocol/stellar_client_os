@@ -2,7 +2,7 @@
 #![allow(deprecated)]
 use soroban_sdk::{
     contract, contractclient, contracterror, contractevent, contractimpl, contracttype,
-    panic_with_error, token, Address, Env, Vec,
+    panic_with_error, token, Address, Env, Symbol, Vec,
 };
 
 /// Persistent/instance storage keys.
@@ -101,6 +101,21 @@ pub struct ProtocolMetrics {
     pub total_tokens_streamed: i128,  // Total tokens ever streamed
     pub total_streams_created: u64,   // Total number of streams created
     pub total_delegations: u64,       // Total number of delegations across all streams
+}
+
+/// Fee tier threshold and fee rate pair.
+///
+/// Represents: "if the donor's cumulative volume is `>= threshold`, apply
+/// `fee_rate`".  The tier list is sorted by strictly increasing thresholds;
+/// the first tier must have a threshold of `0` so every donor is covered, and
+/// fee rates must be monotonically non-increasing across tiers.
+#[contracttype]
+#[derive(Clone)]
+pub struct FeeTier {
+    /// Minimum cumulative volume to qualify for this tier.
+    pub threshold: i128,
+    /// Fee rate in basis points applied for this tier (e.g., 250 = 2.5 %).
+    pub fee_rate: u32,
 }
 
 /// A dispute resolution that has been decided but is queued behind a
@@ -278,6 +293,11 @@ pub enum Error {
     TimelockNotElapsed = 30,
     /// The recipient/sender resolution amounts are invalid or exceed the stream's escrowed balance
     InvalidResolutionAmounts = 31,
+    /// The fee-tier list is empty, its first threshold is not zero, or its
+    /// thresholds are not strictly increasing
+    InvalidTierConfiguration = 32,
+    /// Fee rates across tiers are not monotonically non-increasing
+    TierFeeNotMonotonic = 33,
 }
 
 // Constants
@@ -321,6 +341,19 @@ impl PaymentStreamContract {
         env.storage().instance().set(&DataKey::StreamCount, &0u64);
         env.storage().instance().set(&DataKey::FeeCollector, &fee_collector);
         env.storage().instance().set(&DataKey::FeeRate, &general_fee_rate);
+
+        // Initialize default fee tiers
+        // Tier 0 (below 50,000):   500 bps (5.0 %)
+        // Tier 1 (50,000-500,000): 250 bps (2.5 %)
+        // Tier 2 (500,000+):       100 bps (1.0 %)
+        let default_tiers: Vec<FeeTier> = {
+            let mut v = Vec::new(&env);
+            v.push_back(FeeTier { threshold: 0, fee_rate: 500 });
+            v.push_back(FeeTier { threshold: 50_000, fee_rate: 250 });
+            v.push_back(FeeTier { threshold: 500_000, fee_rate: 100 });
+            v
+        };
+        env.storage().instance().set(&Symbol::new(&env, "fee_tiers"), &default_tiers);
 
         // Initialize protocol metrics
         let initial_metrics = ProtocolMetrics {
@@ -1103,20 +1136,26 @@ impl PaymentStreamContract {
         env.storage().persistent().get(&DataKey::Delegate(stream_id))
     }
 
-    /// Calculate the protocol fee for a given amount
-    fn calculate_protocol_fee(env: &Env, amount: i128) -> i128 {
-        let fee_rate: u32 = env.storage().instance().get(&DataKey::FeeRate).unwrap_or(0);
+    /// Calculate the protocol fee for a given withdrawal based on the
+    /// donor's cumulative volume and the configured fee tiers.
+    ///
+    /// Falls back to the flat `FeeRate` if no tier list has been configured
+    /// (should not happen after `initialize`).
+    fn calculate_protocol_fee(env: &Env, donor: &Address, amount: i128) -> i128 {
+        if amount <= 0 {
+            return 0;
+        }
 
         // Get donor's cumulative volume
         let donor_volume_key = (Symbol::new(env, "donor_volume"), donor.clone());
         let cumulative_volume: i128 = env.storage().persistent().get(&donor_volume_key).unwrap_or(0);
 
         // Get fee tiers (fallback to flat fee if tiers not configured)
-        let tiers: soroban_sdk::Vec<FeeTier> = match env.storage().instance().get(&Symbol::new(env, "fee_tiers")) {
+        let tiers: Vec<FeeTier> = match env.storage().instance().get(&Symbol::new(env, "fee_tiers")) {
             Some(tiers) => tiers,
             None => {
                 // Fallback: use general fee rate if tiers not set up
-                let fee_rate: u32 = env.storage().instance().get(&Symbol::new(env, "general_protocol_fee_rate")).unwrap_or(0);
+                let fee_rate: u32 = env.storage().instance().get(&DataKey::FeeRate).unwrap_or(0);
                 let rate = fee_rate as i128;
                 return (amount / 10000) * rate + ((amount % 10000) * rate) / 10000;
             }
@@ -1182,7 +1221,11 @@ impl PaymentStreamContract {
             return 0;
         }
 
-        let vested = (stream.total_amount * elapsed as i128) / duration as i128;
+        // Split multiplication keeps the vested calculation overflow-free even
+        // for very large `total_amount` values (same technique as the fee
+        // calculation): `(a / d) * e + ((a % d) * e) / d == (a * e) / d`.
+        let vested = (stream.total_amount / duration as i128) * elapsed as i128
+            + ((stream.total_amount % duration as i128) * elapsed as i128) / duration as i128;
 
         vested - stream.withdrawn_amount
     }
@@ -1431,6 +1474,77 @@ impl PaymentStreamContract {
     /// Get the current fee collector
     pub fn get_fee_collector(env: Env) -> Address {
         env.storage().instance().get(&DataKey::FeeCollector).unwrap()
+    }
+
+    /// Replace the fee-tier configuration (admin only).
+    ///
+    /// `tiers` must be a non-empty list whose first entry has a threshold of
+    /// `0`, whose thresholds are strictly increasing, and whose fee rates are
+    /// monotonically non-increasing and at most [`MAX_FEE`].
+    ///
+    /// # Errors
+    /// * [`Error::InvalidTierConfiguration`] — empty list, first threshold not
+    ///   zero, or thresholds not strictly increasing.
+    /// * [`Error::TierFeeNotMonotonic`]     — fee rates increase across tiers.
+    /// * [`Error::FeeTooHigh`]              — a tier fee rate exceeds 500 bps.
+    pub fn set_fee_tiers(env: Env, tiers: Vec<FeeTier>) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        // Validate that tiers is not empty
+        if tiers.is_empty() {
+            panic_with_error!(&env, Error::InvalidTierConfiguration);
+        }
+
+        // Validate first tier has threshold 0
+        if let Some(first_tier) = tiers.first() {
+            if first_tier.threshold != 0 {
+                panic_with_error!(&env, Error::InvalidTierConfiguration);
+            }
+        }
+
+        // Validate thresholds are strictly increasing
+        let mut prev_threshold: i128 = -1;
+        for tier in tiers.iter() {
+            if tier.threshold <= prev_threshold {
+                panic_with_error!(&env, Error::InvalidTierConfiguration);
+            }
+            prev_threshold = tier.threshold;
+        }
+
+        // Validate fee rates are monotonically non-increasing and within MAX_FEE
+        let mut prev_fee_rate: u32 = u32::MAX;
+        for tier in tiers.iter() {
+            if tier.fee_rate > prev_fee_rate {
+                panic_with_error!(&env, Error::TierFeeNotMonotonic);
+            }
+            if tier.fee_rate > MAX_FEE {
+                panic_with_error!(&env, Error::FeeTooHigh);
+            }
+            prev_fee_rate = tier.fee_rate;
+        }
+
+        // Store the new tier configuration
+        env.storage().instance().set(&Symbol::new(&env, "fee_tiers"), &tiers);
+        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    /// Get the current fee-tier configuration.
+    pub fn get_fee_tiers(env: Env) -> Vec<FeeTier> {
+        match env.storage().instance().get(&Symbol::new(&env, "fee_tiers")) {
+            Some(tiers) => tiers,
+            None => Vec::new(&env),
+        }
+    }
+
+    /// Get a donor's cumulative streamed volume, used to select their fee tier.
+    pub fn get_donor_cumulative_volume(env: Env, donor: Address) -> i128 {
+        let donor_volume_key = (Symbol::new(&env, "donor_volume"), donor);
+        env.storage().persistent().get(&donor_volume_key).unwrap_or(0)
     }
 
     /// Get stream-specific metrics

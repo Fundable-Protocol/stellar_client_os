@@ -16,6 +16,8 @@ import {
   calculateTotalAmount,
   validateAmountList,
   MAX_DECIMAL_PLACES,
+  computeMaxStreamableAmount,
+  XLM_MINIMUM_RESERVE,
 } from './amount-validation';
 
 describe('Amount Validation - Property Tests', () => {
@@ -230,6 +232,42 @@ describe('Amount Validation - Property Tests', () => {
           expect(formatted).toBe(expected);
         }
       });
+    });
+  });
+
+  describe('computeMaxStreamableAmount - MAX auto-fill reserve deduction', () => {
+    it('should deduct the XLM minimum reserve for XLM balances', () => {
+      expect(computeMaxStreamableAmount('10', 'XLM')).toBe('8');
+      expect(computeMaxStreamableAmount('10.5', 'XLM')).toBe('8.5');
+      expect(computeMaxStreamableAmount('8.1234567', 'XLM')).toBe('6.1234567');
+      expect(computeMaxStreamableAmount('1000000', 'XLM')).toBe('999998');
+    });
+
+    it('should never return a negative streamable amount for XLM', () => {
+      // Exactly the reserve: nothing left to stream
+      expect(computeMaxStreamableAmount(String(XLM_MINIMUM_RESERVE), 'XLM')).toBe('0');
+      // Below the reserve: nothing left to stream
+      expect(computeMaxStreamableAmount('1.5', 'XLM')).toBe('0');
+      expect(computeMaxStreamableAmount('0.0000001', 'XLM')).toBe('0');
+    });
+
+    it('should return the full balance for non-XLM tokens', () => {
+      expect(computeMaxStreamableAmount('10', 'USDC')).toBe('10');
+      expect(computeMaxStreamableAmount('10.5', 'USDC')).toBe('10.5');
+      expect(computeMaxStreamableAmount('0.1234567', 'AQUA')).toBe('0.1234567');
+    });
+
+    it('should return null when there is no usable balance', () => {
+      expect(computeMaxStreamableAmount(null, 'XLM')).toBeNull();
+      expect(computeMaxStreamableAmount(undefined, 'XLM')).toBeNull();
+      expect(computeMaxStreamableAmount('', 'XLM')).toBeNull();
+      expect(computeMaxStreamableAmount('abc', 'XLM')).toBeNull();
+      expect(computeMaxStreamableAmount('0', 'XLM')).toBeNull();
+      expect(computeMaxStreamableAmount('-5', 'XLM')).toBeNull();
+    });
+
+    it('should return null when the token code is missing', () => {
+      expect(computeMaxStreamableAmount('10', undefined)).toBeNull();
     });
   });
 

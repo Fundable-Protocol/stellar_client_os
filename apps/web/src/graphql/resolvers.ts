@@ -6,6 +6,8 @@
  */
 
 import { DefaultStreamDataSource, getAnalyticsService } from "./analytics.service";
+import { queryCampaigns } from "@/services/campaign.service";
+import type { CampaignDataSource, CampaignQueryInput } from "@/services/campaign.service";
 import type {
   RegionFilter,
   CategoryFilter,
@@ -20,6 +22,7 @@ type Network = "testnet" | "mainnet";
 interface ResolverContext {
   /** Optional custom data source — used in tests to inject fixtures. */
   dataSource?: StreamDataSource;
+  campaignDataSource?: CampaignDataSource;
 }
 
 function resolveDataSource(ctx: ResolverContext, fallback?: StreamDataSource): StreamDataSource {
@@ -43,6 +46,33 @@ function paginate<T>(items: T[], pagination?: PaginationInput): T[] {
 export function createResolvers(defaultDataSource?: StreamDataSource) {
   return {
     Query: {
+      campaigns: async (
+        _: unknown,
+        args: {
+          filter?: CampaignQueryInput["filter"];
+          sort?: CampaignQueryInput["sort"];
+          pagination?: PaginationInput;
+          network?: Network;
+        },
+        ctx: ResolverContext,
+      ) => {
+        const campaigns = await queryCampaigns({
+          filter: args.filter,
+          sort: args.sort,
+          limit: args.pagination?.limit,
+          offset: args.pagination?.offset,
+          network: args.network,
+        }, ctx.campaignDataSource);
+        return campaigns.map((campaign) => ({
+          ...campaign,
+          createdAt: Math.floor(campaign.createdAt / 1000),
+          updatedAt: Math.floor(campaign.updatedAt / 1000),
+          statusChangedAt: Math.floor(campaign.statusChangedAt / 1000),
+          sponsors: campaign.sponsors.map((sponsor) => ({ ...sponsor, sponsoredAt: Math.floor(sponsor.sponsoredAt / 1000) })),
+          statusHistory: campaign.statusHistory.map((entry) => ({ ...entry, changedAt: Math.floor(entry.changedAt / 1000) })),
+        }));
+      },
+
       trees: async (
         _: unknown,
         args: {

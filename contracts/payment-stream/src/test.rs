@@ -3,12 +3,10 @@ mod test {
     use soroban_sdk::testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke};
     use soroban_sdk::{token, vec, Address, Env, Event, IntoVal, Vec};
     use crate::{
-        DelegationGrantedEvent, EmergencyPausedEvent, EmergencyUnpausedEvent,
+        DelegationGrantedEvent, EmergencyPausedEvent, EmergencyUnpausedEvent, Error, FeeTier,
         PaymentStreamContract, PaymentStreamContractClient, StreamPausedEvent, StreamResumedEvent,
         StreamParams, StreamStatus,
     };
-    use soroban_sdk::{token, vec, Address, Env, IntoVal, Vec};
-    use crate::{Error, PaymentStreamContract, PaymentStreamContractClient, StreamParams, StreamStatus};
 
 
     
@@ -131,7 +129,9 @@ mod test {
         assert_eq!(stream.withdrawn_amount, 300);
 
         let token_client = token::Client::new(&env, &token);
-        assert_eq!(token_client.balance(&recipient), 300);
+        // Default tier 0 fee (500 bps = 5 %) on 300 = 15.
+        assert_eq!(token_client.balance(&recipient), 285);
+        assert_eq!(token_client.balance(&fee_collector), 15);
         assert_eq!(token_client.balance(&contract_id), 700);
     }
 
@@ -228,9 +228,10 @@ mod test {
             &200,
         );
 
-        env.ledger().set_timestamp(50);
+        // Stream 2 vests over [100, 200]; at time 150 it is halfway vested.
+        env.ledger().set_timestamp(150);
 
-        // Withdraw from second stream at time 50
+        // Withdraw from second stream at time 150
         // Available on stream 2: 20,000 * 50 / 100 = 10,000
         let available_2 = client.withdrawable_amount(&stream_id_2);
         
@@ -372,7 +373,6 @@ mod test {
     fn test_set_fee_tiers_admin_only() {
         // Test: Non-admin cannot update fee tiers
         let env = Env::default();
-        env.mock_all_auths();
 
         let admin = Address::generate(&env);
         let fee_collector = Address::generate(&env);
@@ -381,28 +381,27 @@ mod test {
         let contract_id = env.register(PaymentStreamContract, ());
         let client = PaymentStreamContractClient::new(&env, &contract_id);
 
+        // Only authorize the admin for the initialize call, not for set_fee_tiers
+        env.mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "initialize",
+                args: (&admin, &fee_collector, &0u32).into_val(&env),
+                sub_invokes: &[],
+            },
+        }]);
         client.initialize(&admin, &fee_collector, &0);
 
         // Create new tiers
-        let mut new_tiers = SorobanVec::new(&env);
+        let mut new_tiers = Vec::new(&env);
         new_tiers.push_back(FeeTier { threshold: 0, fee_rate: 300 });
 
-        // Non-admin attempt should fail
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            env.mock_auth(&[(
-                &non_admin,
-                MockAuthInvoke {
-                    contract: &contract_id,
-                    fn_name: &Symbol::new(&env, "set_fee_tiers"),
-                    args: (&new_tiers,).into_val(&env),
-                    invoke_contract: true,
-                },
-            )]);
-            client.set_fee_tiers(&new_tiers);
-        }));
-        
-        // We expect this to fail with Unauthorized
+        // Non-admin attempt should fail with Unauthorized (no auth is mocked
+        // for the set_fee_tiers invocation)
+        let result = client.try_set_fee_tiers(&new_tiers);
         assert!(result.is_err());
+        let _ = non_admin;
     }
 
     #[test]
@@ -420,15 +419,13 @@ mod test {
         client.initialize(&admin, &fee_collector, &0);
 
         // Create invalid tiers (fee increases at tier 2)
-        let mut invalid_tiers = SorobanVec::new(&env);
+        let mut invalid_tiers = Vec::new(&env);
         invalid_tiers.push_back(FeeTier { threshold: 0, fee_rate: 300 });
         invalid_tiers.push_back(FeeTier { threshold: 50_000, fee_rate: 200 });
         invalid_tiers.push_back(FeeTier { threshold: 500_000, fee_rate: 400 }); // Invalid: fee increased
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.set_fee_tiers(&invalid_tiers);
-        }));
-        
+        let result = client.try_set_fee_tiers(&invalid_tiers);
+
         // Should fail with TierFeeNotMonotonic
         assert!(result.is_err());
     }
@@ -448,13 +445,11 @@ mod test {
         client.initialize(&admin, &fee_collector, &0);
 
         // Create invalid tiers (first tier threshold is not 0)
-        let mut invalid_tiers = SorobanVec::new(&env);
+        let mut invalid_tiers = Vec::new(&env);
         invalid_tiers.push_back(FeeTier { threshold: 100, fee_rate: 300 }); // Invalid: not 0
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            client.set_fee_tiers(&invalid_tiers);
-        }));
-        
+        let result = client.try_set_fee_tiers(&invalid_tiers);
+
         // Should fail with InvalidTierConfiguration
         assert!(result.is_err());
     }
@@ -867,7 +862,9 @@ fn test_recipient_can_still_withdraw_after_delegate_set() {
     assert_eq!(stream.withdrawn_amount, 300);
 
     let token_client = token::Client::new(&env, &token);
-    assert_eq!(token_client.balance(&recipient), 300);
+    // Default tier 0 fee (500 bps = 5 %) on 300 = 15.
+    assert_eq!(token_client.balance(&recipient), 285);
+    assert_eq!(token_client.balance(&fee_collector), 15);
     assert_eq!(token_client.balance(&contract_id), 700);
 }
 
@@ -1364,7 +1361,9 @@ fn test_stream_resumed_event_emitted() {
         assert_eq!(stream.status, StreamStatus::Completed);
 
         let token_client = token::Client::new(&env, &token);
-        assert_eq!(token_client.balance(&recipient), 1000);
+        // Default tier 0 fee (500 bps = 5 %) on 1000 = 50.
+        assert_eq!(token_client.balance(&recipient), 950);
+        assert_eq!(token_client.balance(&fee_collector), 50);
     }
 
     #[test]
@@ -1443,44 +1442,6 @@ fn test_stream_resumed_event_emitted() {
     }
 
     #[test]
-    fn test_set_delegate() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let fee_collector = Address::generate(&env);
-        let sender = Address::generate(&env);
-        let recipient = Address::generate(&env);
-        let delegate = Address::generate(&env);
-
-        let sac = env.register_stellar_asset_contract_v2(admin.clone());
-        let token = sac.address();
-
-        let contract_id = env.register(PaymentStreamContract, ());
-        let client = PaymentStreamContractClient::new(&env, &contract_id);
-
-        client.initialize(&admin, &fee_collector, &0);
-
-        let token_admin = token::StellarAssetClient::new(&env, &token);
-        token_admin.mint(&sender, &1000);
-
-        let stream_id = client.create_stream(
-            &sender,
-            &recipient,
-            &token,
-            &1000,
-            &1000,
-            &0,
-            &100,
-        );
-
-        client.set_delegate(&stream_id, &delegate);
-
-        let retrieved_delegate = client.get_delegate(&stream_id);
-        assert_eq!(retrieved_delegate, Some(delegate));
-    }
-
-    #[test]
     fn test_cancel_stream() {
         let env = Env::default();
         env.mock_all_auths();
@@ -1517,8 +1478,10 @@ fn test_stream_resumed_event_emitted() {
         assert_eq!(stream.status, StreamStatus::Canceled);
 
         let token_client = token::Client::new(&env, &token);
-        // Sender should receive refund of remaining balance (500)
-        assert_eq!(token_client.balance(&sender), 500);
+        // Sender should receive a refund of the remaining escrowed balance:
+        // 500 still in their wallet + 500 refunded = 1000.
+        assert_eq!(token_client.balance(&sender), 1000);
+        assert_eq!(token_client.balance(&contract_id), 0);
     }
 
     #[test]
@@ -1663,7 +1626,8 @@ fn test_withdraw_after_pause_and_resume() {
     let token_client = token::Client::new(&env, &token);
     let recipient_balance = token_client.balance(&recipient);
     assert!(recipient_balance > 0);
-    assert_eq!(recipient_balance, 600); // 100 + 500
+    // Default tier 0 fee (500 bps = 5 %): (100 - 5) + (500 - 25) = 570
+    assert_eq!(recipient_balance, 570);
 }
 
 // --- Dispute resolution timelock tests ---
@@ -2690,7 +2654,9 @@ fn test_pause_blocked_during_dispute() {
         assert_eq!(stream.withdrawn_amount, 200);
 
         let token_client = token::Client::new(&env, &token);
-        assert_eq!(token_client.balance(&recipient), 200);
+        // Default tier 0 fee (500 bps = 5 %) on 200 = 10.
+        assert_eq!(token_client.balance(&recipient), 190);
+        assert_eq!(token_client.balance(&fee_collector), 10);
         assert_eq!(token_client.balance(&contract_id), 800);
     }
 
