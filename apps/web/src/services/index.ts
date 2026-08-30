@@ -63,3 +63,16 @@ export {
 } from './errors';
 
 export { socialService, SocialService } from './social.service';
+
+export {
+  CampaignRecommendationService,
+  calculateCampaignSimilarity,
+  getCampaignRecommendationService,
+} from './campaign-recommendation.service';
+export type {
+  CampaignRecommendation,
+  CampaignRecommendationOptions,
+  CampaignRecommendationResponse,
+  CampaignRecommendationServiceOptions,
+  CampaignSimilarity,
+} from './campaign-recommendation.service';

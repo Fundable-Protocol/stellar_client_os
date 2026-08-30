@@ -5,12 +5,10 @@ members = [
     "payment-stream",
     "distributor",
     "nft-stream",
-    "planter"
+    "planter",
     "dispute-arbiter",
-    "nft-stream",
     "campaign-funding",
     "soulbound-badge",
-    "planter",
     "timelock",
     "upgrade-proxy",
     "sponsor-crowdfunding",

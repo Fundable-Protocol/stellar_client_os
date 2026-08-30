@@ -20,6 +20,17 @@ import { isValidStellarAddress } from "@/utils/stellar-validation";
 
 import { offrampService } from "@/services/offramp.service";
 import { notify } from "@/utils/notification";
+import { NETWORK_PASSPHRASE } from "@/lib/constants";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { isLockedWalletError, isWalletCancellationError } from "@/utils/wallet-errors";
 
 export type WalletId = string;
@@ -67,6 +78,18 @@ export const useWallet = () => {
   return context;
 };
 
+/** Derive the human-readable name for a given network passphrase. */
+function getNetworkName(passphrase: string): string {
+  switch (passphrase) {
+    case WalletNetwork.PUBLIC:
+      return "Mainnet";
+    case WalletNetwork.TESTNET:
+      return "Testnet";
+    case WalletNetwork.FUTURENET:
+      return "Futurenet";
+    default:
+      return "Unknown Network";
+  }
 /** Read all persisted wallet fields in one pass and validate them together. */
 function loadPersistedSession(): {
   address: string | null;
@@ -123,6 +146,13 @@ export const StellarWalletProvider = ({
   const [kit, setKit] = useState<StellarWalletsKit | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPersistenceAvailable, setIsPersistenceAvailable] = useState(true);
+
+  // Network mismatch modal state
+  const [networkMismatchOpen, setNetworkMismatchOpen] = useState(false);
+  const [mismatchInfo, setMismatchInfo] = useState<{
+    walletNetwork: string;
+    expectedNetwork: string;
+  } | null>(null);
 
   // Holds the AbortController for the current in-flight connection attempt.
   // Aborting it signals connect() to discard any resolved address.
@@ -301,6 +331,46 @@ export const StellarWalletProvider = ({
         );
       }
 
+      // ── Network passphrase mismatch detection ──────────────────────────────
+      // The app targets a specific network (e.g. Testnet). If the wallet is
+      // configured for a different network (e.g. Mainnet), any transaction it
+      // signs will be invalid on the app's target network. Detect this early
+      // and refuse the connection, prompting the user to switch.
+      try {
+        const { networkPassphrase: walletPassphrase } = await kit.getNetwork();
+
+        if (signal.aborted) return;
+
+        // The expected passphrase comes from env config (NEXT_PUBLIC_NETWORK_PASSPHRASE)
+        // falling back to the WalletNetwork enum value for the app's configured network.
+        const expectedPassphrase = NETWORK_PASSPHRASE ?? network;
+
+        if (walletPassphrase !== expectedPassphrase) {
+          const walletNetworkName = getNetworkName(walletPassphrase);
+          const expectedNetworkName = getNetworkName(expectedPassphrase);
+
+          // Surface the mismatch modal to the user
+          setMismatchInfo({
+            walletNetwork: walletNetworkName,
+            expectedNetwork: expectedNetworkName,
+          });
+          setNetworkMismatchOpen(true);
+
+          // Reset connection state — do not store the address
+          setConnectionStatus("idle");
+          return;
+        }
+      } catch (networkError) {
+        // getNetwork() is not supported by all wallets (e.g. hardware wallets,
+        // older extensions). Log the failure but allow the connection to proceed
+        // rather than blocking users with unsupported wallets.
+        console.warn(
+          "[StellarWalletProvider] Could not verify wallet network passphrase:",
+          networkError,
+        );
+      }
+      // ── End network passphrase mismatch detection ──────────────────────────
+
       setAddress(resolvedAddress);
       setSelectedWalletId(walletId);
       setConnectionStatus("connected");
@@ -418,6 +488,63 @@ export const StellarWalletProvider = ({
       }}
     >
       {children}
+
+      {/* ── Network Mismatch Modal ─────────────────────────────────────────── */}
+      <Dialog
+        open={networkMismatchOpen}
+        onOpenChange={(open) => {
+          if (!open) setNetworkMismatchOpen(false);
+        }}
+      >
+        <DialogContent
+          className="max-w-md border-white/10 bg-[#0F1621]"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-white">
+              <AlertCircle className="h-5 w-5 text-yellow-400" aria-hidden="true" />
+              Wrong Network Detected
+            </DialogTitle>
+            <DialogDescription className="text-[#92A5A8]">
+              {mismatchInfo ? (
+                <>
+                  Your wallet is set to{" "}
+                  <span className="font-semibold text-white">
+                    {mismatchInfo.walletNetwork}
+                  </span>
+                  , but this app targets{" "}
+                  <span className="font-semibold text-white">
+                    {mismatchInfo.expectedNetwork}
+                  </span>
+                  . Submitting transactions on the wrong network will fail.
+                </>
+              ) : (
+                "Your wallet network does not match the app's expected network."
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 px-4 py-3 text-sm text-yellow-300">
+            Please switch your wallet to{" "}
+            <span className="font-semibold">
+              {mismatchInfo?.expectedNetwork ?? "the correct network"}
+            </span>{" "}
+            and try connecting again.
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="border-white/10 text-white hover:bg-white/10"
+              onClick={() => setNetworkMismatchOpen(false)}
+            >
+              Dismiss
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ── End Network Mismatch Modal ─────────────────────────────────────── */}
+
       {!isPersistenceAvailable && (
         <div className="fixed bottom-4 right-4 z-50 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-xs rounded-md shadow-lg flex items-center gap-2">
           <AlertCircle className="w-4 h-4" />

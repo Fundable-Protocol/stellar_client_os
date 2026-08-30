@@ -98,6 +98,119 @@ tags:
 
 
 paths:
+  /api/campaigns:
+    get:
+      tags: [Campaigns]
+      summary: List campaigns with filters and sorting
+      operationId: listCampaigns
+      parameters:
+        - $ref: '#/components/parameters/CampaignStatus'
+        - name: creator
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, updatedAt, name, status, goalAmount, raisedAmount, sponsorCount, treeCount]
+            default: createdAt
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: network
+          in: query
+          schema: { type: string, enum: [testnet, mainnet], default: testnet }
+      responses:
+        '200':
+          description: Matching campaigns
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Campaign' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Campaigns]
+      summary: Create a campaign
+      operationId: createCampaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCampaignRequest' }
+      responses:
+        '201':
+          description: Campaign created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/campaigns/{id}:
+    get:
+      tags: [Campaigns]
+      summary: Get a campaign and its status history
+      operationId: getCampaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: Campaign details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Campaigns]
+      summary: Update campaign metadata or status
+      operationId: updateCampaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCampaignRequest' }
+      responses:
+        '200':
+          description: Updated campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/campaigns/{id}/export:
+    get:
+      tags: [Campaigns]
+      summary: Download sponsor or impact report as CSV
+      operationId: exportCampaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - name: report
+          in: query
+          required: true
+          schema: { type: string, enum: [sponsors, impact] }
+      responses:
+        '200':
+          description: CSV report
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/certificates:
     post:
       tags: [Certificates]
@@ -606,6 +719,17 @@ paths:
           $ref: '#/components/responses/InternalServerError'
 
 components:
+  parameters:
+    CampaignId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CampaignStatus:
+      name: status
+      in: query
+      schema:
+        $ref: '#/components/schemas/CampaignStatus'
   headers:
     ContentDisposition:
       description: Attachment filename for the generated PDF
@@ -633,6 +757,77 @@ components:
             $ref: '#/components/schemas/GraphQLResponse'
 
   schemas:
+    CampaignStatus:
+      type: string
+      enum: [DRAFT, PENDING_VERIFICATION, ACTIVE, PAUSED, COMPLETED, FAILED]
+    Campaign:
+      type: object
+      required: [id, creator, name, status, goalAmount, raisedAmount, sponsorCount, treeCount, createdAt, updatedAt, statusChangedAt, sponsors, statusHistory]
+      properties:
+        id: { type: string, format: uuid }
+        creator: { type: string }
+        name: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/CampaignStatus' }
+        goalAmount: { type: string, pattern: '^\\d+$' }
+        raisedAmount: { type: string, pattern: '^\\d+$' }
+        sponsorCount: { type: integer, minimum: 0 }
+        treeCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        statusChangedAt: { type: string, format: date-time }
+        sponsors:
+          type: array
+          items: { $ref: '#/components/schemas/CampaignSponsor' }
+        statusHistory:
+          type: array
+          items: { $ref: '#/components/schemas/CampaignStatusHistory' }
+    CampaignSponsor:
+      type: object
+      required: [id, campaignId, address, amount, token, sponsoredAt]
+      properties:
+        id: { type: string, format: uuid }
+        campaignId: { type: string, format: uuid }
+        address: { type: string }
+        amount: { type: string }
+        token: { type: string }
+        sponsoredAt: { type: string, format: date-time }
+    CampaignStatusHistory:
+      type: object
+      required: [id, campaignId, toStatus, changedBy, changedAt]
+      properties:
+        id: { type: string, format: uuid }
+        campaignId: { type: string, format: uuid }
+        fromStatus: { allOf: [{ $ref: '#/components/schemas/CampaignStatus' }], nullable: true }
+        toStatus: { $ref: '#/components/schemas/CampaignStatus' }
+        changedBy: { type: string }
+        changedAt: { type: string, format: date-time }
+        reason: { type: string }
+    CreateCampaignRequest:
+      type: object
+      required: [creator, name, goalAmount]
+      properties:
+        creator: { type: string }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        goalAmount: { type: string, pattern: '^\\d+$' }
+        network: { type: string, enum: [testnet, mainnet], default: testnet }
+    UpdateCampaignRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        status: { $ref: '#/components/schemas/CampaignStatus' }
+        changedBy: { type: string }
+        reason: { type: string }
+    Pagination:
+      type: object
+      required: [limit, offset, count]
+      properties:
+        limit: { type: integer }
+        offset: { type: integer }
+        count: { type: integer }
     Error:
       type: object
       required: [error]

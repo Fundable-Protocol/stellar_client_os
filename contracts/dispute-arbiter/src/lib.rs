@@ -536,8 +536,7 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id =
-            client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         // Cast 3 approve votes → should auto-resolve as Approved
         let reason = String::from_str(&env, "Milestone is complete");
@@ -570,8 +569,7 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id =
-            client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         let reason = String::from_str(&env, "Milestone not delivered");
         for i in 0..3 {
@@ -602,8 +600,7 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id =
-            client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         let reason = String::from_str(&env, "Looks good");
         let arbiter = arbiters.get(0).unwrap();
@@ -629,8 +626,7 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id =
-            client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         let outsider = Address::generate(&env);
         let reason = String::from_str(&env, "I am not assigned");
@@ -652,18 +648,12 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id =
-            client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         // Cast only 2 votes — not enough for consensus
         let reason = String::from_str(&env, "Approve");
         for i in 0..2 {
-            client.cast_vote(
-                &dispute_id,
-                &arbiters.get(i).unwrap(),
-                &VoteChoice::Approve,
-                &reason,
-            );
+            client.cast_vote(&dispute_id, &arbiters.get(i).unwrap(), &VoteChoice::Approve, &reason);
         }
 
         // Advance time past voting deadline
@@ -696,8 +686,7 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id =
-            client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         let reason = String::from_str(&env, "Need more proof");
         for i in 0..3 {
