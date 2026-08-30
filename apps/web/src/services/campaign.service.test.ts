@@ -3,6 +3,7 @@ import {
   InMemoryCampaignDataSource,
   createCampaign,
   exportCampaignCsv,
+  findDuplicateCampaigns,
   queryCampaigns,
   transitionCampaignStatus,
   type CampaignRecord,
@@ -57,5 +58,85 @@ describe("campaign service", () => {
     const source = new InMemoryCampaignDataSource();
     const campaign = await createCampaign({ creator: "creator-1", name: "New campaign", goalAmount: "100" }, source, 10_000);
     expect(campaign.statusHistory[0]).toMatchObject({ fromStatus: null, toStatus: "DRAFT", changedBy: "creator-1", changedAt: 10_000 });
+  });
+
+  it("persists location and durationMs and derives duration from a deadline", async () => {
+    const source = new InMemoryCampaignDataSource();
+    const campaign = await createCampaign(
+      { creator: "creator-1", name: "Mangrove restoration", location: "Kenya", deadline: 110_000, goalAmount: "100" },
+      source,
+      10_000,
+    );
+    expect(campaign.location).toBe("Kenya");
+    expect(campaign.durationMs).toBe(100_000);
+  });
+});
+
+describe("findDuplicateCampaigns", () => {
+  it("flags an identical name/location/duration for the same creator", async () => {
+    const source = new InMemoryCampaignDataSource();
+    await source.saveCampaign(fixture({ creator: "creator-1", name: "Mangrove restoration", location: "Kenya", durationMs: 2_592_000_000 }));
+    const duplicates = await findDuplicateCampaigns(
+      { creator: "creator-1", name: "Mangrove restoration", location: "Kenya", durationMs: 2_592_000_000 },
+      source,
+    );
+    expect(duplicates.map((campaign) => campaign.id)).toEqual(["campaign-1"]);
+  });
+
+  it("ignores campaigns from a different creator", async () => {
+    const source = new InMemoryCampaignDataSource();
+    await source.saveCampaign(fixture({ creator: "creator-1", name: "Mangrove restoration", location: "Kenya", durationMs: 2_592_000_000 }));
+    const duplicates = await findDuplicateCampaigns(
+      { creator: "creator-2", name: "Mangrove restoration", location: "Kenya", durationMs: 2_592_000_000 },
+      source,
+    );
+    expect(duplicates).toEqual([]);
+  });
+
+  it("does not match when the location differs", async () => {
+    const source = new InMemoryCampaignDataSource();
+    await source.saveCampaign(fixture({ creator: "creator-1", name: "Mangrove restoration", location: "Kenya", durationMs: 2_592_000_000 }));
+    const duplicates = await findDuplicateCampaigns(
+      { creator: "creator-1", name: "Mangrove restoration", location: "Tanzania", durationMs: 2_592_000_000 },
+      source,
+    );
+    expect(duplicates).toEqual([]);
+  });
+
+  it("does not match when the duration differs", async () => {
+    const source = new InMemoryCampaignDataSource();
+    await source.saveCampaign(fixture({ creator: "creator-1", name: "Mangrove restoration", location: "Kenya", durationMs: 2_592_000_000 }));
+    const duplicates = await findDuplicateCampaigns(
+      { creator: "creator-1", name: "Mangrove restoration", location: "Kenya", durationMs: 3_110_400_000 },
+      source,
+    );
+    expect(duplicates).toEqual([]);
+  });
+
+  it("matches on trimmed, case-insensitive name and location", async () => {
+    const source = new InMemoryCampaignDataSource();
+    await source.saveCampaign(fixture({ creator: "creator-1", name: "Mangrove Restoration", location: "Kenya", durationMs: 2_592_000_000 }));
+    const duplicates = await findDuplicateCampaigns(
+      { creator: "creator-1", name: "  mangrove restoration ", location: "kenya", durationMs: 2_592_000_000 },
+      source,
+    );
+    expect(duplicates.map((campaign) => campaign.id)).toEqual(["campaign-1"]);
+  });
+
+  it("treats absent location/duration on both sides as equal", async () => {
+    const source = new InMemoryCampaignDataSource();
+    await source.saveCampaign(fixture({ creator: "creator-1", name: "Mangrove restoration" }));
+    const duplicates = await findDuplicateCampaigns({ creator: "creator-1", name: "Mangrove restoration" }, source);
+    expect(duplicates.map((campaign) => campaign.id)).toEqual(["campaign-1"]);
+  });
+
+  it("does not match an explicit location against an absent one", async () => {
+    const source = new InMemoryCampaignDataSource();
+    await source.saveCampaign(fixture({ creator: "creator-1", name: "Mangrove restoration" }));
+    const duplicates = await findDuplicateCampaigns(
+      { creator: "creator-1", name: "Mangrove restoration", location: "Kenya", durationMs: 2_592_000_000 },
+      source,
+    );
+    expect(duplicates).toEqual([]);
   });
 });

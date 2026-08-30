@@ -159,6 +159,18 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Campaign' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: A campaign with the same name, location, and duration already exists for this creator
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, duplicates]
+                properties:
+                  error: { type: string }
+                  duplicates:
+                    type: array
+                    items: { $ref: '#/components/schemas/Campaign' }
   /api/campaigns/{id}:
     get:
       tags: [Campaigns]
@@ -768,6 +780,8 @@ components:
         creator: { type: string }
         name: { type: string }
         description: { type: string }
+        location: { type: string }
+        durationMs: { type: integer, minimum: 0 }
         status: { $ref: '#/components/schemas/CampaignStatus' }
         goalAmount: { type: string, pattern: '^\\d+$' }
         raisedAmount: { type: string, pattern: '^\\d+$' }
@@ -810,6 +824,9 @@ components:
         creator: { type: string }
         name: { type: string, minLength: 1, maxLength: 200 }
         description: { type: string, maxLength: 5000 }
+        location: { type: string, maxLength: 500 }
+        durationMs: { type: integer, minimum: 0 }
+        deadline: { type: integer, description: 'Unix timestamp (ms); sets durationMs to deadline minus now' }
         goalAmount: { type: string, pattern: '^\\d+$' }
         network: { type: string, enum: [testnet, mainnet], default: testnet }
     UpdateCampaignRequest:

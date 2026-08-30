@@ -36,6 +36,10 @@ export interface CampaignRecord {
   creator: string;
   name: string;
   description?: string;
+  /** Geographic location of the campaign, used for duplicate detection. */
+  location?: string;
+  /** Intended campaign duration in milliseconds, used for duplicate detection. */
+  durationMs?: number;
   status: CampaignStatus;
   goalAmount: string;
   raisedAmount: string;
@@ -110,6 +114,9 @@ export async function createCampaign(input: {
   creator: string;
   name: string;
   description?: string;
+  location?: string;
+  durationMs?: number;
+  deadline?: number;
   goalAmount: string;
   network?: "testnet" | "mainnet";
 }, dataSource = getCampaignDataSource(), now = Date.now()): Promise<CampaignRecord> {
@@ -118,6 +125,8 @@ export async function createCampaign(input: {
     creator: input.creator,
     name: input.name,
     description: input.description,
+    location: input.location,
+    durationMs: input.deadline !== undefined ? input.deadline - now : input.durationMs,
     status: "DRAFT",
     goalAmount: input.goalAmount,
     raisedAmount: "0",
@@ -141,6 +150,54 @@ export async function createCampaign(input: {
   campaign.statusHistory[0].campaignId = campaign.id;
   campaign.statusHistory[0].id = `${campaign.id}:${now}:0`;
   return dataSource.saveCampaign(campaign);
+}
+
+/**
+ * Normalise a free-text attribute for duplicate comparison: trimmed and
+ * case-insensitive so accidental near-duplicates are caught (issue #729).
+ */
+export function normalizeCampaignField(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export interface CampaignDuplicateLookup {
+  creator: string;
+  name: string;
+  location?: string;
+  durationMs?: number;
+}
+
+/**
+ * Find previously saved campaigns that would be indistinguishable from a new
+ * one being created by the same creator (issue #729).
+ *
+ * A candidate is a duplicate when it shares the creator and a normalised name.
+ * `location` only contributes when provided by BOTH the new input and the
+ * candidate (an explicit value never matches an absent one). `durationMs`
+ * matches only when both sides carry an exact, equal value. Fields absent on
+ * both sides are treated as equal, so a bare name match still surfaces
+ * accidental double-submissions.
+ */
+export async function findDuplicateCampaigns(
+  input: CampaignDuplicateLookup,
+  dataSource = getCampaignDataSource(),
+): Promise<CampaignRecord[]> {
+  const normalizedName = normalizeCampaignField(input.name);
+  const normalizedLocation = input.location !== undefined ? normalizeCampaignField(input.location) : undefined;
+  const campaigns = await dataSource.getCampaigns();
+  return campaigns.filter((campaign) => {
+    if (campaign.creator !== input.creator) return false;
+    if (normalizeCampaignField(campaign.name) !== normalizedName) return false;
+    if (normalizedLocation !== undefined) {
+      if (campaign.location === undefined) return false;
+      if (normalizeCampaignField(campaign.location) !== normalizedLocation) return false;
+    }
+    if (input.durationMs !== undefined) {
+      if (campaign.durationMs === undefined) return false;
+      if (campaign.durationMs !== input.durationMs) return false;
+    }
+    return true;
+  });
 }
 
 export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource = getCampaignDataSource()): Promise<CampaignRecord[]> {
