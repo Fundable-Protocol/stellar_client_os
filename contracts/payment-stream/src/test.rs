@@ -3255,5 +3255,54 @@ fn test_pause_blocked_during_dispute() {
         assert_eq!(client.withdrawable_amount(&ids.get(0).unwrap()), 500);
     }
 
+// --- ID counter exhaustion (ContractFull) tests ---
 
+#[test]
+#[should_panic(expected = "Error(Contract, #32)")]
+fn test_create_stream_rejected_when_stream_count_full() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let fee_collector = Address::generate(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    let token = sac.address();
+
+    let contract_id = env.register(PaymentStreamContract, ());
+    let client = PaymentStreamContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_collector, &0);
+
+    // Exhaust the stream ID space: the next create must be rejected with
+    // Error::ContractFull instead of panicking on arithmetic overflow.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&crate::DataKey::StreamCount, &u64::MAX);
+    });
+
+    client.create_stream(&sender, &recipient, &token, &1000, &1000, &0, &100);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #32)")]
+fn test_resolve_dispute_rejected_when_dispute_count_full() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (_admin, _sender, _recipient, _token, contract_id, stream_id) = setup_dispute_test(&env);
+    let client = PaymentStreamContractClient::new(&env, &contract_id);
+
+    // Exhaust the dispute ID space: the next resolution must be rejected with
+    // Error::ContractFull instead of panicking on arithmetic overflow.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .set(&crate::DataKey::DisputeCount, &u64::MAX);
+    });
+
+    client.resolve_dispute(&stream_id, &600, &400);
+}
 }

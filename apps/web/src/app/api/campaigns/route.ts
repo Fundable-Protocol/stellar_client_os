@@ -1,4 +1,4 @@
-import { createCampaign, queryCampaigns } from "@/services/campaign.service";
+import { createCampaign, findDuplicateCampaigns, queryCampaigns } from "@/services/campaign.service";
 
 export const runtime = "nodejs";
 
@@ -21,17 +21,53 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json() as { creator?: string; name?: string; description?: string; goalAmount?: string; network?: "testnet" | "mainnet" };
+    const body = await request.json() as {
+      creator?: string;
+      name?: string;
+      description?: string;
+      location?: string;
+      durationMs?: number;
+      deadline?: number;
+      goalAmount?: string;
+      network?: "testnet" | "mainnet";
+    };
     if (!body.creator || !body.name || !body.goalAmount) {
       return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
     }
     if (!/^\d+$/.test(body.goalAmount)) {
       return Response.json({ error: "goalAmount must be a non-negative integer string" }, { status: 400 });
     }
+    if (body.location !== undefined && typeof body.location !== "string") {
+      return Response.json({ error: "location must be a string" }, { status: 400 });
+    }
+    if (body.durationMs !== undefined && (!Number.isFinite(body.durationMs) || body.durationMs < 0)) {
+      return Response.json({ error: "durationMs must be a non-negative number" }, { status: 400 });
+    }
+    if (body.deadline !== undefined && !Number.isFinite(body.deadline)) {
+      return Response.json({ error: "deadline must be a numeric timestamp" }, { status: 400 });
+    }
+    const durationMs = body.durationMs ?? (body.deadline !== undefined ? body.deadline - Date.now() : undefined);
+    if (durationMs !== undefined && durationMs < 0) {
+      return Response.json({ error: "deadline must be in the future" }, { status: 400 });
+    }
+    const duplicates = await findDuplicateCampaigns({
+      creator: body.creator,
+      name: body.name,
+      location: body.location,
+      durationMs,
+    });
+    if (duplicates.length > 0) {
+      return Response.json(
+        { error: "A campaign with the same name, location, and duration already exists", duplicates },
+        { status: 409 },
+      );
+    }
     const campaign = await createCampaign({
       creator: body.creator,
       name: body.name,
       description: body.description,
+      location: body.location,
+      durationMs,
       goalAmount: body.goalAmount,
       network: body.network,
     });

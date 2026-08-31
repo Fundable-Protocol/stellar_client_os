@@ -1,6 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token, Address, Env,
+    contract, contracterror, contractevent, contractimpl, contracttype, symbol_short, token,
+    Address, Env, Symbol,
 };
 
 #[contracterror]
@@ -17,6 +18,8 @@ pub enum Error {
     OwnershipRecordNotFound = 8,
     NoTokensToClaim = 9,
     Unauthorized = 10,
+    /// An ID counter has reached `u64::MAX`; no more records can be created.
+    ContractFull = 11,
 }
 
 #[contracttype]
@@ -106,6 +109,18 @@ pub struct StreamCancelledEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when an ID counter (`StreamCounter` or `OwnershipCounter`) has
+/// reached `u64::MAX` and a creation/mint attempt is rejected instead of
+/// overflowing.
+#[contractevent(topics = ["contract_full"])]
+#[derive(Clone, Debug)]
+pub struct ContractFullEvent {
+    /// The exhausted resource ("streams" or "ownership").
+    pub resource: Symbol,
+    /// Ledger timestamp of the rejected attempt.
+    pub timestamp: u64,
+}
+
 #[contract]
 pub struct PaymentStreamContract;
 
@@ -159,12 +174,22 @@ impl PaymentStreamContract {
             .instance()
             .get(&DataKey::StreamCounter)
             .unwrap_or(0);
+        if stream_id == u64::MAX {
+            // Stream ID space exhausted: reject gracefully instead of overflowing.
+            ContractFullEvent {
+                resource: symbol_short!("streams"),
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(&env);
+            return Err(Error::ContractFull);
+        }
         let new_stream_id = stream_id + 1;
         env.storage()
             .instance()
             .set(&DataKey::StreamCounter, &new_stream_id);
 
-        let ownership_id = Self::mint_ownership_record(env.clone(), recipient.clone(), new_stream_id);
+        let ownership_id =
+            Self::mint_ownership_record(env.clone(), recipient.clone(), new_stream_id)?;
 
         let stream = Stream {
             id: new_stream_id,
@@ -394,12 +419,21 @@ impl PaymentStreamContract {
         Ok(Self::calculate_claimable(&stream, env.ledger().timestamp()))
     }
 
-    fn mint_ownership_record(env: Env, recipient: Address, stream_id: u64) -> u64 {
+    fn mint_ownership_record(env: Env, recipient: Address, stream_id: u64) -> Result<u64, Error> {
         let ownership_id: u64 = env
             .storage()
             .instance()
             .get(&DataKey::OwnershipCounter)
             .unwrap_or(0);
+        if ownership_id == u64::MAX {
+            // Ownership ID space exhausted: reject gracefully instead of overflowing.
+            ContractFullEvent {
+                resource: symbol_short!("ownership"),
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(&env);
+            return Err(Error::ContractFull);
+        }
         let new_ownership_id = ownership_id + 1;
 
         env.storage()
@@ -419,7 +453,7 @@ impl PaymentStreamContract {
             .persistent()
             .set(&DataKey::OwnershipToStream(new_ownership_id), &stream_id);
 
-        new_ownership_id
+        Ok(new_ownership_id)
     }
 
     fn calculate_vested(stream: &Stream, current_time: u64) -> i128 {
@@ -440,5 +474,96 @@ impl PaymentStreamContract {
     fn calculate_claimable(stream: &Stream, current_time: u64) -> i128 {
         let vested = Self::calculate_vested(stream, current_time);
         vested - stream.withdrawn_amount
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use soroban_sdk::{
+        testutils::Address as _, token::StellarAssetClient, Address, Env,
+    };
+
+    /// Deploy + initialize the contract and fund the sender so the escrow
+    /// transfer inside `create_stream` succeeds.
+    fn setup(
+        env: &Env,
+    ) -> (
+        Address,
+        PaymentStreamContractClient,
+        Address,
+        Address,
+        Address,
+    ) {
+        env.mock_all_auths();
+
+        let admin = Address::generate(env);
+        let sender = Address::generate(env);
+        let recipient = Address::generate(env);
+
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let token = sac.address();
+
+        let contract_id = env.register(PaymentStreamContract, ());
+        let client = PaymentStreamContractClient::new(env, &contract_id);
+        client.initialize(&admin);
+
+        let token_admin = StellarAssetClient::new(env, &token);
+        token_admin.mint(&sender, &1_000);
+
+        (contract_id, client, token, sender, recipient)
+    }
+
+    #[test]
+    fn test_create_stream_success() {
+        let env = Env::default();
+        let (_contract_id, client, token, sender, recipient) = setup(&env);
+
+        let stream_id = client.create_stream(&sender, &recipient, &token, &1_000, &0, &100, &true);
+        assert_eq!(stream_id, 1);
+
+        let stream = client.get_stream(&stream_id);
+        assert_eq!(stream.recipient, recipient);
+
+        // An ownership record is minted alongside the stream.
+        let ownership = client.get_ownership_record(&1);
+        assert_eq!(ownership.owner, recipient);
+    }
+
+    #[test]
+    fn test_create_stream_rejected_when_stream_counter_full() {
+        let env = Env::default();
+        let (contract_id, client, token, sender, recipient) = setup(&env);
+
+        // Exhaust the stream ID space: the next create must be rejected with
+        // Error::ContractFull instead of panicking on arithmetic overflow.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::StreamCounter, &u64::MAX);
+        });
+
+        let result = client.try_create_stream(&sender, &recipient, &token, &1_000, &0, &100, &true);
+        assert!(result.is_err());
+
+        // No stream was persisted and the counter was left untouched.
+        assert!(client.try_get_stream(&1).is_err());
+    }
+
+    #[test]
+    fn test_create_stream_rejected_when_ownership_counter_full() {
+        let env = Env::default();
+        let (contract_id, client, token, sender, recipient) = setup(&env);
+
+        // Exhaust the ownership ID space: minting the ownership record must
+        // be rejected with Error::ContractFull.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::OwnershipCounter, &u64::MAX);
+        });
+
+        let result = client.try_create_stream(&sender, &recipient, &token, &1_000, &0, &100, &true);
+        assert!(result.is_err());
     }
 }

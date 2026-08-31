@@ -32,11 +32,9 @@ pub enum DataKey {
     /// Per-contributor escrow balance keyed by `(campaign_id, contributor)`
     /// (persistent storage).
     Contribution(u64, Address),
-    /// Optional split of a campaign's proceeds among multiple co-creators,
-    /// keyed by campaign ID (persistent storage). When set, `claim_funds`
-    /// distributes the net proceeds among the team members proportionally
-    /// instead of sending everything to the single `creator`.
-    TeamMembers(u64),
+    /// Bitmask of campaign goal milestones (25 %, 50 %, 75 %, 100 %) that
+    /// have been reached so far, keyed by campaign ID (persistent storage).
+    MilestonesReached(u64),
 }
 
 /// Current lifecycle state of a campaign.
@@ -153,19 +151,22 @@ pub struct RefundIssuedEvent {
     pub amount: i128,
 }
 
-/// Emitted for every payout made to a co-creator when a campaign with a team
-/// split is claimed successfully.
+/// Emitted when cumulative contributions cross one of a campaign's funding
+/// milestones (25 %, 50 %, 75 % or 100 % of `target_amount`).
 ///
-/// Alongside the aggregate [`FundsClaimedEvent`] and [`ProtocolFeeCollectedEvent`],
-/// per-member [`TeamPayoutIssuedEvent`]s make the full distribution of revenue
-/// amongst co-creators observable on-chain.
-#[contractevent(topics = ["TeamPayoutIssued"])]
+/// Milestones are tracked against the campaign's hard cap (`target_amount`)
+/// and each one is emitted exactly once, the first time it is crossed.
+#[contractevent(topics = ["MilestoneReached"])]
 #[derive(Clone)]
-pub struct TeamPayoutIssuedEvent {
+pub struct MilestoneReachedEvent {
     pub campaign_id: u64,
-    pub member: Address,
-    /// The amount transferred to this member (net of the protocol fee).
-    pub amount: i128,
+    /// The percentage of `target_amount` reached: 25, 50, 75 or 100.
+    pub percentage: u32,
+    /// Running total of escrowed contributions at the time the milestone was
+    /// crossed.
+    pub total_raised: i128,
+    /// The campaign goal this milestone is measured against.
+    pub target_amount: i128,
 }
 
 /// Emitted when the protocol fee is collected during
@@ -390,6 +391,16 @@ impl CampaignFundingContract {
             .instance()
             .get(&DataKey::CampaignCount)
             .unwrap_or(0);
+        if count == u64::MAX {
+            // Campaign ID space exhausted: reject gracefully instead of overflowing.
+            env.events().publish(
+                ("ContractFull",),
+                ContractFullEvent {
+                    timestamp: env.ledger().timestamp(),
+                },
+            );
+            panic_with_error!(&env, Error::ContractFull);
+        }
         count += 1;
         env.storage()
             .instance()
@@ -603,6 +614,9 @@ impl CampaignFundingContract {
                 },
             );
         }
+
+        // Emit milestone events for every goal threshold newly crossed.
+        Self::update_milestones(&env, campaign_id, &campaign);
 
         Self::save_campaign(&env, campaign_id, &campaign);
 
@@ -875,6 +889,32 @@ impl CampaignFundingContract {
             .unwrap_or(0)
     }
 
+    /// Return the funding milestones (as percentages of `target_amount`) that
+    /// have been reached so far for a campaign, sorted ascending.
+    ///
+    /// Each milestone is one of `25`, `50`, `75` or `100`. A freshly created
+    /// campaign (or one that has not crossed the 25 % mark) returns `[]`.
+    ///
+    /// # Errors
+    /// * [`Error::CampaignNotFound`] — no campaign with this ID exists.
+    pub fn get_milestones_reached(env: Env, campaign_id: u64) -> Vec<u32> {
+        // Validate the campaign exists before reading its milestone mask.
+        Self::load_campaign(&env, campaign_id);
+        let mask: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::MilestonesReached(campaign_id))
+            .unwrap_or(0);
+        let thresholds: [u32; 4] = [25, 50, 75, 100];
+        let mut reached: Vec<u32> = Vec::new(&env);
+        for (i, pct) in thresholds.iter().enumerate() {
+            if mask & (1u32 << i) != 0 {
+                reached.push_back(*pct);
+            }
+        }
+        reached
+    }
+
     /// Return the total number of campaigns ever created.
     pub fn get_campaign_count(env: Env) -> u64 {
         env.storage()
@@ -985,66 +1025,51 @@ impl CampaignFundingContract {
             .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
-    /// Send a successful campaign's `net` proceeds (after the protocol fee) to
-    /// its recipients.
+    /// Emit [`MilestoneReachedEvent`]s for every goal threshold newly crossed
+    /// by `campaign.total_raised`, and record them so each milestone is only
+    /// ever emitted once.
     ///
-    /// If a team split has been configured via [`set_team_rewards`], the net
-    /// amount is divided among the co-creators by `percentage_bps`; any
-    /// residual micro-units left over from integer division are routed to the
-    /// primary `creator`. Otherwise the whole `net` goes to the `creator` (the
-    /// original behaviour, preserved for backward compatibility).
-    ///
-    /// Each transfer is published as a [`TeamPayoutIssuedEvent`] so every
-    /// individual co-creator payout is observable on-chain.
-    fn distribute_proceeds(env: &Env, campaign: &Campaign, campaign_id: u64, net: i128) {
-        let team_key = DataKey::TeamMembers(campaign_id);
-        let team: Vec<TeamMember> = env
-            .storage()
-            .persistent()
-            .get(&team_key)
-            .unwrap_or_else(|| Vec::new(env));
+    /// A milestone `pct` is reached once `total_raised / target_amount >= pct
+    /// / 100`, evaluated exactly with cross-multiplication to avoid rounding.
+    /// Because `target_amount` is the hard cap, the 100 % milestone corresponds
+    /// to `total_raised == target_amount`.
+    fn update_milestones(env: &Env, campaign_id: u64, campaign: &Campaign) {
+        let thresholds: [u32; 4] = [25, 50, 75, 100];
+        let key = DataKey::MilestonesReached(campaign_id);
+        let mut mask: u32 = env.storage().persistent().get(&key).unwrap_or(0);
+        let mut changed = false;
 
-        let token_client = token::Client::new(env, &campaign.token);
-
-        if team.is_empty() {
-            if net > 0 {
-                token_client.transfer(&env.current_contract_address(), &campaign.creator, &net);
+        for (i, pct) in thresholds.iter().enumerate() {
+            let bit = 1u32 << i;
+            if mask & bit != 0 {
+                continue;
             }
-            return;
-        }
-
-        let mut distributed: i128 = 0;
-        for member in team.iter() {
-            let share = (net * member.percentage_bps as i128) / 10_000i128;
-            if share > 0 {
-                token_client.transfer(&env.current_contract_address(), &member.address, &share);
-                TeamPayoutIssuedEvent {
+            let lhs = campaign
+                .total_raised
+                .checked_mul(100)
+                .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow));
+            let rhs = campaign
+                .target_amount
+                .checked_mul(*pct as i128)
+                .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow));
+            if lhs >= rhs {
+                mask |= bit;
+                changed = true;
+                MilestoneReachedEvent {
                     campaign_id,
-                    member: member.address.clone(),
-                    amount: share,
+                    percentage: *pct,
+                    total_raised: campaign.total_raised,
+                    target_amount: campaign.target_amount,
                 }
                 .publish(env);
             }
-            distributed = distributed
-                .checked_add(share)
-                .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow));
         }
 
-        // Integer division can leave a few micro-units undistributed; route
-        // them to the primary creator so the full `net` amount leaves escrow.
-        let remainder = net - distributed;
-        if remainder > 0 {
-            token_client.transfer(
-                &env.current_contract_address(),
-                &campaign.creator,
-                &remainder,
-            );
-            TeamPayoutIssuedEvent {
-                campaign_id,
-                member: campaign.creator.clone(),
-                amount: remainder,
-            }
-            .publish(env);
+        if changed {
+            env.storage().persistent().set(&key, &mask);
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
         }
     }
 
@@ -1204,6 +1229,27 @@ mod tests {
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
         assert_eq!(client.get_campaign_count(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #17)")]
+    fn test_create_campaign_rejected_when_counter_full() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (contract_id, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        // Exhaust the campaign ID space: the next create must be rejected with
+        // Error::ContractFull instead of panicking on arithmetic overflow.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::CampaignCount, &u64::MAX);
+        });
+
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
     }
 
     #[test]
@@ -2033,138 +2079,11 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Team rewards (payouts to multiple co-creators)
+    // Campaign milestone tracking
     // -----------------------------------------------------------------------
 
-    /// Register a token, mint the campaign creator enough for the insurance
-    /// fee, and create a fresh campaign, returning `(campaign_id, token)`.
-    fn create_basic_campaign(
-        env: &Env,
-        client: &CampaignFundingContractClient,
-        creator: &Address,
-    ) -> (u64, Address) {
-        let token_admin = Address::generate(env);
-        let (token_addr, _, token_admin_client) = create_token(env, &token_admin);
-        token_admin_client.mint(creator, &500);
-        let id = client.create_campaign(creator, &token_addr, &10_000, &5_000, &2_000, &500);
-        (id, token_addr)
-    }
-
     #[test]
-    fn test_set_team_rewards_success_and_query() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let creator = Address::generate(&env);
-        let member2 = Address::generate(&env);
-        let (id, _) = create_basic_campaign(&env, &client, &creator);
-
-        // No team configured by default.
-        assert_eq!(client.get_team_rewards(&id).len(), 0);
-
-        let mut team: Vec<TeamMember> = Vec::new(&env);
-        team.push_back(TeamMember {
-            address: creator.clone(),
-            percentage_bps: 6_000,
-        });
-        team.push_back(TeamMember {
-            address: member2.clone(),
-            percentage_bps: 4_000,
-        });
-        client.set_team_rewards(&id, &team);
-
-        let stored = client.get_team_rewards(&id);
-        assert_eq!(stored.len(), 2);
-        assert_eq!(stored.get(0).unwrap().address, creator);
-        assert_eq!(stored.get(0).unwrap().percentage_bps, 6_000);
-        assert_eq!(stored.get(1).unwrap().percentage_bps, 4_000);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #20)")]
-    fn test_set_team_rewards_rejects_empty() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let creator = Address::generate(&env);
-        let (id, _) = create_basic_campaign(&env, &client, &creator);
-        let team: Vec<TeamMember> = Vec::new(&env);
-        client.set_team_rewards(&id, &team);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #21)")]
-    fn test_set_team_rewards_rejects_bad_sum() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let creator = Address::generate(&env);
-        let member2 = Address::generate(&env);
-        let (id, _) = create_basic_campaign(&env, &client, &creator);
-
-        let mut team: Vec<TeamMember> = Vec::new(&env);
-        team.push_back(TeamMember {
-            address: creator.clone(),
-            percentage_bps: 6_000,
-        });
-        team.push_back(TeamMember {
-            address: member2.clone(),
-            percentage_bps: 3_000, // sums to 9_000, not 10_000
-        });
-        client.set_team_rewards(&id, &team);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #21)")]
-    fn test_set_team_rewards_rejects_zero_percentage() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let creator = Address::generate(&env);
-        let member2 = Address::generate(&env);
-        let (id, _) = create_basic_campaign(&env, &client, &creator);
-
-        let mut team: Vec<TeamMember> = Vec::new(&env);
-        team.push_back(TeamMember {
-            address: creator.clone(),
-            percentage_bps: 10_000,
-        });
-        team.push_back(TeamMember {
-            address: member2.clone(),
-            percentage_bps: 0,
-        });
-        client.set_team_rewards(&id, &team);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #22)")]
-    fn test_set_team_rewards_rejects_duplicate() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let creator = Address::generate(&env);
-        let (id, _) = create_basic_campaign(&env, &client, &creator);
-
-        let mut team: Vec<TeamMember> = Vec::new(&env);
-        team.push_back(TeamMember {
-            address: creator.clone(),
-            percentage_bps: 6_000,
-        });
-        team.push_back(TeamMember {
-            address: creator.clone(),
-            percentage_bps: 4_000,
-        });
-        client.set_team_rewards(&id, &team);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #8)")]
-    fn test_set_team_rewards_requires_active_campaign() {
+    fn test_no_milestone_below_25_percent() {
         let env = Env::default();
         env.mock_all_auths();
         set_time(&env, 1_000);
@@ -2178,108 +2097,13 @@ mod tests {
         token_admin_client.mint(&contributor, &10_000);
 
         let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
-        client.contribute(&contributor, &id, &6_000);
-        set_time(&env, 3_000);
-        client.trigger_expiry(&id);
-        client.claim_funds(&id); // status → Claimed
+        client.contribute(&contributor, &id, &2_000); // 20 % < 25 %
 
-        let mut team: Vec<TeamMember> = Vec::new(&env);
-        team.push_back(TeamMember {
-            address: creator.clone(),
-            percentage_bps: 10_000,
-        });
-        client.set_team_rewards(&id, &team); // must panic #8
+        assert_eq!(client.get_milestones_reached(&id).len(), 0);
     }
 
     #[test]
-    fn test_claim_funds_team_split_even() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, fee_collector) = setup_contract(&env);
-
-        let token_admin = Address::generate(&env);
-        let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
-        let creator = Address::generate(&env);
-        let member2 = Address::generate(&env);
-        let contributor = Address::generate(&env);
-        token_admin_client.mint(&creator, &500);
-        token_admin_client.mint(&contributor, &10_000);
-
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
-
-        let mut team: Vec<TeamMember> = Vec::new(&env);
-        team.push_back(TeamMember {
-            address: creator.clone(),
-            percentage_bps: 5_000,
-        });
-        team.push_back(TeamMember {
-            address: member2.clone(),
-            percentage_bps: 5_000,
-        });
-        client.set_team_rewards(&id, &team);
-
-        client.contribute(&contributor, &id, &8_000);
-        set_time(&env, 3_000);
-        client.trigger_expiry(&id);
-        client.claim_funds(&id);
-
-        // gross 8_000; 2.5 % fee = 200; net 7_800 split 50/50 = 3_900 each.
-        assert_eq!(token_client.balance(&creator), 3_900);
-        assert_eq!(token_client.balance(&member2), 3_900);
-        assert_eq!(token_client.balance(&fee_collector), 200);
-        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Claimed);
-    }
-
-    #[test]
-    fn test_claim_funds_team_remainder_to_creator() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let contract_id = env.register(CampaignFundingContract, ());
-        let client = CampaignFundingContractClient::new(&env, &contract_id);
-        let admin = Address::generate(&env);
-        let fee_collector = Address::generate(&env);
-        client.initialize(&admin, &fee_collector, &0, &0); // 0 % fee
-
-        let token_admin = Address::generate(&env);
-        let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
-        let creator = Address::generate(&env);
-        let m1 = Address::generate(&env);
-        let m2 = Address::generate(&env);
-        let contributor = Address::generate(&env);
-        token_admin_client.mint(&creator, &500);
-        token_admin_client.mint(&contributor, &10_000);
-
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
-
-        let mut team: Vec<TeamMember> = Vec::new(&env);
-        team.push_back(TeamMember {
-            address: m1.clone(),
-            percentage_bps: 5_000,
-        });
-        team.push_back(TeamMember {
-            address: m2.clone(),
-            percentage_bps: 5_000,
-        });
-        client.set_team_rewards(&id, &team);
-
-        client.contribute(&contributor, &id, &5_001);
-        set_time(&env, 3_000);
-        client.trigger_expiry(&id);
-        client.claim_funds(&id);
-
-        // gross = net (0 % fee) = 5_001. A 50/50 split gives 2_500 each and
-        // leaves 1 micro-unit of dust, routed to the primary creator.
-        assert_eq!(token_client.balance(&m1), 2_500);
-        assert_eq!(token_client.balance(&m2), 2_500);
-        // creator: minted 500 - insurance 500 + remainder 1 = 1.
-        assert_eq!(token_client.balance(&creator), 1);
-        assert_eq!(token_client.balance(&fee_collector), 0);
-    }
-
-    #[test]
-    fn test_claim_funds_team_emits_payout_events() {
+    fn test_milestone_25_percent_reached() {
         let env = Env::default();
         env.mock_all_auths();
         set_time(&env, 1_000);
@@ -2288,51 +2112,176 @@ mod tests {
         let token_admin = Address::generate(&env);
         let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
-        let member2 = Address::generate(&env);
         let contributor = Address::generate(&env);
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
         let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &3_000); // 30 % -> 25 % milestone
 
-        let mut team: Vec<TeamMember> = Vec::new(&env);
-        team.push_back(TeamMember {
-            address: creator.clone(),
-            percentage_bps: 5_000,
-        });
-        team.push_back(TeamMember {
-            address: member2.clone(),
-            percentage_bps: 5_000,
-        });
-        client.set_team_rewards(&id, &team);
-
-        client.contribute(&contributor, &id, &8_000);
-        set_time(&env, 3_000);
-        client.trigger_expiry(&id);
-        client.claim_funds(&id);
-
-        // gross 8_000; 2.5 % fee = 200; net 7_800 split 50/50 = 3_900 each.
-        let expected_creator = TeamPayoutIssuedEvent {
+        // env.events() reflects only the last external call, so capture it
+        // immediately after the emitting contribution.
+        let events = env.events().all();
+        let expected = MilestoneReachedEvent {
             campaign_id: id,
-            member: creator.clone(),
-            amount: 3_900,
+            percentage: 25,
+            total_raised: 3_000,
+            target_amount: 10_000,
         }
         .to_xdr(&env, &contract_id);
-        let expected_member = TeamPayoutIssuedEvent {
-            campaign_id: id,
-            member: member2.clone(),
-            amount: 3_900,
-        }
-        .to_xdr(&env, &contract_id);
+        assert!(
+            events.events().iter().any(|e| *e == expected),
+            "expected a MilestoneReachedEvent at 25 %"
+        );
+
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(ms.get(0).unwrap(), 25);
+    }
+
+    #[test]
+    fn test_milestone_multiple_in_one_contribution() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (contract_id, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        // A single 6_000 contribution crosses both the 25 % and 50 % marks.
+        client.contribute(&contributor, &id, &6_000);
 
         let events = env.events().all();
-        assert!(
-            events.events().iter().any(|e| *e == expected_creator),
-            "expected a TeamPayoutIssuedEvent for the primary creator"
+        for percentage in [25u32, 50u32] {
+            let expected = MilestoneReachedEvent {
+                campaign_id: id,
+                percentage,
+                total_raised: 6_000,
+                target_amount: 10_000,
+            }
+            .to_xdr(&env, &contract_id);
+            assert!(
+                events.events().iter().any(|e| *e == expected),
+                "expected a MilestoneReachedEvent at {percentage} %"
+            );
+        }
+
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 2);
+        assert_eq!(ms.get(0).unwrap(), 25);
+        assert_eq!(ms.get(1).unwrap(), 50);
+    }
+
+    #[test]
+    fn test_milestone_100_percent_on_auto_succeed() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &10_000); // reaches the hard cap
+
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Successful);
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 4);
+        assert_eq!(ms.get(0).unwrap(), 25);
+        assert_eq!(ms.get(1).unwrap(), 50);
+        assert_eq!(ms.get(2).unwrap(), 75);
+        assert_eq!(ms.get(3).unwrap(), 100);
+    }
+
+    #[test]
+    fn test_milestones_emitted_once() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (contract_id, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &3_000); // 30 % -> crosses 25 %
+
+        // Capture events after the first contribution to assert the 25 % event.
+        let events1 = env.events().all();
+        let expected25 = MilestoneReachedEvent {
+            campaign_id: id,
+            percentage: 25,
+            total_raised: 3_000,
+            target_amount: 10_000,
+        }
+        .to_xdr(&env, &contract_id);
+        let count25 = events1
+            .events()
+            .iter()
+            .filter(|e| **e == expected25)
+            .count();
+        assert_eq!(
+            count25, 1,
+            "the 25 % milestone must be emitted exactly once"
         );
+
+        client.contribute(&contributor, &id, &2_000); // 50 % now
+        let events2 = env.events().all();
+        let expected50 = MilestoneReachedEvent {
+            campaign_id: id,
+            percentage: 50,
+            total_raised: 5_000,
+            target_amount: 10_000,
+        }
+        .to_xdr(&env, &contract_id);
         assert!(
-            events.events().iter().any(|e| *e == expected_member),
-            "expected a TeamPayoutIssuedEvent for the co-creator"
+            events2.events().iter().any(|e| *e == expected50),
+            "expected the 50 % milestone to be emitted on the second contribution"
         );
+
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 2);
+        assert_eq!(ms.get(0).unwrap(), 25);
+        assert_eq!(ms.get(1).unwrap(), 50);
+    }
+
+    #[test]
+    fn test_milestones_persist_for_failed_campaign() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &3_000); // crosses 25 %
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id); // 3_000 < 5_000 min -> Failed
+
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Failed);
+        let ms = client.get_milestones_reached(&id);
+        assert_eq!(ms.len(), 1);
+        assert_eq!(ms.get(0).unwrap(), 25);
     }
 }
