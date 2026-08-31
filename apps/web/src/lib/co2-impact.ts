@@ -47,7 +47,7 @@ export interface Co2ImpactResult {
  *
  * @param speciesId - selected tree species id
  * @param quantity - number of trees (>= 0)
- * @returns the projected annual and 10-year CO2 offset plus a rough
+ * @returns the projected annual and 10- year CO2 offset plus a rough
  *          car-km equivalence for the annual figure
  */
 export function calculateCo2Offset(
@@ -68,7 +68,7 @@ export function calculateCo2Offset(
     co2PerYearKg,
     co2PerYearTonnes: co2PerYearKg / 1000,
     co2Over10YearsKg,
-    co2Over10YearsTonnes: co2Over10YearsKg / 1000,
+    corOver10YearsTonnes: co2Over10YearsKg / 1000,
     carKmEquivalentPerYear: Math.round(co2PerYearKg / CAR_CO2_KG_PER_KM),
   };
 }
