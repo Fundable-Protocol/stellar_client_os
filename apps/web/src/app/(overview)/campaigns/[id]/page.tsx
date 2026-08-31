@@ -12,6 +12,7 @@ import {
   Share2,
   Edit,
   ShieldCheck,
+  Trophy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     impactStatement: "Permanently offset 150 metric tons of CO2 while securing habitat for 200+ endangered species.",
     beneficiaries: "5,000 local indigenous community members",
     co2OffsetTons: "150",
+    successStory: {
+      headline: "From Rainforest Pledge to On-the-Ground Impact",
+      creatorInterview: "Every XLM stream is tied to verifiable patrol hours and backers receive monthly GPS updates. The team shipped on every promise.",
+      backerTestimonials: [
+        { name: "Marta L.", location: "Lisbon, Portugal", quote: "I could see exactly where my contribution went." },
+        { name: "Devon K.", location: "Austin, TX", quote: "You can tell this is a team that ships." },
+        { name: "Priya N.", location: "Bengaluru, India", quote: "More campaigns should publish stories like this." },
+      ],
+    },
   };
 
   const progressPct = Math.min(100, Math.round((parseFloat(campaign.raisedAmount) / parseFloat(campaign.goalAmount)) * 100));
@@ -114,7 +124,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
       {/* Main Content Tabs (Overview, Sponsor Wall #724, Co-Creators #722) */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-        <TabsList className="grid w-full grid-cols-3 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
+        <TabsList className="grid w-full grid-cols-4 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
           <TabsTrigger value="overview" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Target className="mr-1.5 h-4 w-4" /> Overview & Story
           </TabsTrigger>
@@ -123,6 +133,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           </TabsTrigger>
           <TabsTrigger value="collaboration" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Users className="mr-1.5 h-4 w-4 text-purple-400" /> Co-Creators (#722)
+          </TabsTrigger>
+          <TabsTrigger value="success" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <Trophy className="mr-1.5 h-4 w-4 text-amber-400" /> Success Story
           </TabsTrigger>
         </TabsList>
 
@@ -175,6 +188,36 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         {/* Tab 3: Co-Creators Collaboration (#722) */}
         <TabsContent value="collaboration">
           <CampaignCollaboration campaignId={campaign.id} campaignTitle={campaign.title} />
+        </TabsContent>
+        {/* Tab 4: Success Story */}
+        <TabsContent value="success" className="space-y-6">
+          <div className="relative overflow-hidden rounded-2xl border border-emerald-800/60 bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-900 p-6 md:p-8">
+            <div className="flex items-center gap-2">
+              <Badge className="bg-emerald-600 text-white font-semibold text-xs">
+                <Trophy className="mr-1 h-3 w-3" /> Featured Success Story
+              </Badge>
+            </div>
+            <h3 className="text-2xl font-extrabold text-zinc-50 mt-4">{campaign.successStory.headline}</h3>
+            <div className="mt-4 space-y-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-purple-400">Creator Interview</p>
+              <p className="text-sm text-zinc-300 leading-relaxed">{campaign.successStory.creatorInterview}</p>
+            </div>
+          </div>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 space-y-4">
+            <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+              <Users className="h-4 w-4 text-purple-400" /> Backer Testimonials
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {campaign.successStory.backerTestimonials.map((testimonial) => (
+                <figure key={testimonial.name} className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                  <blockquote className="text-sm text-zinc-300 leading-relaxed">"{testimonial.quote}"</blockquote>
+                  <figcaption className="mt-3 text-xs text-zinc-400">
+                    <strong className="text-zinc-200">{testimonial.name}</strong> · {testimonial.location}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
