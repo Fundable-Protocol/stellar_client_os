@@ -32,7 +32,17 @@ export interface ContributionLineItem {
   timestamp: number;
 }
 
-/** Input payload for generating a certificate or invoice PDF. */
+/** Impact metrics shown on campaign completion certificates. */
+export interface CampaignImpact {
+  /** Number of trees planted. */
+  trees: number;
+  /** CO₂ offset in metric tonnes. */
+  co2: number;
+  /** Human-readable cost saved (e.g. "$1,200.00"). */
+  cost: string;
+}
+
+/** Input payload for generating a certificate, invoice, or campaign PDF. */
 export interface CertificateInput {
   /** Donor's display name */
   donorName: string;
@@ -48,12 +58,14 @@ export interface CertificateInput {
   lineItems: ContributionLineItem[];
   /** Total amount in human-readable form (e.g. "2,500.00 USDC") */
   totalAmount: string;
+  /** Optional campaign impact metrics for campaign completion certificates. */
+  campaignImpact?: CampaignImpact;
   /** ISO 8601 date string for the certificate ("2025-01-15") */
   issuedAt?: string;
   /** Optional organisation or project logo as a base64 PNG data URI */
   logoDataUri?: string;
   /** Document type — controls the title printed on the PDF */
-  documentType?: "certificate" | "invoice";
+  documentType?: "certificate" | "invoice" | "campaign";
 }
 
 /** Typed result from the certificate service. */
@@ -161,6 +173,10 @@ function drawHRule(
  * Throws `CertificateError` with code `INVALID_INPUT` on failure.
  */
 export function validateCertificateInput(input: CertificateInput): void {
+  if (input.documentType === "campaign" && !input.campaignImpact) {
+    throw new CertificateError("campaignImpact is required for campaign certificates", "INVALID_INPUT");
+  }
+
   if (!input.donorName?.trim()) {
     throw new CertificateError("donorName is required", "INVALID_INPUT");
   }
@@ -223,7 +239,9 @@ export async function buildCertificatePdf(
   const title =
     docType === "invoice"
       ? "Contribution Invoice"
-      : "Contribution Receipt";
+      : docType === "campaign"
+        ? "Campaign Completion Certificate"
+        : "Contribution Receipt";
 
   // ── QR code ────────────────────────────────────────────────────────────────
   const txUrl = explorerUrl(input.transactionHash, input.network ?? "testnet");
@@ -396,6 +414,19 @@ export async function buildCertificatePdf(
   cursor -= 28;
   drawHRule(page, cursor);
   cursor -= 20;
+
+  // ── Campaign impact metrics ────────────────────────────────────────────────
+  if (input.campaignImpact) {
+    page.drawText("CAMPAIGN IMPACT", { x: MARGIN, y: cursor, size: 8, font: fontBold, color: COLOR_MUTED });
+    cursor -= 16;
+    page.drawText(
+      `Trees Planted: ${input.campaignImpact.trees}    CO2 Offset: ${input.campaignImpact.co2}t    Cost Saved: ${input.campaignImpact.cost}`,
+      { x: MARGIN, y: cursor, size: 11, font: fontBold, color: COLOR_PRIMARY }
+    );
+    cursor -= 28;
+    drawHRule(page, cursor);
+    cursor -= 20;
+  }
 
   // ── Verification status badge ──────────────────────────────────────────────
   const badgeWidth = 120;
