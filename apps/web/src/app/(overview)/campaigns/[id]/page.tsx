@@ -9,6 +9,7 @@ import {
   Users,
   Target,
   Calendar,
+  Download,
   Share2,
   Edit,
   ShieldCheck,
@@ -86,6 +87,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     impactStatement: "Permanently offset 150 metric tons of CO2 while securing habitat for 200+ endangered species.",
     beneficiaries: "5,000 local indigenous community members",
     co2OffsetTons: "150",
+    treesPlanted: "1,500",
   };
 
   const detectedLang = detectLanguage(campaign.title + campaign.shortDescription + campaign.fullStory);
@@ -94,6 +96,43 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const translation = translationLang ? translations[translationLang] : null;
 
   const progressPct = Math.min(100, Math.round((parseFloat(campaign.raisedAmount) / parseFloat(campaign.goalAmount)) * 100));
+
+  const downloadCertificate = () => {
+    const printWindow = window.open("", "_blank", "width=800,height=600");
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Campaign Certificate</title>
+          <style>
+            body { font-family: Georgia, serif; background: #f8f4ea; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+            .certificate { max-width: 680px; background: #fff; border: 8px solid #b45309; padding: 48px 64px; text-align: center; }
+            .certificate h1 { color: #92400e; margin: 0 0 4px; }
+            .subtitle { text-transform: uppercase; color: #78350f; margin-bottom: 16px; font-size: 13px; }
+            .impact { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 24px 0; }
+            .impact div { border: 1px solid #e7e5e4; border-radius: 8px; padding: 12px; }
+            .impact strong { display: block; font-size: 20px; color: #166534; }
+          </style>
+        </head>
+        <body>
+          <div class="certificate">
+            <div class="subtitle">Campaign Completion Certificate</div>
+            <h1>${campaign.title}</h1>
+            <p>This certifies the successful completion of the campaign and its verified impact.</p>
+            <div class="impact">
+              <div><strong>${campaign.treesPlanted}</strong>Trees Planted</div>
+              <div><strong>${campaign.co2OffsetTons} tons</strong>CO2 Offset</div>
+              <div><strong>${campaign.raisedAmount} ${campaign.token}</strong>Total Cost</div>
+            </div>
+            <p>Issued for <strong>${campaign.creator}</strong></p>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
@@ -107,6 +146,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         </Link>
 
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={downloadCertificate}
+            className="border-amber-600/40 text-amber-300 hover:bg-amber-950/40 text-xs"
+          >
+            <Download className="mr-1.5 h-3.5 w-3.5" /> Download Certificate
+          </Button>
           <Link href="/campaigns/create">
             <Button size="sm" variant="outline" className="border-purple-600/40 text-purple-300 hover:bg-purple-950/40 text-xs">
               <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Campaign
