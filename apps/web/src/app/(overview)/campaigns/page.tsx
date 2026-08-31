@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Rocket, Plus, Heart, Users, Sparkles, ShieldCheck, ChevronRight } from "lucide-react";
+import { Rocket, Plus, Heart, Users, Sparkles, ShieldCheck, ChevronRight, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -51,6 +51,11 @@ export default function CampaignsDirectoryPage() {
         <Link href="/campaigns/create">
           <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover:from-purple-700 hover:to-blue-700 shadow-lg shadow-purple-900/30">
             <Plus className="mr-2 h-4 w-4" /> Create Campaign Wizard (#720)
+          </Button>
+        </Link>
+        <Link href="/grants">
+          <Button variant="outline" className="border-amber-800 bg-amber-950/40 text-amber-300 hover:bg-amber-950/60 font-semibold shadow-lg">
+            <Trophy className="mr-2 h-4 w-4" /> Grant Programs
           </Button>
         </Link>
       </div>

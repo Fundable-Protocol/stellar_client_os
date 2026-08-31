@@ -278,6 +278,144 @@ export const typeDefs = /* GraphQL */ `
     totalVolume: String!
   }
 
+  enum SequelRelation {
+    SEQUEL
+    PREQUEL
+    SPINOFF
+    RELATED
+  }
+
+  type CampaignSeries {
+    id: ID!
+    name: String!
+    description: String
+    creator: String!
+    campaignIds: [ID!]!
+    createdAt: Int!
+    updatedAt: Int!
+  }
+
+  type CampaignSequelLink {
+    id: ID!
+    sourceCampaignId: ID!
+    targetCampaignId: ID!
+    relation: SequelRelation!
+    order: Int
+    seriesId: ID
+    notes: String
+    linkedBy: String!
+    linkedAt: Int!
+  }
+
+  """A campaign plus how it relates to the queried campaign."""
+  type CampaignSequelSummary {
+    link: CampaignSequelLink!
+    campaign: Campaign!
+  }
+
+  """The campaign that continues a series, with its series context."""
+  type NextInSeriesResult {
+    link: CampaignSequelLink!
+    series: CampaignSeries
+    campaign: Campaign!
+  }
+
+  """Per-campaign creator analytics dashboard (issue: analytics dashboard)."""
+  type TrafficSourceStat {
+    source: String!
+    label: String!
+    visitors: Int!
+    views: Int!
+    share: Float!
+  }
+
+  type FunnelStage {
+    stage: String!
+    label: String!
+    count: Int!
+    conversionRate: Float!
+    dropoffRate: Float!
+  }
+
+  type BackerDemographic {
+    region: String!
+    backers: Int!
+    totalAmount: String!
+    share: Float!
+  }
+
+  type RewardTierStat {
+    tierId: String!
+    name: String!
+    price: String!
+    backers: Int!
+    revenue: String!
+    share: Float!
+  }
+
+  type DailyFundingPoint {
+    date: String!
+    amount: String!
+    contributions: Int!
+    cumulative: String!
+  }
+
+  type CampaignAnalyticsDashboard {
+    campaignId: ID!
+    updatedAt: Int!
+    trafficSources: [TrafficSourceStat!]!
+    funnel: [FunnelStage!]!
+    demographics: [BackerDemographic!]!
+    rewardTiers: [RewardTierStat!]!
+    dailyTrend: [DailyFundingPoint!]!
+    totals: CampaignAnalyticsTotals!
+  }
+
+  type CampaignAnalyticsTotals {
+    visitors: Int!
+    contributions: Int!
+    totalFunded: String!
+    conversionRate: Float!
+  }
+
+  enum GrantProgramStatus {
+    OPEN
+    PAUSED
+    CLOSED
+  }
+
+  type GrantProgram {
+    id: ID!
+    name: String!
+    description: String
+    matchPercentage: Int!
+    perCampaignCap: String!
+    totalPool: String!
+    allocated: String!
+    eligibilityCriteria: [String!]!
+    status: GrantProgramStatus!
+    createdAt: Int!
+    updatedAt: Int!
+  }
+
+  type GrantAllocation {
+    id: ID!
+    programId: ID!
+    campaignId: ID!
+    baseContribution: String!
+    matchedAmount: String!
+    allocatedBy: String!
+    allocatedAt: Int!
+  }
+
+  type GrantProgramSummary {
+    program: GrantProgram!
+    remainingPool: String!
+    eligible: Boolean!
+    matchedForCampaign: String!
+    nextMatchAmount: String!
+  }
+
   type Query {
     """
     Search individual sponsored trees derived from indexed payment streams.
@@ -335,5 +473,63 @@ export const typeDefs = /* GraphQL */ `
     average sponsor, including a percentile ranking (top 10%, etc.).
     """
     sponsorImpact(address: String!, network: Network): SponsorImpact!
+
+    """
+    Campaigns linked to the given campaign as sequels, prequels, spin-offs,
+    or related projects, including the franchise (series) it belongs to.
+    """
+    campaignSequels(campaignId: ID!, relation: SequelRelation): [CampaignSequelSummary!]!
+
+    """
+    The next campaign in a series (franchise) for the given campaign, when one
+    exists.
+    """
+    nextInSeries(campaignId: ID!): NextInSeriesResult
+
+    """
+    Detailed creator analytics for a campaign: traffic sources, conversion
+    funnel, backer demographics, reward tier popularity, and daily funding
+    trends.
+    """
+    campaignAnalytics(campaignId: ID!, network: Network): CampaignAnalyticsDashboard
+
+    """
+    The platform-funded grant matching programs available to underrepresented
+    creators.
+    """
+    grantPrograms: [GrantProgram!]!
+
+    """
+    Matching summary for a campaign within a grant program: eligibility,
+    amount already matched, and the next match available.
+    """
+    grantProgramSummary(programId: ID!, campaignId: ID!): GrantProgramSummary
+
+    """
+    The grant allocations awarded to a campaign across all programs.
+    """
+    campaignGrantAllocations(campaignId: ID!): [GrantAllocation!]!
+  }
+
+  """
+  A clone of an existing indexed stream/campaign returned by cloneCampaign.
+  """
+  type CloneResult {
+    id: ID!
+    sender: String!
+    recipient: String!
+    token: String!
+    status: StreamStatus!
+    totalAmount: String!
+    withdrawnAmount: String!
+    startTime: Int!
+    endTime: Int!
+  }
+
+  type Mutation {
+    """
+    Clones an indexed stream so a creator can start from an existing campaign.
+    """
+    cloneCampaign(id: ID!, network: Network): CloneResult
   }
 `;
