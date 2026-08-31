@@ -1,4 +1,5 @@
 import { createCampaign, findDuplicateCampaigns, queryCampaigns } from "@/services/campaign.service";
+import { autoTranslate, detectLanguage, SUPPORTED_TRANSLATION_LOCALES } from "@/lib/translation";
 
 export const runtime = "nodejs";
 
@@ -30,6 +31,9 @@ export async function POST(request: Request) {
       deadline?: number;
       goalAmount?: string;
       network?: "testnet" | "mainnet";
+      language?: string;
+      translations?: Record<string, string>;
+      autoTranslate?: boolean;
     };
     if (!body.creator || !body.name || !body.goalAmount) {
       return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
@@ -62,14 +66,28 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+
+    // Language detection and auto-translation
+    const description = body.description ?? "";
+    const language = body.language ?? detectLanguage(description);
+    let translations = body.translations ?? {};
+    if (body.autoTranslate) {
+      translations = {
+        ...autoTranslate(description, SUPPORTED_TRANSLATION_LOCALES),
+        ...translations,
+      };
+    }
+
     const campaign = await createCampaign({
       creator: body.creator,
       name: body.name,
-      description: body.description,
+      description,
       location: body.location,
       durationMs,
       goalAmount: body.goalAmount,
       network: body.network,
+      language,
+      translations,
     });
     return Response.json(campaign, { status: 201 });
   } catch {

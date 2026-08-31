@@ -96,6 +96,56 @@ export function DetailsStep({ data, errors, updateField }: StepProps) {
         </div>
 
         <div>
+          <Label htmlFor="descriptionLanguage" className="text-zinc-200 flex items-center gap-1.5">
+            <Sparkles className="h-4 w-4 text-purple-400" />
+            Description Language
+          </Label>
+          <div className="flex gap-2">
+            <select
+              id="descriptionLanguage"
+              value={data.language}
+              onChange={(e) => updateField("language", e.target.value)}
+              className="mt-1.5 w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 focus:border-purple-500 focus:outline-none"
+            >
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="pt">Portuguese</option>
+              <option value="zh">Chinese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const lang = navigator.language || "en";
+                updateField("language", lang.split("-")[0]);
+              }}
+              className="mt-1.5 border-purple-600 bg-purple-600/10 text-purple-300 hover:bg-purple-600/20 shrink-0"
+            >
+              <Sparkles className="h-4 w-4 mr-1" /> Detect
+            </Button>
+          </div>
+          <p className="mt-1.5 text-xs text-zinc-500">Select the primary language of your campaign description.</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            id="autoTranslate"
+            type="checkbox"
+            checked={data.autoTranslate}
+            onChange={(e) => updateField("autoTranslate", e.target.checked)}
+            className="h-4 w-4 border-zinc-700 bg-zinc-900 text-purple-500 focus:ring-purple-500"
+          />
+          <Label htmlFor="autoTranslate" className="text-zinc-200 text-sm">
+            Automatically translate this campaign into all supported languages
+          </Label>
+        </div>
+
+        <div>
           <Label htmlFor="imageUrl" className="text-zinc-200 flex items-center gap-1.5">
             <ImageIcon className="h-4 w-4 text-purple-400" />
             Cover Image URL (Optional)

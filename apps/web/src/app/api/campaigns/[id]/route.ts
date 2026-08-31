@@ -1,4 +1,5 @@
 import { getCampaign, transitionCampaignStatus } from "../../../../services/campaign.service";
+import { autoTranslate, detectLanguage, SUPPORTED_TRANSLATION_LOCALES } from "@/lib/translation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,17 +21,37 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!campaign) return noStore({ error: "Campaign not found" }, { status: 404 });
 
   try {
-    const body = await request.json() as { status?: never; changedBy?: string; reason?: string; name?: string; description?: string };
+    const body = await request.json() as {
+      status?: never;
+      changedBy?: string;
+      reason?: string;
+      name?: string;
+      description?: string;
+      language?: string;
+      translations?: Record<string, string>;
+      autoTranslate?: boolean;
+    };
     let updated = campaign;
     if (body.status) {
       if (!body.changedBy) return noStore({ error: "changedBy is required when changing status" }, { status: 400 });
       updated = await transitionCampaignStatus(campaign, body.status, body.changedBy, body.reason);
     }
-    if (body.name !== undefined || body.description !== undefined) {
+    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.autoTranslate !== undefined) {
+      let language = body.language ?? updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
+      let translations = body.translations ?? updated.translations ?? {};
+      const description = body.description ?? updated.description ?? "";
+      if (body.autoTranslate) {
+        translations = {
+          ...autoTranslate(description, SUPPORTED_TRANSLATION_LOCALES),
+          ...translations,
+        };
+      }
       updated = await (await import("@/services/campaign.service")).getCampaignDataSource().saveCampaign({
         ...updated,
         name: body.name ?? updated.name,
-        description: body.description ?? updated.description,
+        description,
+        language,
+        translations,
         updatedAt: Date.now(),
       });
     }

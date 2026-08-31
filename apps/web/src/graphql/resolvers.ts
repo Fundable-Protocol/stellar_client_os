@@ -1,4 +1,4 @@
-/**
+/*
  * GraphQL Resolvers — Aggregate Funding Analytics (issue #538)
  *
  * Thin resolver layer that delegates to the AnalyticsService.
