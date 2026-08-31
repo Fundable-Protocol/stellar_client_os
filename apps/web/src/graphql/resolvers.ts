@@ -6,7 +6,7 @@
  */
 
 import { DefaultStreamDataSource, getAnalyticsService } from "./analytics.service";
-import { queryCampaigns } from "@/services/campaign.service";
+import { getCampaignHealthAssessment, getCampaignRiskAssessment, getCampaignVerificationSummary, queryCampaigns } from "@/services/campaign.service";
 import type { CampaignDataSource, CampaignQueryInput } from "@/services/campaign.service";
 import type {
   RegionFilter,
@@ -63,14 +63,31 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
           offset: args.pagination?.offset,
           network: args.network,
         }, ctx.campaignDataSource);
-        return campaigns.map((campaign) => ({
-          ...campaign,
-          createdAt: Math.floor(campaign.createdAt / 1000),
-          updatedAt: Math.floor(campaign.updatedAt / 1000),
-          statusChangedAt: Math.floor(campaign.statusChangedAt / 1000),
-          sponsors: campaign.sponsors.map((sponsor) => ({ ...sponsor, sponsoredAt: Math.floor(sponsor.sponsoredAt / 1000) })),
-          statusHistory: campaign.statusHistory.map((entry) => ({ ...entry, changedAt: Math.floor(entry.changedAt / 1000) })),
-        }));
+        return campaigns.map((campaign) => {
+          const verification = getCampaignVerificationSummary(campaign);
+          const riskAssessment = getCampaignRiskAssessment(campaign);
+          const healthAssessment = getCampaignHealthAssessment(campaign);
+
+          return {
+            ...campaign,
+            verification,
+            verificationStatus: verification.status,
+            verified: verification.isVerified,
+            verificationBadges: verification.badges,
+            riskAssessment,
+            riskScore: riskAssessment.score,
+            riskLevel: riskAssessment.level,
+            riskFlags: riskAssessment.redFlags,
+            healthAssessment,
+            healthScore: healthAssessment.score,
+            healthLevel: healthAssessment.level,
+            createdAt: Math.floor(campaign.createdAt / 1000),
+            updatedAt: Math.floor(campaign.updatedAt / 1000),
+            statusChangedAt: Math.floor(campaign.statusChangedAt / 1000),
+            sponsors: campaign.sponsors.map((sponsor) => ({ ...sponsor, sponsoredAt: Math.floor(sponsor.sponsoredAt / 1000) })),
+            statusHistory: campaign.statusHistory.map((entry) => ({ ...entry, changedAt: Math.floor(entry.changedAt / 1000) })),
+          };
+        });
       },
 
       trees: async (

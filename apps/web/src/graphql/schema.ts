@@ -229,6 +229,38 @@ export const typeDefs = /* GraphQL */ `
     reason: String
   }
 
+  type CampaignVerification {
+    emailVerified: Boolean!
+    phoneVerified: Boolean!
+    addressVerified: Boolean!
+    badges: [String!]!
+    status: String!
+    isVerified: Boolean!
+    verifiedCount: Int!
+    totalCount: Int!
+  }
+
+  type CampaignRiskAssessment {
+    score: Int!
+    level: String!
+    redFlags: [String!]!
+    reasons: [String!]!
+    flagged: Boolean!
+  }
+
+  type CampaignHealthBreakdown {
+    descriptionQuality: Int!
+    creatorHistory: Int!
+    responseTime: Int!
+    backerFeedback: Int!
+  }
+
+  type CampaignHealthAssessment {
+    score: Int!
+    level: String!
+    breakdown: CampaignHealthBreakdown!
+  }
+
   type Campaign {
     id: ID!
     creator: String!
@@ -242,6 +274,17 @@ export const typeDefs = /* GraphQL */ `
     createdAt: Int!
     updatedAt: Int!
     statusChangedAt: Int!
+    verification: CampaignVerification
+    verificationStatus: String!
+    verified: Boolean!
+    verificationBadges: [String!]!
+    riskScore: Int!
+    riskLevel: String!
+    riskFlags: [String!]!
+    riskAssessment: CampaignRiskAssessment
+    healthScore: Int!
+    healthLevel: String!
+    healthAssessment: CampaignHealthAssessment
     sponsors: [CampaignSponsor!]!
     statusHistory: [CampaignStatusHistory!]!
   }
