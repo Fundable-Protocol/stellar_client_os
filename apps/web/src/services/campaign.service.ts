@@ -72,6 +72,10 @@ export interface CampaignRecord {
   creator: string;
   name: string;
   description?: string;
+  /** Detected ISO 639-1 language code of the campaign description. */
+  language?: string;
+  /** Machine translations of the description keyed by ISO 639-1 language code. */
+  translations?: Record<string, string>;
   /** Geographic location of the campaign, used for duplicate detection. */
   location?: string;
   /** Intended campaign duration in milliseconds, used for duplicate detection. */
@@ -354,6 +358,8 @@ export async function createCampaign(input: {
     creator: input.creator,
     name: input.name,
     description: input.description,
+    language: detectCampaignLanguage(input.description),
+    translations: {},
     location: input.location,
     durationMs: input.deadline !== undefined ? input.deadline - now : input.durationMs,
     status: "DRAFT",
@@ -387,6 +393,44 @@ export async function createCampaign(input: {
  */
 export function normalizeCampaignField(value: string): string {
   return value.trim().toLowerCase();
+}
+
+export function detectCampaignLanguage(description?: string): string {
+  const text = (description ?? "").trim().toLowerCase();
+  if (!text) return "en";
+  const markers: Record<string, RegExp> = {
+    en: /\b(the|and|for|with|are|this|that)\b/g,
+    es: /\b(para|con|una|los|las|del|por)\b/g,
+    fr: /\b(avec|pour|dans|une|des|les|est)\b/g,
+    de: /\b(und|der|die|das|ist|mit|auf)\b/g,
+  };
+  let detected = "en"; let detectedScore = 0;
+  for (const [language, pattern] of Object.entries(markers)) {
+    const score = (text.match(pattern) ?? []).length;
+    if (score > detectedScore) { detected = language; detectedScore = score; }
+  }
+  return detected;
+}
+
+export async function autoTranslateCampaignDescription(
+  campaign: CampaignRecord,
+  targetLanguage: string,
+  translator?: (text: string, targetLanguage: string, sourceLanguage?: string) => Promise<string>,
+  dataSource = getCampaignDataSource(),
+): Promise<CampaignRecord> {
+  const sourceLanguage = campaign.language ?? detectCampaignLanguage(campaign.description);
+  if (targetLanguage === sourceLanguage) return campaign;
+  if (campaign.translations?.[targetLanguage]) return campaign;
+  if (!translator) throw new Error("No campaign translator configured");
+  const translated = await translator(campaign.description ?? "", targetLanguage, sourceLanguage);
+  return dataSource.saveCampaign({
+    ...campaign,
+    language: sourceLanguage,
+    translations: {
+      ...campaign.translations,
+      [targetLanguage]: translated,
+    },
+  });
 }
 
 export interface CampaignDuplicateLookup {
@@ -440,7 +484,7 @@ export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource 
     if (filter.minGoalAmount && BigInt(campaign.goalAmount) < BigInt(filter.minGoalAmount)) return false;
     if (filter.maxGoalAmount && BigInt(campaign.goalAmount) > BigInt(filter.maxGoalAmount)) return false;
     if (filter.search) {
-      const haystack = `${campaign.id} ${campaign.name} ${campaign.description ?? ""} ${campaign.creator}`.toLowerCase();
+      const haystack = `${campaign.id} ${campaign.name} ${campaign.description ?? ""} ${campaign.creator} ${campaign.language ?? ""} ${campaign.translations ? Object.values(campaign.translations).join(" ") : ""}`.toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
     return true;

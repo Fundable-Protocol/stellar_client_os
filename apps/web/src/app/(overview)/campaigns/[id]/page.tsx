@@ -13,12 +13,58 @@ import {
   Edit,
   ShieldCheck,
   Trophy,
+  Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CampaignSponsorWall } from "@/components/modules/campaign/sponsor-wall/CampaignSponsorWall";
 import { CampaignCollaboration } from "@/components/modules/campaign/collaboration/CampaignCollaboration";
+
+const translations = {
+  es: {
+    title: "Salvemos la Reserva de la Selva Amazónica",
+    shortDescription: "Protegiendo 50,000 hectáreas de bosque primario mediante guardianía comunitaria y streaming de carbono.",
+    fullStory: "El proyecto Reserva de la Selva Amazónica empodera a comunidades indígenas para monitorear, proteger y restaurar corredores críticos de vida silvestre. Los fondos recaudados se bloquean en flujos de pago transparentes en Stellar para operaciones contra la caza furtiva, mapeo satelital y agricultura sostenible.",
+    impactStatement: "Compensar permanentemente 150 toneladas métricas de CO2 mientras se asegura hábitat para más de 200 especies en peligro.",
+  },
+  pt: {
+    title: "Salve a Reserva da Floresta Amazônica",
+    shortDescription: "Protegendo 50.000 hectares de floresta primária por meio de guarda comunitária e streaming de carbono.",
+    fullStory: "O projeto Reserva da Floresta Amazônica capacita comunidades indígenas a monitorar, proteger e restaurar corredores críticos de vida selvagem. Os fundos arrecadados são bloqueados em fluxos de pagamento transparentes na Stellar para operações contra a caça ilegal, mapeamento por satélite e agricultura sustentável.",
+    impactStatement: "Compensar permanentemente 150 toneladas métricas de CO2 enquanto protege o habitat de mais de 200 espécies ameaçadas.",
+  },
+  fr: {
+    title: "Sauvons la Réserve de la forêt amazonienne",
+    shortDescription: "Protéger 50 000 hectares de forêt primaire grâce à une garde communautaire et au streaming carbone.",
+    fullStory: "Le projet Réserve de la forêt amazonienne permet aux communautés autochtones de surveiller, protéger et restaurer des corridors fauniques critiques. Les fonds collectés sont verrouillés dans des flux de paiement transparents sur Stellar pour les opérations anti-braconnage, la cartographie par satellite et l'agriculture durable.",
+    impactStatement: "Compenser durablement 150 tonnes métriques de CO2 tout en sécurisant l'habitat de plus de 200 espèces menacées.",
+  },
+} as const;
+
+const languageNames: Record<string, string> = {
+  en: "English",
+  es: "Spanish",
+  pt: "Portuguese",
+  fr: "French",
+  de: "German",
+  zh: "Chinese",
+  ja: "Japanese",
+  ko: "Korean",
+  ar: "Arabic",
+  ru: "Russian",
+};
+
+type TranslationKey = keyof typeof translations;
+
+const detectLanguage = (text: string): string => {
+  if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(text)) return "zh";
+  if (/[\u3040-\u30ff]/.test(text)) return "ja";
+  if (/[\uac00-\ud7af]/.test(text)) return "ko";
+  if (/[\u0600-\u06ff]/.test(text)) return "ar";
+  if (/[\u0400-\u04ff]/.test(text)) return "ru";
+  return "en";
+};
 
 export default function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -51,6 +97,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       ],
     },
   };
+
+  const detectedLang = detectLanguage(campaign.title + campaign.shortDescription + campaign.fullStory);
+  const detectedLanguageName = languageNames[detectedLang] ?? detectedLang;
+  const [translationLang, setTranslationLang] = useState<TranslationKey | "">("");
+  const translation = translationLang ? translations[translationLang] : null;
 
   const progressPct = Math.min(100, Math.round((parseFloat(campaign.raisedAmount) / parseFloat(campaign.goalAmount)) * 100));
 
@@ -85,8 +136,30 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               </Badge>
             </div>
 
-            <h1 className="text-3xl font-extrabold text-zinc-50 tracking-tight">{campaign.title}</h1>
-            <p className="text-sm text-zinc-300 leading-relaxed">{campaign.shortDescription}</p>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Globe className="h-3.5 w-3.5 text-zinc-500" />
+              <span className="text-[11px] uppercase tracking-wide text-zinc-500">
+                Detected: {detectedLanguageName}
+              </span>
+              <select
+                className="bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1 text-xs text-zinc-200"
+                value={translationLang}
+                onChange={(e) => setTranslationLang(e.target.value as TranslationKey | "")}
+                aria-label="Translate campaign description"
+              >
+                <option value="">Original ({detectedLanguageName})</option>
+                <option value="es">Spanish</option>
+                <option value="pt">Portuguese</option>
+                <option value="fr">French</option>
+              </select>
+            </div>
+
+            <h1 lang={translationLang || detectedLang} className="text-3xl font-extrabold text-zinc-50 tracking-tight">
+              {translation?.title ?? campaign.title}
+            </h1>
+            <p lang={translationLang || detectedLang} className="text-sm text-zinc-300 leading-relaxed">
+              {translation?.shortDescription ?? campaign.shortDescription}
+            </p>
 
             <div className="flex items-center gap-4 text-xs text-zinc-400 pt-2">
               <span>Created by: <strong className="text-zinc-200 font-mono">{campaign.creator}</strong></span>
@@ -145,15 +218,23 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             <div className="md:col-span-2 space-y-6">
               <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 space-y-3">
                 <h3 className="text-lg font-bold text-zinc-100">Full Campaign Story</h3>
-                <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-line">{campaign.fullStory}</p>
+                <p
+                  lang={translationLang || detectedLang}
+                  className="text-sm text-zinc-300 leading-relaxed whitespace-pre-line"
+                >
+                  {translation?.fullStory ?? campaign.fullStory}
+                </p>
               </div>
 
               <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 space-y-3">
                 <h3 className="text-lg font-bold text-zinc-100 flex items-center gap-2">
                   <Sparkles className="h-5 w-5 text-amber-400" /> Impact Statement & Beneficiaries
                 </h3>
-                <p className="text-sm text-amber-200/90 italic bg-amber-950/20 p-4 rounded-lg border border-amber-900/30">
-                  "{campaign.impactStatement}"
+                <p
+                  lang={translationLang || detectedLang}
+                  className="text-sm text-amber-200/90 italic bg-amber-950/20 p-4 rounded-lg border border-amber-900/30"
+                >
+                  "{translation?.impactStatement ?? campaign.impactStatement}"
                 </p>
                 <div className="grid grid-cols-2 gap-4 text-xs pt-2">
                   <div>Beneficiaries: <strong className="text-zinc-100">{campaign.beneficiaries}</strong></div>

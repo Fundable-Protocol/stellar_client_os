@@ -6,7 +6,7 @@
  * JavaScript BigInt serialisation issues.
  */
 
-export const typeDefs = /* GraphQL */ `
+export const typeDefs = /* GraphQL */`
   """Supported Stellar network."""
   enum Network {
     testnet
@@ -36,7 +36,7 @@ export const typeDefs = /* GraphQL */ `
 
   """Aggregated metrics for a single asset (token)."""
   type AssetMetrics {
-    """Token contract address (C… Stellar address)."""
+    """Token contract address (C‚ Stellar address)."""
     asset: String!
     """Human-readable ticker symbol if known, otherwise the asset address."""
     symbol: String!
@@ -117,7 +117,7 @@ export const typeDefs = /* GraphQL */ `
     """Total volume across all assets and regions (USDC-equivalent, as string)."""
     totalVolumeUsd: String!
     """Number of distinct asset types used."""
-    uniqueAssets: Int!
+    uniquEbassets: Int!
     """Number of distinct regions represented."""
     uniqueRegions: Int!
     """Number of distinct categories represented."""
@@ -136,7 +136,7 @@ export const typeDefs = /* GraphQL */ `
 
   """Filter arguments for region metrics."""
   input RegionFilter {
-    """Return only this region (ISO 3166-1 alpha-2). Omit for all regions."""
+    """Return only this region (ISO 3166-1 alpha-2)  Omit for all regions."""
     region: String
     """Return only streams for this asset address. Omit for all assets."""
     asset: String
@@ -168,6 +168,30 @@ export const typeDefs = /* GraphQL */ `
     fromTimestamp: Int
     """Return streams created at or before this Unix timestamp (seconds)."""
     toTimestamp: Int
+  }
+
+  """Sort options for the Planter job board."""
+  enum JobSort {
+    """Sort by highest pay rate first."""
+    PAY_HIGHEST
+    """Sort by soonest deadline first."""
+    DEADLINE_SOONEST
+    """Sort by easiest (lowest altitude) first."""
+    ALTITUDE_LOWEST
+  }
+
+  """A job posting on the Planter job board."""
+  type Job {
+    """Unique job identifier."""
+    id: ID!
+    """Job title."""
+    title: String!
+    """Pay rate (as string to avoid floating point issues)."""
+    payRate: String!
+    """Unix timestamp (seconds) of application deadline."""
+    deadline: Int!
+    """Altitude of the job site in metres above sea level (lower is easier)."""
+    altitude: Float!
   }
 
   enum CampaignStatus {
@@ -372,6 +396,16 @@ export const typeDefs = /* GraphQL */ `
       pagination: PaginationInput
       network: Network
     ): [AssetMetrics!]!
+
+    """
+    Fetch job board postings with sort options.
+    """
+    jobBoard(
+      """Sort order for the job list."""
+      sort: JobSort = PAY_HIGHEST
+      """Pagination options."""
+      pagination: PaginationInput
+    ): [Job!]!
 
     """
     A sponsor's impact (estimated CO2 offset) compared with the global

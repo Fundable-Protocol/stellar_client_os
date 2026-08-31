@@ -88,3 +88,14 @@ export type {
   PersonalizedRecommendationOptions,
   PersonalizedRecommendationResponse,
 } from './personalized-campaign-recommendation.service';
+
+export { CampaignVotingService, campaignVotingService } from './campaign-voting.service';
+export {
+  OnChainCampaignTrackingService,
+  onChainCampaignTrackingService,
+} from './onchain-campaign-tracking.service';
+export {
+  CreatorRevenueShareService,
+  creatorRevenueShareService,
+} from './creator-revenue-share.service';
+export { FraudDetectionService, fraudDetectionService } from './fraud-detection.service';

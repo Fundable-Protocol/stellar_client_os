@@ -35,6 +35,11 @@ pub enum DataKey {
     /// Bitmask of campaign goal milestones (25 %, 50 %, 75 %, 100 %) that
     /// have been reached so far, keyed by campaign ID (persistent storage).
     MilestonesReached(u64),
+    /// Reserve pool balance for tree replacement, keyed by campaign ID
+    /// (persistent storage). Holds 10% of raised funds for dead tree replacement.
+    Reserve(u64),
+    /// Team members configuration keyed by campaign ID (persistent storage).
+    TeamMembers(u64),
 }
 
 /// Current lifecycle state of a campaign.
@@ -184,6 +189,30 @@ pub struct ProtocolFeeCollectedEvent {
     pub amount: i128,
 }
 
+/// Emitted when 10% of campaign funds are reserved for tree replacement.
+#[contractevent(topics = ["ReserveAllocated"])]
+#[derive(Clone)]
+pub struct ReserveAllocatedEvent {
+    pub campaign_id: u64,
+    pub amount: i128,
+}
+
+/// Emitted when a team member receives their share of campaign proceeds.
+#[contractevent(topics = ["TeamPayoutIssued"])]
+#[derive(Clone)]
+pub struct TeamPayoutIssuedEvent {
+    pub campaign_id: u64,
+    pub member: Address,
+    pub amount: i128,
+}
+
+/// Emitted when ContractFull error occurs.
+#[contracttype]
+#[derive(Clone)]
+pub struct ContractFullEvent {
+    pub timestamp: u64,
+}
+
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
@@ -240,6 +269,8 @@ pub enum Error {
     TeamInvalidSplit = 21,
     /// The team contains two members with the same payout address.
     TeamDuplicateMember = 22,
+    /// Campaign ID space exhausted (u64::MAX reached).
+    ContractFull = 23,
 }
 
 // ---------------------------------------------------------------------------
@@ -677,12 +708,12 @@ impl CampaignFundingContract {
     /// Claim the raised funds after a successful campaign.
     ///
     /// Only the campaign `creator` may call this.  A protocol fee is deducted
-    /// from `total_raised` and forwarded to the fee collector; the net amount
-    /// is then distributed: if the creator previously configured a team split
-    /// via [`set_team_rewards`], the proceeds are paid out to each co-creator
-    /// proportionally, otherwise the full net amount is sent to the sole
-    /// `creator`. The campaign status is updated to `Claimed` to prevent
-    /// double-claims.
+    /// from `total_raised`, then 10% of the remaining amount is reserved for
+    /// tree replacement during verification. The final 90% is distributed:
+    /// if the creator previously configured a team split via [`set_team_rewards`],
+    /// the proceeds are paid out to each co-creator proportionally, otherwise
+    /// the full amount is sent to the sole `creator`. The campaign status is
+    /// updated to `Claimed` to prevent double-claims.
     ///
     /// When the fee is non-zero a [`ProtocolFeeCollectedEvent`] is emitted so
     /// the fee flow is recorded on-chain alongside the contribution, payout,
@@ -707,13 +738,18 @@ impl CampaignFundingContract {
 
         let gross = campaign.total_raised;
         let fee = Self::calculate_fee(&env, gross);
-        let net = gross - fee;
+        let after_fee = gross - fee;
+
+        // Calculate 10% reserve for tree replacement (1000 bps = 10%)
+        let reserve = Self::calculate_reserve(&env, after_fee);
+        let distributable = after_fee - reserve;
 
         campaign.status = CampaignStatus::Claimed;
         Self::save_campaign(&env, campaign_id, &campaign);
 
         let token_client = token::Client::new(&env, &campaign.token);
 
+        // Transfer protocol fee
         if fee > 0 {
             let fee_collector: Address = env
                 .storage()
@@ -731,14 +767,30 @@ impl CampaignFundingContract {
             .publish(&env);
         }
 
-        Self::distribute_proceeds(&env, &campaign, campaign_id, net);
+        // Store reserve in contract storage
+        if reserve > 0 {
+            let reserve_key = DataKey::Reserve(campaign_id);
+            env.storage().persistent().set(&reserve_key, &reserve);
+            env.storage()
+                .persistent()
+                .extend_ttl(&reserve_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+            ReserveAllocatedEvent {
+                campaign_id,
+                amount: reserve,
+            }
+            .publish(&env);
+        }
+
+        // Distribute remaining 90% to creator or team
+        Self::distribute_proceeds(&env, &campaign, campaign_id, distributable);
 
         env.events().publish(
             ("FundsClaimed", campaign_id),
             FundsClaimedEvent {
                 campaign_id,
                 creator: campaign.creator,
-                amount: net,
+                amount: distributable,
             },
         );
     }
@@ -1084,6 +1136,67 @@ impl CampaignFundingContract {
         }
         let rate = fee_rate as i128;
         (amount / 10_000) * rate + ((amount % 10_000) * rate) / 10_000
+    }
+
+    /// Compute the 10% reserve for tree replacement.
+    ///
+    /// Uses the same precision-preserving calculation as `calculate_fee`.
+    fn calculate_reserve(env: &Env, amount: i128) -> i128 {
+        if amount <= 0 {
+            return 0;
+        }
+        // 1000 basis points = 10%
+        let rate: i128 = 1000;
+        (amount / 10_000) * rate + ((amount % 10_000) * rate) / 10_000
+    }
+
+    /// Distribute proceeds to the campaign creator or team members.
+    ///
+    /// If a team configuration exists via [`set_team_rewards`], the proceeds
+    /// are split proportionally among team members. Otherwise, the full
+    /// amount goes to the sole creator.
+    fn distribute_proceeds(env: &Env, campaign: &Campaign, campaign_id: u64, amount: i128) {
+        let token_client = token::Client::new(env, &campaign.token);
+        let team_key = DataKey::TeamMembers(campaign_id);
+
+        // Check if team rewards are configured
+        let team: Option<Vec<TeamMember>> = env.storage().persistent().get(&team_key);
+
+        match team {
+            Some(members) if !members.is_empty() => {
+                // Distribute to team members proportionally
+                for i in 0..members.len() {
+                    let member = members.get(i).unwrap();
+                    let member_share = (amount / 10_000) * (member.percentage_bps as i128)
+                        + ((amount % 10_000) * (member.percentage_bps as i128)) / 10_000;
+
+                    if member_share > 0 {
+                        token_client.transfer(
+                            &env.current_contract_address(),
+                            &member.address,
+                            &member_share,
+                        );
+
+                        TeamPayoutIssuedEvent {
+                            campaign_id,
+                            member: member.address.clone(),
+                            amount: member_share,
+                        }
+                        .publish(env);
+                    }
+                }
+            }
+            _ => {
+                // No team configured: send entire amount to creator
+                if amount > 0 {
+                    token_client.transfer(
+                        &env.current_contract_address(),
+                        &campaign.creator,
+                        &amount,
+                    );
+                }
+            }
+        }
     }
 }
 

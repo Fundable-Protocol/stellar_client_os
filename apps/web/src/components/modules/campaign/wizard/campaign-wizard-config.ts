@@ -76,6 +76,11 @@ export interface CampaignWizardData {
 
   // Metadata
   isDraft: boolean;
+
+  // Translation
+  language: string;
+  translations: Record<string, string>;
+  autoTranslate: boolean;
 }
 
 export const INITIAL_WIZARD_DATA: CampaignWizardData = {
@@ -107,6 +112,9 @@ export const INITIAL_WIZARD_DATA: CampaignWizardData = {
   socialMetrics: "",
 
   isDraft: false,
+  language: "en",
+  translations: {},
+  autoTranslate: false,
 };
 
 export type WizardStepErrors = Record<string, string>;
@@ -118,6 +126,7 @@ export const detailsSchema = z.object({
   shortDescription: z.string().min(10, "Short description must be at least 10 characters").max(300, "Short description cannot exceed 300 characters"),
   fullStory: z.string().min(20, "Full story must be at least 20 characters"),
   imageUrl: z.string().url("Must be a valid image URL").or(z.string().length(0)),
+  language: z.string().min(1, "Language is required"),
 });
 
 export const goalsSchema = z.object({
@@ -201,4 +210,14 @@ export const TOKEN_OPTIONS = [
   { label: "Stellar Lumens (XLM)", value: "XLM" },
   { label: "USD Coin (USDC)", value: "USDC" },
   { label: "Euro Coin (EURC)", value: "EURC" },
+];
+
+export const TRANSLATION_LOCALES = [
+  { label: "English", value: "en" },
+  { label: "Spanish", value: "es" },
+  { label: "French", value: "fr" },
+  { label: "German", value: "de" },
+  { label: "Chinese (Simplified)", value: "zh" },
+  { label: "Arabic", value: "ar" },
+  { label: "Hindi", value: "hi" },
 ];
