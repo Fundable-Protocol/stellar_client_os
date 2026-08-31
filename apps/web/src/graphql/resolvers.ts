@@ -6,7 +6,7 @@
  */
 
 import { DefaultStreamDataSource, getAnalyticsService } from "./analytics.service";
-import { queryCampaigns } from "@/services/campaign.service";
+import { getCampaignHealthAssessment, getCampaignRiskAssessment, getCampaignVerificationSummary, queryCampaigns } from "@/services/campaign.service";
 import type { CampaignDataSource, CampaignQueryInput } from "@/services/campaign.service";
 import { getCampaignSequelService } from "@/services/campaign-sequel.service";
 import { getCampaignAnalyticsDashboard } from "@/services/campaign-analytics-dashboard.service";
@@ -47,8 +47,23 @@ function paginate<T>(items: T[], pagination?: PaginationInput): T[] {
 }
 
 function toCampaignPayload(campaign: import("@/services/campaign.service").CampaignRecord) {
+  const verification = getCampaignVerificationSummary(campaign);
+  const riskAssessment = getCampaignRiskAssessment(campaign);
+  const healthAssessment = getCampaignHealthAssessment(campaign);
+
   return {
     ...campaign,
+    verification,
+    verificationStatus: verification.status,
+    verified: verification.isVerified,
+    verificationBadges: verification.badges,
+    riskAssessment,
+    riskScore: riskAssessment.score,
+    riskLevel: riskAssessment.level,
+    riskFlags: riskAssessment.redFlags,
+    healthAssessment,
+    healthScore: healthAssessment.score,
+    healthLevel: healthAssessment.level,
     createdAt: Math.floor(campaign.createdAt / 1000),
     updatedAt: Math.floor(campaign.updatedAt / 1000),
     statusChangedAt: Math.floor(campaign.statusChangedAt / 1000),

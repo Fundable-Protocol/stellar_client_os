@@ -76,3 +76,15 @@ export type {
   CampaignRecommendationServiceOptions,
   CampaignSimilarity,
 } from './campaign-recommendation.service';
+
+export {
+  PersonalizedCampaignRecommendationService,
+  getPersonalizedCampaignRecommendationService,
+} from './personalized-campaign-recommendation.service';
+export type {
+  PersonalizedCampaignRecommendation,
+  PersonalizedCampaignRecommendationComponents,
+  PersonalizedCampaignRecommendationServiceOptions,
+  PersonalizedRecommendationOptions,
+  PersonalizedRecommendationResponse,
+} from './personalized-campaign-recommendation.service';

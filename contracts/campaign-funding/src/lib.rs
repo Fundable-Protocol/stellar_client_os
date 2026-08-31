@@ -83,6 +83,21 @@ pub struct Campaign {
     pub status: CampaignStatus,
 }
 
+/// A single co-creator on a campaign team and the share of the proceeds they
+/// are entitled to.
+///
+/// `percentage_bps` is expressed in basis points relative to the campaign's
+/// net proceeds (after the protocol fee). The percentages of all team members
+/// must sum to exactly `10_000` (that is, 100 %).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TeamMember {
+    /// Wallet that receives this member's share on a successful claim.
+    pub address: Address,
+    /// Share of the net proceeds, in basis points (1 bp = 0.01 %).
+    pub percentage_bps: u32,
+}
+
 // ---------------------------------------------------------------------------
 // Event types
 // ---------------------------------------------------------------------------
@@ -218,6 +233,13 @@ pub enum Error {
     CampaignNotVerificationFailed = 18,
     /// The insurance pool fee rate exceeds the protocol maximum.
     InsuranceFeeTooHigh = 19,
+    /// `set_team_rewards` was called with an empty team.
+    TeamEmpty = 20,
+    /// The team's `percentage_bps` values do not sum to exactly 100 %
+    /// (`10_000`), or a member has a zero / out-of-range percentage.
+    TeamInvalidSplit = 21,
+    /// The team contains two members with the same payout address.
+    TeamDuplicateMember = 22,
 }
 
 // ---------------------------------------------------------------------------
@@ -304,8 +326,9 @@ impl CampaignFundingContract {
     /// contributors individually when [`contribute`] is called.
     ///
     /// # Arguments
-    /// * `creator`       — Address that owns the campaign and will receive
-    ///   the proceeds on success.
+    /// * `creator`       — Address that owns the campaign and, unless a team
+    ///   split is configured via [`set_team_rewards`], receives the proceeds
+    ///   on success.
     /// * `token`         — Stellar asset contract address of the funding
     ///   token.
     /// * `target_amount` — Hard cap; contributions close once this is
@@ -655,12 +678,16 @@ impl CampaignFundingContract {
     ///
     /// Only the campaign `creator` may call this.  A protocol fee is deducted
     /// from `total_raised` and forwarded to the fee collector; the net amount
-    /// is sent to the creator.  The campaign status is updated to `Claimed`
-    /// to prevent double-claims.
+    /// is then distributed: if the creator previously configured a team split
+    /// via [`set_team_rewards`], the proceeds are paid out to each co-creator
+    /// proportionally, otherwise the full net amount is sent to the sole
+    /// `creator`. The campaign status is updated to `Claimed` to prevent
+    /// double-claims.
     ///
     /// When the fee is non-zero a [`ProtocolFeeCollectedEvent`] is emitted so
     /// the fee flow is recorded on-chain alongside the contribution, payout,
-    /// and refund events.
+    /// and refund events; every team payout is published as a
+    /// [`TeamPayoutIssuedEvent`].
     ///
     /// # Errors
     /// * [`Error::CampaignNotSuccessful`] — campaign is not `Successful`.
@@ -704,7 +731,7 @@ impl CampaignFundingContract {
             .publish(&env);
         }
 
-        token_client.transfer(&env.current_contract_address(), &campaign.creator, &net);
+        Self::distribute_proceeds(&env, &campaign, campaign_id, net);
 
         env.events().publish(
             ("FundsClaimed", campaign_id),
@@ -714,6 +741,83 @@ impl CampaignFundingContract {
                 amount: net,
             },
         );
+    }
+
+    /// Configure how a successful campaign's proceeds are split amongst a
+    /// team of co-creators.
+    ///
+    /// Only the campaign `creator` may call this, and only while the campaign
+    /// is still [`CampaignStatus::Active`] (before funds are claimed). Once
+    /// set, `claim_funds` divides the net proceeds (after the protocol fee)
+    /// among the team members according to their `percentage_bps`, rather than
+    /// sending everything to the single `creator`.
+    ///
+    /// # Arguments
+    /// * `campaign_id` — The campaign to configure.
+    /// * `team`        — Non-empty list of [`TeamMember`]s whose
+    ///   `percentage_bps` values sum to exactly `10_000` (100 %).
+    ///
+    /// # Errors
+    /// * [`Error::CampaignNotFound`]       — campaign does not exist.
+    /// * [`Error::Unauthorized`]           — caller is not the campaign creator.
+    /// * [`Error::CampaignNotActive`]      — campaign is not `Active`.
+    /// * [`Error::TeamEmpty`]              — `team` is empty.
+    /// * [`Error::TeamDuplicateMember`]    — a payout address appears twice.
+    /// * [`Error::TeamInvalidSplit`]       — percentages do not sum to 100 % or
+    ///   a member percentage is zero / out of range.
+    pub fn set_team_rewards(env: Env, campaign_id: u64, team: Vec<TeamMember>) {
+        let mut campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        if campaign.status != CampaignStatus::Active {
+            panic_with_error!(&env, Error::CampaignNotActive);
+        }
+        if team.is_empty() {
+            panic_with_error!(&env, Error::TeamEmpty);
+        }
+
+        let mut total: u32 = 0;
+        for i in 0..team.len() {
+            let member = team.get(i).unwrap();
+            if member.percentage_bps == 0 || member.percentage_bps > 10_000u32 {
+                panic_with_error!(&env, Error::TeamInvalidSplit);
+            }
+            for j in (i + 1)..team.len() {
+                if team.get(j).unwrap().address == member.address {
+                    panic_with_error!(&env, Error::TeamDuplicateMember);
+                }
+            }
+            total = total
+                .checked_add(member.percentage_bps)
+                .unwrap_or_else(|| panic_with_error!(&env, Error::TeamInvalidSplit));
+        }
+        if total != 10_000u32 {
+            panic_with_error!(&env, Error::TeamInvalidSplit);
+        }
+
+        let key = DataKey::TeamMembers(campaign_id);
+        env.storage().persistent().set(&key, &team);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        Self::save_campaign(&env, campaign_id, &campaign);
+    }
+
+    /// Return the configured team rewards for a campaign.
+    ///
+    /// Returns `[]` when no team split has been set up for `campaign_id`
+    /// (in which case the proceeds go entirely to the single `creator`).
+    ///
+    /// # Errors
+    /// * [`Error::CampaignNotFound`] — campaign does not exist.
+    pub fn get_team_rewards(env: Env, campaign_id: u64) -> Vec<TeamMember> {
+        let key = DataKey::TeamMembers(campaign_id);
+        // Validate the campaign exists before reading its (absent) team.
+        Self::load_campaign(&env, campaign_id);
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     /// Claim a full refund after a failed campaign.
