@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { onChainCampaignTrackingService } from '@services/onchain-campaign-tracking.service';
+import { onChainCampaignTrackingService } from '@/services/onchain-campaign-tracking.service';
 
 export async function GET(
   request: NextRequest,
