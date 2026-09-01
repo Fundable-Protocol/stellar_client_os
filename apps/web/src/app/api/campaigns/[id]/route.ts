@@ -37,7 +37,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       updated = await transitionCampaignStatus(campaign, body.status, body.changedBy, body.reason);
     }
     if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.autoTranslate !== undefined) {
-      let language = body.language ?? updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
+      const language = body.language ?? updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
       let translations = body.translations ?? updated.translations ?? {};
       const description = body.description ?? updated.description ?? "";
       if (body.autoTranslate) {

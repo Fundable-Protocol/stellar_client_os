@@ -275,7 +275,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   lang={translationLang || detectedLang}
                   className="text-sm text-amber-200/90 italic bg-amber-950/20 p-4 rounded-lg border border-amber-900/30"
                 >
-                  "{translation?.impactStatement ?? campaign.impactStatement}"
+                  &ldquo;{translation?.impactStatement ?? campaign.impactStatement}&rdquo;
                 </p>
                 <div className="grid grid-cols-2 gap-4 text-xs pt-2">
                   <div>Beneficiaries: <strong className="text-zinc-100">{campaign.beneficiaries}</strong></div>
