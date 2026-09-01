@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import { RefreshCw } from "lucide-react";
 import { TokenBalanceProps } from "@/types/token-balance.types";
@@ -72,15 +72,13 @@ export function TokenBalance({
   const [imageTimedOut, setImageTimedOut] = useState(false);
   const formattedBalance = formatBalance(balance);
 
-  // Handle image timeout for slow connections (3G)
-  // Resets when iconUrl changes (key prop on parent resets state)
   useEffect(() => {
     if (!iconUrl) return;
 
     const timeoutId = setTimeout(() => {
       setImageTimedOut(true);
       setImageError(true);
-    }, 15000); // 15 second timeout for slow 3G connections
+    }, 15000);
 
     return () => clearTimeout(timeoutId);
   }, [iconUrl]);
@@ -90,15 +88,10 @@ export function TokenBalance({
     setImageTimedOut(false);
   };
 
-  // Use key to reset state when iconUrl or assetCode changes
-  // This replaces the useEffect-based reset that violated react-hooks/set-state-in-effect
   const resetKey = `${iconUrl ?? ""}-${assetCode}`;
-
-  const formattedBalance = formatBalance(balance);
 
   return (
     <div key={resetKey} className="flex items-center gap-4 p-4 bg-zinc-800 rounded-lg border border-zinc-700 hover:border-zinc-600 transition-colors">
-      {/* Token Icon */}
       <div className="shrink-0 w-10 h-10 rounded-full bg-white flex items-center justify-center overflow-hidden p-1.5 relative">
         {iconUrl && !imageError ? (
           <Image
@@ -108,15 +101,13 @@ export function TokenBalance({
             height={40}
             className="w-full h-full object-contain"
             onError={() => setImageError(true)}
-            unoptimized // Required for external images without domain configuration
+            unoptimized
           />
         ) : (
-          // Fallback icon - displays first letter of asset code
           <span className="text-lg font-bold text-violet-400">
             {assetCode.charAt(0)}
           </span>
         )}
-        {/* Retry button on timeout/error */}
         {imageTimedOut && (
           <button
             onClick={handleRetry}
@@ -126,19 +117,11 @@ export function TokenBalance({
             <RefreshCw className="w-4 h-4 text-white" />
           </button>
         )}
-      <div
-        key={`${iconUrl ?? "no-icon"}-${assetCode}`}
-        className="shrink-0 w-10 h-10 rounded-full bg-white flex items-center justify-center overflow-hidden p-1.5"
-      >
-        <TokenIcon assetCode={assetCode} iconUrl={iconUrl} />
       </div>
 
-      {/* Token Information */}
       <div className="flex-1 min-w-0">
-        {/* Asset Code */}
         <div className="font-semibold text-zinc-50 text-base">{assetCode}</div>
 
-        {/* Asset Issuer (truncated for custom tokens) */}
         {assetIssuer && (
           <div className="text-xs text-zinc-400 font-mono truncate">
             {assetIssuer.substring(0, 8)}...
@@ -147,7 +130,6 @@ export function TokenBalance({
         )}
       </div>
 
-      {/* Balance Amount */}
       <div className="shrink-0 text-right">
         <div className="font-semibold text-lg text-violet-400">
           {formattedBalance}
@@ -155,36 +137,5 @@ export function TokenBalance({
         <div className="text-xs text-zinc-400">{assetCode}</div>
       </div>
     </div>
-  );
-}
-
-function TokenIcon({
-  assetCode,
-  iconUrl,
-}: {
-  assetCode: string;
-  iconUrl?: string;
-}) {
-  const [imageError, setImageError] = useState(false);
-
-  if (iconUrl && !imageError) {
-    return (
-      <Image
-        src={iconUrl}
-        alt={`${assetCode} icon`}
-        width={40}
-        height={40}
-        className="w-full h-full object-contain"
-        onError={() => setImageError(true)}
-        unoptimized // Required for external images without domain configuration
-      />
-    );
-  }
-
-  return (
-    // Fallback icon - displays first letter of asset code
-    <span className="text-lg font-bold text-violet-400">
-      {assetCode.charAt(0)}
-    </span>
   );
 }

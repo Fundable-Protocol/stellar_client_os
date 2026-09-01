@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { CoCreator, CoCreatorInvite, CoCreatorRole, ROLE_PERMISSIONS } from "@/types/collaboration";
 import { collaborationService } from "@/services/campaign-collaboration.service";
 
@@ -15,24 +15,29 @@ export function useCampaignCollaboration({
   campaignTitle = "Save the Amazon RainForest Reserve",
   currentUserAddress = "GD6W...X892",
 }: UseCampaignCollaborationOptions) {
-  const [collaborators, setCollaborators] = useState<CoCreator[]>([]);
+  const [prevCampaignId, setPrevCampaignId] = useState(campaignId);
+  const [collaborators, setCollaborators] = useState<CoCreator[]>(() => [
+    ...collaborationService.getCollaborators(campaignId),
+  ]);
   const [activeInvites, setActiveInvites] = useState<CoCreatorInvite[]>([]);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  if (prevCampaignId !== campaignId) {
+    setPrevCampaignId(campaignId);
+    const list = collaborationService.getCollaborators(campaignId);
+    setCollaborators([...list]);
+  }
 
   const reloadData = useCallback(() => {
     const list = collaborationService.getCollaborators(campaignId);
     setCollaborators([...list]);
   }, [campaignId]);
 
-  useEffect(() => {
-    reloadData();
-  }, [reloadData]);
-
   const currentUserRole = useMemo<CoCreatorRole>(() => {
     const found = collaborators.find(
       (c) => c.stellarAddress.toLowerCase() === currentUserAddress.toLowerCase()
     );
-    return found ? found.role : "OWNER"; // Default owner if matches or initial mock
+    return found ? found.role : "OWNER";
   }, [collaborators, currentUserAddress]);
 
   const userPermissions = useMemo(() => {

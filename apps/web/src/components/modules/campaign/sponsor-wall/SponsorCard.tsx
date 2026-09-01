@@ -94,7 +94,7 @@ export function SponsorCard({ sponsor }: SponsorCardProps) {
         {sponsor.message && (
           <div className="mt-3 flex items-start gap-1.5 text-xs text-zinc-300 italic bg-zinc-950/40 p-2.5 rounded-lg border border-zinc-800/60">
             <MessageSquare className="h-3.5 w-3.5 text-zinc-400 shrink-0 mt-0.5" />
-            <p className="line-clamp-2">"{sponsor.message}"</p>
+            <p className="line-clamp-2">&ldquo;{sponsor.message}&rdquo;</p>
           </div>
         )}
       </div>

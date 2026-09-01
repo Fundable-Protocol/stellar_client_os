@@ -308,7 +308,7 @@ export function CreatorMarketplace() {
               {/* Included Assets */}
               <div className="space-y-2 bg-zinc-950/60 p-3 rounded-lg border border-zinc-800/80">
                 <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-1">
-                  <Layers className="h-3.5 w-3.5 text-purple-400" /> What's Included:
+                  <Layers className="h-3.5 w-3.5 text-purple-400" /> What&apos;s Included:
                 </span>
                 <ul className="space-y-1 text-xs text-zinc-300">
                   {item.includedAssets.slice(0, 3).map((asset, i) => (
