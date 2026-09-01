@@ -21,6 +21,25 @@ export interface SponsorRecord {
   sponsoredAt: number;
 }
 
+export type CarbonCertificateStatus = "issued" | "listed" | "transferred" | "retired";
+export type CarbonCreditStatus = CarbonCertificateStatus;
+
+export interface CampaignCarbonCertificate {
+  id: string;
+  campaignId: string;
+  sponsorId: string;
+  ownerAddress: string;
+  amount: string;
+  status: CarbonCertificateStatus;
+  issuedAt: number;
+  updatedAt: number;
+  price?: string;
+  priceToken?: string;
+  listedAt?: number;
+}
+
+export type CarbonCreditCertificate = CampaignCarbonCertificate;
+
 export interface StatusHistoryEntry {
   id: string;
   campaignId: string;
@@ -67,6 +86,33 @@ export interface CampaignHealthAssessment {
   breakdown: CampaignHealthBreakdown;
 }
 
+export type CampaignInsuranceClaimStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface CampaignInsuranceEvidence {
+  type: "image" | "document" | "link";
+  url: string;
+  description?: string;
+}
+
+export interface CampaignInsuranceClaim {
+  id: string;
+  campaignId: string;
+  submittedBy: string;
+  submittedAt: number;
+  reason: string;
+  evidence: CampaignInsuranceEvidence[];
+  status: CampaignInsuranceClaimStatus;
+  reviewedBy?: string;
+  reviewedAt?: number;
+  reviewReason?: string;
+  payoutAmount?: string;
+}
+
+export interface CampaignInsuranceClaimInput {
+  reason: string;
+  evidence: CampaignInsuranceEvidence[];
+}
+
 export interface CampaignRecord {
   id: string;
   creator: string;
@@ -85,6 +131,8 @@ export interface CampaignRecord {
   raisedAmount: string;
   sponsorCount: number;
   treeCount: number;
+  /** Tradeable CO2 offset certificates issued to sponsors. */
+  carbonCertificates?: CampaignCarbonCertificate[];
   createdAt: number;
   updatedAt: number;
   statusChangedAt: number;
@@ -103,6 +151,7 @@ export interface CampaignRecord {
   healthAssessment?: CampaignHealthAssessment;
   healthScore?: number;
   healthLevel?: CampaignHealthLevel;
+  insuranceClaim?: CampaignInsuranceClaim;
 }
 
 export interface CampaignCreatorBadge {
@@ -489,6 +538,42 @@ export async function transitionCampaignStatus(
   return dataSource.saveCampaign(next);
 }
 
+export async function submitCampaignInsuranceClaim(
+  campaignId: string,
+  input: CampaignInsuranceClaimInput,
+  submittedBy: string,
+  dataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignRecord> {
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) throw new Error("Campaign not found");
+  if (campaign.status !== "FAILED") throw new Error("Only failed campaigns can submit insurance claims");
+  if (campaign.creator !== submittedBy) throw new Error("Only the campaign creator can submit an insurance claim");
+  if (campaign.insuranceClaim) throw new Error("Insurance claim already submitted for this campaign");
+  if (!input.reason || !input.reason.trim()) throw new Error("Insurance claim reason is required");
+  if (!input.evidence?.length) throw new Error("At least one proof of failure is required");
+  if (!input.evidence.every((evidence) => evidence.url?.trim())) throw new Error("Each proof of failure must include a URL");
+
+  const claim: CampaignInsuranceClaim = {
+    id: `${campaign.id}:claim:${now}`,
+    campaignId: campaign.id,
+    submittedBy,
+    submittedAt: now,
+    reason: input.reason.trim(),
+    evidence: input.evidence.map((evidence) => ({ ...evidence })),
+    status: "PENDING",
+  };
+
+  return dataSource.saveCampaign({
+    ...campaign,
+    insuranceClaim: claim,
+    updatedAt: now,
+  });
+}
+
+export const requestCampaignInsurancePayout = submitCampaignInsuranceClaim;
+export const submitProofOfFailure = submitCampaignInsuranceClaim;
+
 export function csvEscape(value: unknown): string {
   const stringValue = String(value ?? "");
   return /[",\n\r]/.test(stringValue) ? `"${stringValue.replace(/"/g, '""')}"` : stringValue;
@@ -511,4 +596,119 @@ export async function exportCampaignCsv(campaignId: string, report: "sponsors" |
   const campaign = await getCampaign(campaignId, dataSource);
   if (!campaign) return null;
   return report === "sponsors" ? sponsorsToCsv(campaign) : impactReportToCsv(campaign);
+}
+
+export function calculateCampaignCarbonCredits(campaign: Partial<CampaignRecord> = {}): bigint {
+  return BigInt(campaign.treeCount ?? 0);
+}
+
+export async function getCampaignCarbonCertificates(campaignId: string, dataSource = getCampaignDataSource()): Promise<CampaignCarbonCertificate[]> {
+  const campaign = await getCampaign(campaignId, dataSource);
+  return campaign?.carbonCertificates ?? [];
+}
+
+export async function getCarbonCreditCertificate(certificateId: string, dataSource = getCampaignDataSource()): Promise<CampaignCarbonCertificate | null> {
+  const campaigns = await dataSource.getCampaigns();
+  for (const campaign of campaigns) {
+    const certificate = campaign.carbonCertificates?.find((item) => item.id === certificateId);
+    if (certificate) return certificate;
+  }
+  return null;
+}
+
+export async function issueCampaignCarbonCertificates(
+  campaign: CampaignRecord,
+  dataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignRecord> {
+  const existingCertificates = campaign.carbonCertificates ?? [];
+  const existingSponsorIds = new Set(existingCertificates.map((certificate) => certificate.sponsorId));
+  const newSponsors = (campaign.sponsors ?? []).filter((sponsor) => !existingSponsorIds.has(sponsor.id));
+  const totalCredits = calculateCampaignCarbonCredits(campaign);
+  const issuedCredits = existingCertificates.reduce((total, certificate) => total + BigInt(certificate.amount), 0n);
+  const remainingCredits = totalCredits - issuedCredits;
+  if (remainingCredits <= 0n || newSponsors.length === 0) return campaign;
+  const totalFunded = newSponsors.reduce((total, sponsor) => total + BigInt(sponsor.amount), 0n);
+  let allocated = 0n;
+  const certificates: CampaignCarbonCertificate[] = newSponsors.map((sponsor, index) => {
+    const amount = index === newSponsors.length - 1
+      ? remainingCredits - allocated
+      : totalFunded > 0n
+        ? (remainingCredits * BigInt(sponsor.amount)) / totalFunded
+        : 0n;
+    allocated += amount;
+    return {
+      id: `${campaign.id}:credit:${sponsor.id}:${now}`,
+      campaignId: campaign.id,
+      sponsorId: sponsor.id,
+      ownerAddress: sponsor.address,
+      amount: amount.toString(),
+      status: "issued",
+      issuedAt: now,
+      updatedAt: now,
+    };
+  });
+  return dataSource.saveCampaign({
+    ...campaign,
+    carbonCertificates: [...existingCertificates, ...certificates],
+    updatedAt: now,
+  });
+}
+
+export async function listCarbonCreditCertificate(
+  certificateId: string,
+  price: string,
+  priceToken = "USDC",
+  dataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignCarbonCertificate | null> {
+  const campaigns = await dataSource.getCampaigns();
+  for (const campaign of campaigns) {
+    const certificates = campaign.carbonCertificates ?? [];
+    const certificate = certificates.find((item) => item.id === certificateId && item.status !== "retired");
+    if (!certificate) continue;
+    const updatedCertificate: CampaignCarbonCertificate = {
+      ...certificate,
+      status: "listed",
+      price,
+      priceToken,
+      listedAt: now,
+      updatedAt: now,
+    };
+    await dataSource.saveCampaign({
+      ...campaign,
+      carbonCertificates: certificates.map((item) => item.id === certificateId ? updatedCertificate : item),
+      updatedAt: now,
+    });
+    return updatedCertificate;
+  }
+  return null;
+}
+
+export async function transferCarbonCreditCertificate(
+  certificateId: string,
+  toAddress: string,
+  dataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignCarbonCertificate | null> {
+  const campaigns = await dataSource.getCampaigns();
+  for (const campaign of campaigns) {
+    const certificates = campaign.carbonCertificates ?? [];
+    const certificate = certificates.find((item) => item.id === certificateId);
+    if (!certificate) continue;
+    if (certificate.status === "retired") throw new Error("Retired carbon credit certificates cannot be transferred");
+    const updatedCertificate: CampaignCarbonCertificate = {
+      ...certificate,
+      ownerAddress: toAddress,
+      status: "transferred",
+      updatedAt: now,
+    };
+    await dataSource.saveCampaign({
+      ...campaign,
+      carbonCertificates: certificates.map((item) => item.id === certificateId ? updatedCertificate : item),
+      updatedAt: now,
+    });
+    return updatedCertificate;
+  }
+  return null;
 }

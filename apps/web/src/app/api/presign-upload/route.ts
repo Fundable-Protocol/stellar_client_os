@@ -11,13 +11,14 @@ import {
 /**
  * POST /api/presign-upload
  *
- * Generates a short-lived pre-signed AWS S3 PUT URL for a milestone proof
- * photo. The client uploads the photo directly to S3; the URL expires
- * within the configured window (default 5 minutes) so credentials never
- * reach the browser and the bucket stays private.
+ * Generates a short-lived pre-signed AWS S3 PUT URL for milestone proof
+ * photo or insurance claim evidence. The client uploads the photo directly
+ * to S3; the URL expires within the configured window (default 5 minutes)
+ * so credentials never reach the browser and the bucket stays private.
  *
  * Request body:
- *   { "campaignId": "42", "milestoneId": "1", "contentType": "image/jpeg" }
+ *   { "campaignId": "42", "milestoneId": "1", "contentType": "image/jpeg", "purpose": "milestone" }
+ *   { "campaignId": "42", "milestoneId": "1", "contentType": "image/jpeg", "purpose": "insurance-claim" }
  *
  * Response 200:
  *   { "url": "...", "key": "...", "contentType": "...", "expiresAt": 1712... }
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
       .min(1, "milestoneId is required")
       .max(128, "milestoneId is too long"),
     contentType: z.enum(ALLOWED_CONTENT_TYPES),
+    purpose: z.enum(["milestone", "insurance-claim"]).default("milestone"),
   });
 
   const parsed = schema.safeParse(body);
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
   try {
     const key = buildEvidenceKey(
       parsed.data.campaignId,
-      parsed.data.milestoneId,
+      parsed.data.purpose === "insurance-claim" ? "insurance-claim" : parsed.data.milestoneId,
       parsed.data.contentType as AllowedContentType,
     );
     const result = createPresignedPutUrl(config, {
@@ -78,6 +80,7 @@ export async function POST(req: NextRequest) {
       contentType: result.contentType,
       expiresAt: result.expiresAt,
       requestId: result.requestId,
+      purpose: parsed.data.purpose,
     });
   } catch (error) {
     console.error("[presign-upload] presigning error", error);
