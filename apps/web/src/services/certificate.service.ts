@@ -32,6 +32,20 @@ export interface ContributionLineItem {
   timestamp: number;
 }
 
+/** Carbon offset credit details for tradeable CO2 certificates. */
+export interface CarbonCreditDetails {
+  /** Registry serial number(s) for the carbon offset credits. */
+  serialNumbers: string[];
+  /** Quantity of CO2 offset in metric tonnes. */
+  quantityTonnes: number;
+  /** Registry / standard that issued the credits (e.g. Verra). */
+  registry?: string;
+  /** Whether these credits are tradeable on a carbon marketplace. */
+  tradeable?: boolean;
+  /** Marketplace listing URL where the credits can be sold. */
+  marketplaceUrl?: string;
+}
+
 /** Input payload for generating a certificate or invoice PDF. */
 export interface CertificateInput {
   /** Donor's display name */
@@ -52,8 +66,10 @@ export interface CertificateInput {
   issuedAt?: string;
   /** Optional organisation or project logo as a base64 PNG data URI */
   logoDataUri?: string;
+  /** Optional carbon offset credit details for tradeable CO2 certificates */
+  carbonCredits?: CarbonCreditDetails;
   /** Document type — controls the title printed on the PDF */
-  documentType?: "certificate" | "invoice";
+  documentType?: "certificate" | "invoice" | "carbon";
 }
 
 /** Typed result from the certificate service. */
@@ -187,6 +203,27 @@ export function validateCertificateInput(input: CertificateInput): void {
       );
     }
   }
+  if (input.documentType === "carbon" || input.carbonCredits) {
+    if (
+      !input.carbonCredits ||
+      !Array.isArray(input.carbonCredits.serialNumbers) ||
+      input.carbonCredits.serialNumbers.length === 0
+    ) {
+      throw new CertificateError(
+        "Carbon certificates require carbonCredits with at least one serial number",
+        "INVALID_INPUT"
+      );
+    }
+    if (
+      typeof input.carbonCredits.quantityTonnes !== "number" ||
+      input.carbonCredits.quantityTonnes <= 0
+    ) {
+      throw new CertificateError(
+        "Carbon certificates require a positive quantityTonnes",
+        "INVALID_INPUT"
+      );
+    }
+  }
 }
 
 /**
@@ -219,15 +256,20 @@ export async function buildCertificatePdf(
   certificateId: string,
   generatedAt: string
 ): Promise<Uint8Array> {
-  const docType = input.documentType ?? "certificate";
+  const docType = input.documentType ?? (input.carbonCredits ? "carbon" : "certificate");
   const title =
     docType === "invoice"
       ? "Contribution Invoice"
-      : "Contribution Receipt";
+      : docType === "carbon"
+        ? "Carbon Offset Certificate"
+        : "Contribution Receipt";
 
   // ── QR code ────────────────────────────────────────────────────────────────
   const txUrl = explorerUrl(input.transactionHash, input.network ?? "testnet");
-  const qrDataUri = await generateQrDataUri(txUrl);
+  const marketplaceUrl = input.carbonCredits?.marketplaceUrl;
+  const qrTargetUrl =
+    docType === "carbon" && marketplaceUrl ? marketplaceUrl : txUrl;
+  const qrDataUri = await generateQrDataUri(qrTargetUrl);
 
   // ── PDF scaffold ───────────────────────────────────────────────────────────
   const pdfDoc = await PDFDocument.create();
@@ -397,15 +439,49 @@ export async function buildCertificatePdf(
   drawHRule(page, cursor);
   cursor -= 20;
 
+  if (docType === "carbon" && input.carbonCredits) {
+    cursor -= 20;
+    page.drawText("CARBON OFFSET CREDITS", {
+      x: MARGIN, y: cursor, size: 8, font: fontBold, color: COLOR_MUTED,
+    });
+    cursor -= 14;
+    page.drawText(
+      input.carbonCredits.registry
+        ? `Registry: ${input.carbonCredits.registry}`
+        : "Registry: Blockchain registry",
+      { x: MARGIN, y: cursor, size: 8.5, font: fontRegular, color: COLOR_DARK }
+    );
+    page.drawText(`Quantity: ${input.carbonCredits.quantityTonnes} tCO2e`, {
+      x: col2X, y: cursor, size: 8.5, font: fontBold, color: COLOR_DARK,
+    });
+    cursor -= 13;
+    page.drawText(
+      `Serial: ${input.carbonCredits.serialNumbers.join(", ")}`,
+      { x: MARGIN, y: cursor, size: 7.5, font: fontRegular, color: COLOR_MUTED }
+    );
+    page.drawText(
+      input.carbonCredits.tradeable === false
+        ? "Retired offset credit"
+        : "Tradeable on carbon marketplace",
+      { x: col2X, y: cursor, size: 7.5, font: fontBold, color: COLOR_VERIFIED }
+    );
+    cursor -= 18;
+    drawHRule(page, cursor);
+    cursor -= 20;
+  }
+
   // ── Verification status badge ──────────────────────────────────────────────
-  const badgeWidth = 120;
+  const badgeLabel = docType === "carbon"
+    ? "✓  TRADEABLE OFFSET CREDIT"
+    : "✓  VERIFIED ON STELLAR";
+  const badgeWidth = Math.max(120, fontBold.widthOfTextAtSize(badgeLabel, 7.5) + 16);
   page.drawRectangle({
     x: MARGIN, y: cursor - 16, width: badgeWidth, height: 24,
     color: rgb(0.9, 0.98, 0.94),
     borderColor: COLOR_VERIFIED,
     borderWidth: 1,
   });
-  page.drawText("✓  VERIFIED ON STELLAR", {
+  page.drawText(badgeLabel, {
     x: MARGIN + 8, y: cursor - 9, size: 7.5, font: fontBold, color: COLOR_VERIFIED,
   });
 

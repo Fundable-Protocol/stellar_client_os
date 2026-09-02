@@ -21,6 +21,25 @@ export interface SponsorRecord {
   sponsoredAt: number;
 }
 
+export type CarbonCertificateStatus = "issued" | "listed" | "transferred" | "retired";
+export type CarbonCreditStatus = CarbonCertificateStatus;
+
+export interface CampaignCarbonCertificate {
+  id: string;
+  campaignId: string;
+  sponsorId: string;
+  ownerAddress: string;
+  amount: string;
+  status: CarbonCertificateStatus;
+  issuedAt: number;
+  updatedAt: number;
+  price?: string;
+  priceToken?: string;
+  listedAt?: number;
+}
+
+export type CarbonCreditCertificate = CampaignCarbonCertificate;
+
 export interface StatusHistoryEntry {
   id: string;
   campaignId: string;
@@ -31,22 +50,129 @@ export interface StatusHistoryEntry {
   reason?: string;
 }
 
+export type CampaignVerificationStatus = "verified" | "partial" | "unverified";
+export type CampaignRiskLevel = "low" | "moderate" | "high" | "critical";
+export type CampaignHealthLevel = "excellent" | "good" | "fair" | "poor";
+
+export interface CampaignVerificationSummary {
+  emailVerified: boolean;
+  phoneVerified: boolean;
+  addressVerified: boolean;
+  badges: string[];
+  status: CampaignVerificationStatus;
+  isVerified: boolean;
+  verifiedCount: number;
+  totalCount: number;
+}
+
+export interface CampaignRiskAssessment {
+  score: number;
+  level: CampaignRiskLevel;
+  redFlags: string[];
+  reasons: string[];
+  flagged: boolean;
+}
+
+export interface CampaignHealthBreakdown {
+  descriptionQuality: number;
+  creatorHistory: number;
+  responseTime: number;
+  backerFeedback: number;
+}
+
+export interface CampaignHealthAssessment {
+  score: number;
+  level: CampaignHealthLevel;
+  breakdown: CampaignHealthBreakdown;
+}
+
+export type CampaignInsuranceClaimStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface CampaignInsuranceEvidence {
+  type: "image" | "document" | "link";
+  url: string;
+  description?: string;
+}
+
+export interface CampaignInsuranceClaim {
+  id: string;
+  campaignId: string;
+  submittedBy: string;
+  submittedAt: number;
+  reason: string;
+  evidence: CampaignInsuranceEvidence[];
+  status: CampaignInsuranceClaimStatus;
+  reviewedBy?: string;
+  reviewedAt?: number;
+  reviewReason?: string;
+  payoutAmount?: string;
+}
+
+export interface CampaignInsuranceClaimInput {
+  reason: string;
+  evidence: CampaignInsuranceEvidence[];
+}
+
 export interface CampaignRecord {
   id: string;
   creator: string;
   name: string;
   description?: string;
+  /** Detected ISO 639-1 language code of the campaign description. */
+  language?: string;
+  /** Machine translations of the description keyed by ISO 639-1 language code. */
+  translations?: Record<string, string>;
+  /** Geographic location of the campaign, used for duplicate detection. */
+  location?: string;
+  /** Intended campaign duration in milliseconds, used for duplicate detection. */
+  durationMs?: number;
   status: CampaignStatus;
   goalAmount: string;
   raisedAmount: string;
   sponsorCount: number;
   treeCount: number;
+  /** Tradeable CO2 offset certificates issued to sponsors. */
+  carbonCertificates?: CampaignCarbonCertificate[];
   createdAt: number;
   updatedAt: number;
   statusChangedAt: number;
   network?: "testnet" | "mainnet";
   sponsors: SponsorRecord[];
   statusHistory: StatusHistoryEntry[];
+  creatorVerification?: CampaignVerificationSummary;
+  verification?: CampaignVerificationSummary;
+  verificationStatus?: CampaignVerificationStatus;
+  verified?: boolean;
+  verificationBadges?: string[];
+  riskAssessment?: CampaignRiskAssessment;
+  riskScore?: number;
+  riskLevel?: CampaignRiskLevel;
+  riskFlags?: string[];
+  healthAssessment?: CampaignHealthAssessment;
+  healthScore?: number;
+  healthLevel?: CampaignHealthLevel;
+  insuranceClaim?: CampaignInsuranceClaim;
+}
+
+export interface CampaignCreatorBadge {
+  name: "Campaign Starter" | "Campaign Builder" | "Campaign Champion";
+  threshold: number;
+  description: string;
+}
+
+export const CAMPAIGN_CREATOR_BADGES: readonly CampaignCreatorBadge[] = [
+  { name: "Campaign Starter", threshold: 10, description: "Created 10 campaigns" },
+  { name: "Campaign Builder", threshold: 50, description: "Created 50 campaigns" },
+  { name: "Campaign Champion", threshold: 100, description: "Created 100 campaigns" },
+];
+
+export function getCampaignCreatorBadges(campaignCount: number): CampaignCreatorBadge[] {
+  const safeCount = Number.isFinite(campaignCount) ? Math.max(0, Math.floor(campaignCount)) : 0;
+  return CAMPAIGN_CREATOR_BADGES.filter((badge) => safeCount >= badge.threshold);
+}
+
+export function getCampaignCreatorBadge(campaignCount: number): CampaignCreatorBadge | null {
+  return getCampaignCreatorBadges(campaignCount).at(-1) ?? null;
 }
 
 export interface CampaignDataSource {
@@ -101,6 +227,118 @@ function compareValues(a: CampaignRecord, b: CampaignRecord, field: CampaignSort
   return Number(a[field]) - Number(b[field]);
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+export function getCampaignVerificationSummary(campaign: Partial<CampaignRecord> = {}): CampaignVerificationSummary {
+  const explicit = campaign.creatorVerification ?? campaign.verification ?? {};
+  const emailVerified = Boolean((explicit as Partial<CampaignVerificationSummary>).emailVerified ?? false);
+  const phoneVerified = Boolean((explicit as Partial<CampaignVerificationSummary>).phoneVerified ?? false);
+  const addressVerified = Boolean((explicit as Partial<CampaignVerificationSummary>).addressVerified ?? false);
+  const badges = [
+    emailVerified ? "email" : null,
+    phoneVerified ? "phone" : null,
+    addressVerified ? "address" : null,
+  ].filter((badge): badge is string => Boolean(badge));
+  const verifiedCount = [emailVerified, phoneVerified, addressVerified].filter(Boolean).length;
+  const status: CampaignVerificationStatus = verifiedCount === 3 ? "verified" : verifiedCount > 0 ? "partial" : "unverified";
+
+  return {
+    emailVerified,
+    phoneVerified,
+    addressVerified,
+    verifiedEmail: emailVerified,
+    verifiedPhone: phoneVerified,
+    verifiedAddress: addressVerified,
+    badges,
+    status,
+    isVerified: verifiedCount === 3,
+    verifiedCount,
+    totalCount: 3,
+  };
+}
+
+export function getCampaignRiskAssessment(campaign: Partial<CampaignRecord> = {}): CampaignRiskAssessment {
+  const reasons: string[] = [];
+  let score = 0;
+
+  if (!campaign.description || campaign.description.trim().length < 40) {
+    reasons.push("Vague campaign goals");
+    score += 25;
+  }
+
+  if (campaign.creator && campaign.createdAt && Date.now() - campaign.createdAt < 7 * 24 * 60 * 60 * 1000) {
+    reasons.push("New creator");
+    score += 20;
+  }
+
+  if (campaign.goalAmount && campaign.raisedAmount) {
+    const goal = BigInt(campaign.goalAmount);
+    const raised = BigInt(campaign.raisedAmount ?? "0");
+    if (goal > 0n && raised === 0n) {
+      reasons.push("Campaign timeline may be unrealistic");
+      score += 25;
+    }
+  }
+
+  const explicit = campaign.riskAssessment ?? {} as Partial<CampaignRiskAssessment>;
+  if (explicit.score !== undefined) {
+    score = explicit.score;
+  }
+  if (explicit.redFlags?.length) {
+    reasons.push(...explicit.redFlags);
+  }
+
+  const uniqueReasons = Array.from(new Set(reasons.filter(Boolean)));
+  const finalScore = clamp(score, 0, 100);
+  let level: CampaignRiskLevel = "low";
+  if (finalScore >= 80) level = "critical";
+  else if (finalScore >= 60) level = "high";
+  else if (finalScore >= 30) level = "moderate";
+
+  return {
+    score: finalScore,
+    level,
+    redFlags: uniqueReasons,
+    reasons: uniqueReasons,
+    flagged: uniqueReasons.length > 0,
+  };
+}
+
+export function getCampaignHealthAssessment(campaign: Partial<CampaignRecord> = {}): CampaignHealthAssessment {
+  const descriptionLength = campaign.description?.trim().length ?? 0;
+  const descriptionQuality = clamp(Math.round((descriptionLength / 220) * 30), 0, 30);
+  const creatorHistory = clamp(Math.round(Math.min(25, (campaign.statusHistory?.length ?? 0) * 5 + (campaign.sponsorCount ?? 0) * 2)), 0, 25);
+  const responseWindowMs = campaign.statusChangedAt && campaign.createdAt ? campaign.statusChangedAt - campaign.createdAt : 0;
+  const responseTime = clamp(Math.round(20 - Math.min(20, responseWindowMs / (1000 * 60 * 60 * 24 * 5))), 0, 20);
+  const backerFeedback = clamp(Math.round(Math.min(25, (campaign.sponsorCount ?? 0) * 8 + (campaign.status === "COMPLETED" ? 5 : 0))), 0, 25);
+  const score = clamp(descriptionQuality + creatorHistory + responseTime + backerFeedback, 1, 100);
+
+  let level: CampaignHealthLevel = "poor";
+  if (score >= 80) level = "excellent";
+  else if (score >= 60) level = "good";
+  else if (score >= 40) level = "fair";
+
+  return {
+    score,
+    level,
+    breakdown: {
+      descriptionQuality,
+      creatorHistory,
+      responseTime,
+      backerFeedback,
+    },
+  };
+}
+
+export const calculateCampaignVerification = getCampaignVerificationSummary;
+export const getCreatorVerificationStatus = getCampaignVerificationSummary;
+export const calculateCampaignRisk = getCampaignRiskAssessment;
+export const assessCampaignRisk = getCampaignRiskAssessment;
+export const calculateCampaignHealthScore = getCampaignHealthAssessment;
+export const evaluateCampaignHealth = getCampaignHealthAssessment;
+
 export async function getCampaign(campaignId: string, dataSource = getCampaignDataSource()): Promise<CampaignRecord | null> {
   return (await dataSource.getCampaigns()).find((campaign) => campaign.id === campaignId) ?? null;
 }
@@ -110,6 +348,9 @@ export async function createCampaign(input: {
   creator: string;
   name: string;
   description?: string;
+  location?: string;
+  durationMs?: number;
+  deadline?: number;
   goalAmount: string;
   network?: "testnet" | "mainnet";
 }, dataSource = getCampaignDataSource(), now = Date.now()): Promise<CampaignRecord> {
@@ -118,6 +359,10 @@ export async function createCampaign(input: {
     creator: input.creator,
     name: input.name,
     description: input.description,
+    language: detectCampaignLanguage(input.description),
+    translations: {},
+    location: input.location,
+    durationMs: input.deadline !== undefined ? input.deadline - now : input.durationMs,
     status: "DRAFT",
     goalAmount: input.goalAmount,
     raisedAmount: "0",
@@ -143,6 +388,92 @@ export async function createCampaign(input: {
   return dataSource.saveCampaign(campaign);
 }
 
+/**
+ * Normalise a free-text attribute for duplicate comparison: trimmed and
+ * case-insensitive so accidental near-duplicates are caught (issue #729).
+ */
+export function normalizeCampaignField(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function detectCampaignLanguage(description?: string): string {
+  const text = (description ?? "").trim().toLowerCase();
+  if (!text) return "en";
+  const markers: Record<string, RegExp> = {
+    en: /\b(the|and|for|with|are|this|that)\b/g,
+    es: /\b(para|con|una|los|las|del|por)\b/g,
+    fr: /\b(avec|pour|dans|une|des|les|est)\b/g,
+    de: /\b(und|der|die|das|ist|mit|auf)\b/g,
+  };
+  let detected = "en"; let detectedScore = 0;
+  for (const [language, pattern] of Object.entries(markers)) {
+    const score = (text.match(pattern) ?? []).length;
+    if (score > detectedScore) { detected = language; detectedScore = score; }
+  }
+  return detected;
+}
+
+export async function autoTranslateCampaignDescription(
+  campaign: CampaignRecord,
+  targetLanguage: string,
+  translator?: (text: string, targetLanguage: string, sourceLanguage?: string) => Promise<string>,
+  dataSource = getCampaignDataSource(),
+): Promise<CampaignRecord> {
+  const sourceLanguage = campaign.language ?? detectCampaignLanguage(campaign.description);
+  if (targetLanguage === sourceLanguage) return campaign;
+  if (campaign.translations?.[targetLanguage]) return campaign;
+  if (!translator) throw new Error("No campaign translator configured");
+  const translated = await translator(campaign.description ?? "", targetLanguage, sourceLanguage);
+  return dataSource.saveCampaign({
+    ...campaign,
+    language: sourceLanguage,
+    translations: {
+      ...campaign.translations,
+      [targetLanguage]: translated,
+    },
+  });
+}
+
+export interface CampaignDuplicateLookup {
+  creator: string;
+  name: string;
+  location?: string;
+  durationMs?: number;
+}
+
+/**
+ * Find previously saved campaigns that would be indistinguishable from a new
+ * one being created by the same creator (issue #729).
+ *
+ * A candidate is a duplicate when it shares the creator and a normalised name.
+ * `location` only contributes when provided by BOTH the new input and the
+ * candidate (an explicit value never matches an absent one). `durationMs`
+ * matches only when both sides carry an exact, equal value. Fields absent on
+ * both sides are treated as equal, so a bare name match still surfaces
+ * accidental double-submissions.
+ */
+export async function findDuplicateCampaigns(
+  input: CampaignDuplicateLookup,
+  dataSource = getCampaignDataSource(),
+): Promise<CampaignRecord[]> {
+  const normalizedName = normalizeCampaignField(input.name);
+  const normalizedLocation = input.location !== undefined ? normalizeCampaignField(input.location) : undefined;
+  const campaigns = await dataSource.getCampaigns();
+  return campaigns.filter((campaign) => {
+    if (campaign.creator !== input.creator) return false;
+    if (normalizeCampaignField(campaign.name) !== normalizedName) return false;
+    if (normalizedLocation !== undefined) {
+      if (campaign.location === undefined) return false;
+      if (normalizeCampaignField(campaign.location) !== normalizedLocation) return false;
+    }
+    if (input.durationMs !== undefined) {
+      if (campaign.durationMs === undefined) return false;
+      if (campaign.durationMs !== input.durationMs) return false;
+    }
+    return true;
+  });
+}
+
 export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource = getCampaignDataSource()): Promise<CampaignRecord[]> {
   const filter = input.filter ?? {};
   let campaigns = await dataSource.getCampaigns(input.network);
@@ -154,7 +485,7 @@ export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource 
     if (filter.minGoalAmount && BigInt(campaign.goalAmount) < BigInt(filter.minGoalAmount)) return false;
     if (filter.maxGoalAmount && BigInt(campaign.goalAmount) > BigInt(filter.maxGoalAmount)) return false;
     if (filter.search) {
-      const haystack = `${campaign.id} ${campaign.name} ${campaign.description ?? ""} ${campaign.creator}`.toLowerCase();
+      const haystack = `${campaign.id} ${campaign.name} ${campaign.description ?? ""} ${campaign.creator} ${campaign.language ?? ""} ${campaign.translations ? Object.values(campaign.translations).join(" ") : ""}`.toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
     return true;
@@ -207,6 +538,42 @@ export async function transitionCampaignStatus(
   return dataSource.saveCampaign(next);
 }
 
+export async function submitCampaignInsuranceClaim(
+  campaignId: string,
+  input: CampaignInsuranceClaimInput,
+  submittedBy: string,
+  dataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignRecord> {
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) throw new Error("Campaign not found");
+  if (campaign.status !== "FAILED") throw new Error("Only failed campaigns can submit insurance claims");
+  if (campaign.creator !== submittedBy) throw new Error("Only the campaign creator can submit an insurance claim");
+  if (campaign.insuranceClaim) throw new Error("Insurance claim already submitted for this campaign");
+  if (!input.reason || !input.reason.trim()) throw new Error("Insurance claim reason is required");
+  if (!input.evidence?.length) throw new Error("At least one proof of failure is required");
+  if (!input.evidence.every((evidence) => evidence.url?.trim())) throw new Error("Each proof of failure must include a URL");
+
+  const claim: CampaignInsuranceClaim = {
+    id: `${campaign.id}:claim:${now}`,
+    campaignId: campaign.id,
+    submittedBy,
+    submittedAt: now,
+    reason: input.reason.trim(),
+    evidence: input.evidence.map((evidence) => ({ ...evidence })),
+    status: "PENDING",
+  };
+
+  return dataSource.saveCampaign({
+    ...campaign,
+    insuranceClaim: claim,
+    updatedAt: now,
+  });
+}
+
+export const requestCampaignInsurancePayout = submitCampaignInsuranceClaim;
+export const submitProofOfFailure = submitCampaignInsuranceClaim;
+
 export function csvEscape(value: unknown): string {
   const stringValue = String(value ?? "");
   return /[",\n\r]/.test(stringValue) ? `"${stringValue.replace(/"/g, '""')}"` : stringValue;
@@ -229,4 +596,119 @@ export async function exportCampaignCsv(campaignId: string, report: "sponsors" |
   const campaign = await getCampaign(campaignId, dataSource);
   if (!campaign) return null;
   return report === "sponsors" ? sponsorsToCsv(campaign) : impactReportToCsv(campaign);
+}
+
+export function calculateCampaignCarbonCredits(campaign: Partial<CampaignRecord> = {}): bigint {
+  return BigInt(campaign.treeCount ?? 0);
+}
+
+export async function getCampaignCarbonCertificates(campaignId: string, dataSource = getCampaignDataSource()): Promise<CampaignCarbonCertificate[]> {
+  const campaign = await getCampaign(campaignId, dataSource);
+  return campaign?.carbonCertificates ?? [];
+}
+
+export async function getCarbonCreditCertificate(certificateId: string, dataSource = getCampaignDataSource()): Promise<CampaignCarbonCertificate | null> {
+  const campaigns = await dataSource.getCampaigns();
+  for (const campaign of campaigns) {
+    const certificate = campaign.carbonCertificates?.find((item) => item.id === certificateId);
+    if (certificate) return certificate;
+  }
+  return null;
+}
+
+export async function issueCampaignCarbonCertificates(
+  campaign: CampaignRecord,
+  dataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignRecord> {
+  const existingCertificates = campaign.carbonCertificates ?? [];
+  const existingSponsorIds = new Set(existingCertificates.map((certificate) => certificate.sponsorId));
+  const newSponsors = (campaign.sponsors ?? []).filter((sponsor) => !existingSponsorIds.has(sponsor.id));
+  const totalCredits = calculateCampaignCarbonCredits(campaign);
+  const issuedCredits = existingCertificates.reduce((total, certificate) => total + BigInt(certificate.amount), 0n);
+  const remainingCredits = totalCredits - issuedCredits;
+  if (remainingCredits <= 0n || newSponsors.length === 0) return campaign;
+  const totalFunded = newSponsors.reduce((total, sponsor) => total + BigInt(sponsor.amount), 0n);
+  let allocated = 0n;
+  const certificates: CampaignCarbonCertificate[] = newSponsors.map((sponsor, index) => {
+    const amount = index === newSponsors.length - 1
+      ? remainingCredits - allocated
+      : totalFunded > 0n
+        ? (remainingCredits * BigInt(sponsor.amount)) / totalFunded
+        : 0n;
+    allocated += amount;
+    return {
+      id: `${campaign.id}:credit:${sponsor.id}:${now}`,
+      campaignId: campaign.id,
+      sponsorId: sponsor.id,
+      ownerAddress: sponsor.address,
+      amount: amount.toString(),
+      status: "issued",
+      issuedAt: now,
+      updatedAt: now,
+    };
+  });
+  return dataSource.saveCampaign({
+    ...campaign,
+    carbonCertificates: [...existingCertificates, ...certificates],
+    updatedAt: now,
+  });
+}
+
+export async function listCarbonCreditCertificate(
+  certificateId: string,
+  price: string,
+  priceToken = "USDC",
+  dataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignCarbonCertificate | null> {
+  const campaigns = await dataSource.getCampaigns();
+  for (const campaign of campaigns) {
+    const certificates = campaign.carbonCertificates ?? [];
+    const certificate = certificates.find((item) => item.id === certificateId && item.status !== "retired");
+    if (!certificate) continue;
+    const updatedCertificate: CampaignCarbonCertificate = {
+      ...certificate,
+      status: "listed",
+      price,
+      priceToken,
+      listedAt: now,
+      updatedAt: now,
+    };
+    await dataSource.saveCampaign({
+      ...campaign,
+      carbonCertificates: certificates.map((item) => item.id === certificateId ? updatedCertificate : item),
+      updatedAt: now,
+    });
+    return updatedCertificate;
+  }
+  return null;
+}
+
+export async function transferCarbonCreditCertificate(
+  certificateId: string,
+  toAddress: string,
+  dataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignCarbonCertificate | null> {
+  const campaigns = await dataSource.getCampaigns();
+  for (const campaign of campaigns) {
+    const certificates = campaign.carbonCertificates ?? [];
+    const certificate = certificates.find((item) => item.id === certificateId);
+    if (!certificate) continue;
+    if (certificate.status === "retired") throw new Error("Retired carbon credit certificates cannot be transferred");
+    const updatedCertificate: CampaignCarbonCertificate = {
+      ...certificate,
+      ownerAddress: toAddress,
+      status: "transferred",
+      updatedAt: now,
+    };
+    await dataSource.saveCampaign({
+      ...campaign,
+      carbonCertificates: certificates.map((item) => item.id === certificateId ? updatedCertificate : item),
+      updatedAt: now,
+    });
+    return updatedCertificate;
+  }
+  return null;
 }
