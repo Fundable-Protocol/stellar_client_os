@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { RefreshCw } from "lucide-react";
 import { TokenBalanceProps } from "@/types/token-balance.types";
 import { formatBalance } from "@/utils/format-balance";
 
@@ -67,11 +68,64 @@ export function TokenBalance({
   balance,
   iconUrl,
 }: TokenBalanceProps) {
+  const [imageError, setImageError] = useState(false);
+  const [imageTimedOut, setImageTimedOut] = useState(false);
+  const formattedBalance = formatBalance(balance);
+
+  // Handle image timeout for slow connections (3G)
+  // Resets when iconUrl changes (key prop on parent resets state)
+  useEffect(() => {
+    if (!iconUrl) return;
+
+    const timeoutId = setTimeout(() => {
+      setImageTimedOut(true);
+      setImageError(true);
+    }, 15000); // 15 second timeout for slow 3G connections
+
+    return () => clearTimeout(timeoutId);
+  }, [iconUrl]);
+
+  const handleRetry = () => {
+    setImageError(false);
+    setImageTimedOut(false);
+  };
+
+  // Use key to reset state when iconUrl or assetCode changes
+  // This replaces the useEffect-based reset that violated react-hooks/set-state-in-effect
+  const resetKey = `${iconUrl ?? ""}-${assetCode}`;
+
   const formattedBalance = formatBalance(balance);
 
   return (
-    <div className="flex items-center gap-4 p-4 bg-zinc-800 rounded-lg border border-zinc-700 hover:border-zinc-600 transition-colors">
+    <div key={resetKey} className="flex items-center gap-4 p-4 bg-zinc-800 rounded-lg border border-zinc-700 hover:border-zinc-600 transition-colors">
       {/* Token Icon */}
+      <div className="shrink-0 w-10 h-10 rounded-full bg-white flex items-center justify-center overflow-hidden p-1.5 relative">
+        {iconUrl && !imageError ? (
+          <Image
+            src={iconUrl}
+            alt={`${assetCode} icon`}
+            width={40}
+            height={40}
+            className="w-full h-full object-contain"
+            onError={() => setImageError(true)}
+            unoptimized // Required for external images without domain configuration
+          />
+        ) : (
+          // Fallback icon - displays first letter of asset code
+          <span className="text-lg font-bold text-violet-400">
+            {assetCode.charAt(0)}
+          </span>
+        )}
+        {/* Retry button on timeout/error */}
+        {imageTimedOut && (
+          <button
+            onClick={handleRetry}
+            className="absolute inset-0 bg-black/60 flex items-center justify-center rounded-full hover:bg-black/70 transition-colors"
+            title="Retry loading image"
+          >
+            <RefreshCw className="w-4 h-4 text-white" />
+          </button>
+        )}
       <div
         key={`${iconUrl ?? "no-icon"}-${assetCode}`}
         className="shrink-0 w-10 h-10 rounded-full bg-white flex items-center justify-center overflow-hidden p-1.5"

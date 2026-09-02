@@ -103,6 +103,94 @@ export interface PaginationInput {
   offset?: number;
 }
 
+// ── Sponsor impact comparison (issue #639) ───────────────────────────────────
+
+/**
+ * Ranking band for a sponsor based on their percentile within the global
+ * sponsor population. Mirrors common leaderboard buckets ("top 10%", etc.).
+ */
+export type RankingBand =
+  | "top_1"
+  | "top_5"
+  | "top_10"
+  | "top_25"
+  | "top_50"
+  | "below_average";
+
+/**
+ * A single sponsor's impact compared with the global average sponsor.
+ *
+ * All monetary amounts are USD-equivalent strings (same convention as the
+ * other analytics metrics). CO2 figures are estimates derived from the
+ * volume-to-CO2 conversion factor (see {@link CO2_PER_USD_KG}).
+ */
+export interface SponsorImpact {
+  /** The sponsor's Stellar address. */
+  address: string;
+  /** Total volume funded by this sponsor (USDC-equivalent, as string). */
+  myVolumeUsd: string;
+  /** Estimated CO2 offset from this sponsor's funding (kg CO2e). */
+  myCo2OffsetKg: number;
+  /** Average volume funded per sponsor (USDC-equivalent, as string). */
+  globalAverageVolumeUsd: string;
+  /** Estimated CO2 offset of the average sponsor (kg CO2e). */
+  globalAverageCo2OffsetKg: number;
+  /** Number of unique sponsors (senders) in the dataset. */
+  globalSponsorCount: number;
+  /**
+   * Percentage of sponsors this sponsor beats (0–100).
+   * `null` when there is no sponsor data to compare against.
+   */
+  percentile: number | null;
+  /** Ranking band ("top 10%", etc.). `null` when there is no data. */
+  rankingBand: RankingBand | null;
+  /** CO2 conversion factor applied (kg CO2e per 1 USD funded). */
+  co2PerUsdKg: number;
+}
+
+/**
+ * Default estimated CO2 offset per 1 USD funded (kg CO2e).
+ *
+ * This is a platform-level estimate used to translate on-chain funding
+ * volume into an approximate climate impact figure. The default assumes
+ * ~1 kg CO2e offset per $1 funded, a conservative figure within the
+ * range cited for nature-based / carbon-offset projects. It is purely
+ * illustrative and can be tuned per deployment via the `CO2_PER_USD_KG`
+ * environment variable (see `.env.example`).
+ */
+export const DEFAULT_CO2_PER_USD_KG = 1;
+
+function readCo2PerUsdKg(): number {
+  const raw = process.env.CO2_PER_USD_KG;
+  if (raw === undefined || raw === "") return DEFAULT_CO2_PER_USD_KG;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_CO2_PER_USD_KG;
+}
+
+/** Resolved CO2 conversion factor (kg CO2e per 1 USD funded). */
+export const CO2_PER_USD_KG = readCo2PerUsdKg();
+
+/**
+ * Maps a percentile (percentage of sponsors beaten) to a leaderboard band.
+ *
+ * @example
+ * rankingBandForPercentile(96) // → "top_5"
+ * rankingBandForPercentile(30) // → "below_average"
+ */
+export function rankingBandForPercentile(percentile: number): RankingBand {
+  if (percentile >= 99) return "top_1";
+  if (percentile >= 95) return "top_5";
+  if (percentile >= 90) return "top_10";
+  if (percentile >= 75) return "top_25";
+  if (percentile >= 50) return "top_50";
+  return "below_average";
+}
+
+/** Convert a USD volume (bigint) into an estimated kg CO2e figure. */
+function toCo2Kg(volumeUsd: bigint): number {
+  return Math.round(Number(volumeUsd) * CO2_PER_USD_KG * 10) / 10;
+}
+
 /** Pluggable data source interface — swap for a real DB/RPC in production. */
 export interface StreamDataSource {
   getStreams(network: string): Promise<StreamRecord[]>;
@@ -339,6 +427,78 @@ export class AnalyticsService {
     const results = aggregateByAsset(streams);
     results.sort((a, b) => Number(toBigInt(b.totalVolume) - toBigInt(a.totalVolume)));
     return paginate(results, pagination);
+  }
+
+  // ── sponsorImpact ────────────────────────────────────────────────────────
+
+  /**
+   * Compute a sponsor's impact (estimated CO2 offset) relative to the global
+   * average sponsor, including a percentile ranking (top 10%, etc.).
+   *
+   * A "sponsor" is any address that has funded streams (a stream sender).
+   * Impact is estimated from the sponsor's total funded volume using the
+   * platform-wide CO2 conversion factor.
+   *
+   * @param address - Stellar address of the sponsor to compare.
+   * @param network - Stellar network to aggregate over (default `testnet`).
+   */
+  async getSponsorImpact(address: string, network = "testnet"): Promise<SponsorImpact> {
+    const streams = await this.dataSource.getStreams(network);
+
+    // Aggregate total funded volume (USDC-equivalent) per sponsor (sender).
+    const volumeBySponsor = new Map<string, bigint>();
+    for (const s of streams) {
+      const usd = toUsd(s.totalAmount, s.usdEquivalent);
+      volumeBySponsor.set(s.sender, (volumeBySponsor.get(s.sender) ?? 0n) + usd);
+    }
+
+    const globalSponsorCount = volumeBySponsor.size;
+    const myVolumeUsd = volumeBySponsor.get(address) ?? 0n;
+
+    const totalVolumeUsd = [...volumeBySponsor.values()].reduce(
+      (acc, v) => acc + v,
+      0n
+    );
+    const globalAverageVolumeUsd =
+      globalSponsorCount > 0 ? totalVolumeUsd / BigInt(globalSponsorCount) : 0n;
+
+    // Percentile: position-based rank within the descending order of sponsor
+    // volumes. The top sponsor scores 100, the bottom scores 0, and tied
+    // sponsors share the best position among them (e.g. two tied leaders both
+    // score 100 → "top 1%"). With a single sponsor we define it as 100.
+    let percentile: number | null = null;
+    if (globalSponsorCount > 0) {
+      let position = 0; // 0-based index in descending volume order
+      for (const volume of volumeBySponsor.values()) {
+        if (volume > myVolumeUsd) position++;
+      }
+      percentile =
+        globalSponsorCount > 1
+          ? Math.max(
+              0,
+              Math.min(
+                100,
+                Math.round(
+                  ((globalSponsorCount - 1 - position) /
+                    (globalSponsorCount - 1)) *
+                    100
+                )
+              )
+            )
+          : 100;
+    }
+
+    return {
+      address,
+      myVolumeUsd: myVolumeUsd.toString(),
+      myCo2OffsetKg: toCo2Kg(myVolumeUsd),
+      globalAverageVolumeUsd: globalAverageVolumeUsd.toString(),
+      globalAverageCo2OffsetKg: toCo2Kg(globalAverageVolumeUsd),
+      globalSponsorCount,
+      percentile,
+      rankingBand: percentile === null ? null : rankingBandForPercentile(percentile),
+      co2PerUsdKg: CO2_PER_USD_KG,
+    };
   }
 }
 

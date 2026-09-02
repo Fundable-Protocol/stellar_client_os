@@ -1,7 +1,7 @@
 "use client";
 
 import toast from "react-hot-toast";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWallet } from "@/providers/StellarWalletProvider";
 
@@ -9,14 +9,18 @@ import { PaymentStreamForm } from "./PaymentStreamForm";
 import { PaymentStreamSummary } from "./PaymentStreamSummary";
 import { PaymentStreamConfirmationModal } from "./PaymentStreamConfirmationModal";
 import { capitalizeWord } from "@/lib/utils";
-import { SUPPORTED_TOKENS, PaymentStreamFormData } from "@/lib/validations";
+import { SUPPORTED_TOKENS } from "@/lib/validations";
 import { StellarService } from "@/lib/stellar";
+import { createStream } from "@/lib/api";
 import { validateEndTime, validateContractId } from "@/lib/stream-validation";
 import { useDebouncedCallback } from "@/hooks/use-debounce-callback";
 import { useBalanceValidation } from "@/hooks/use-balance-validation";
+import { useTokenBalance } from "@/hooks/use-token-balance";
+import { computeMaxStreamableAmount } from "@/utils/amount-validation";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { createTestnetService } from "@/services/stellar.service";
 import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID } from "@/lib/env";
+import { createStream } from "@/lib/api";
 
 // Stream form state type
 interface StreamFormData {
@@ -83,6 +87,22 @@ const CreatePaymentStream = () => {
     streamData.amount,
     streamData.token
   );
+
+  const { balance: tokenBalance } = useTokenBalance(streamData.token);
+
+  // Maximum amount the user can stream for the selected token. For XLM the
+  // minimum account reserve is deducted so MAX never leaves the user without
+  // funds to pay fees or satisfy the Stellar base reserve.
+  const maxAmount = useMemo(
+    () => computeMaxStreamableAmount(tokenBalance, streamData.token),
+    [tokenBalance, streamData.token]
+  );
+
+  const handleMaxClick = useCallback(() => {
+    if (maxAmount !== null) {
+      setStreamData((prev) => ({ ...prev, amount: maxAmount }));
+    }
+  }, [maxAmount]);
 
   const estimateFee = useDebouncedCallback(async (data: StreamFormData, userAddress: string) => {
     if (!data.recipient || !data.amount || !data.durationValue || !StellarService.validateStellarAddress(data.recipient)) {
@@ -181,26 +201,11 @@ const CreatePaymentStream = () => {
     try {
       setIsSubmitting(true);
 
-      // Convert form data to the format expected by StellarService
-      const formData: PaymentStreamFormData = {
-        recipientAddress: streamData.recipient,
-        token: streamData.token,
-        totalAmount: streamData.amount,
-        duration: streamData.durationValue,
-        durationUnit: streamData.duration === "hour" ? "hours" : "days",
-        cancelable: streamData.cancellability,
-        transferable: streamData.transferability,
-      };
-
       const tokenAddress = SUPPORTED_TOKENS.find(t => t.value === streamData.token)?.address;
       if (!tokenAddress) {
         throw new Error('Invalid token selected');
       }
 
-      const amount = BigInt(Math.floor(parseFloat(streamData.amount) * 10000000));
-      const durationMultiplier = streamData.duration === 'hour' ? 3600 :
-        streamData.duration === 'day' ? 86400 :
-          streamData.duration === 'week' ? 604800 :
       const amount = BigInt(Math.floor(parseFloat(streamData.amount) * 10000000));
       const durationMultiplier = streamData.duration === 'hour' ? 3600 :
         streamData.duration === 'day' ? 86400 :
@@ -228,7 +233,10 @@ const CreatePaymentStream = () => {
       );
 
       // Reset form
-      setStreamData(initialStreamData);
+      setStreamData({
+        ...initialStreamData,
+        token: tokenOptions[0]?.value || "XLM",
+      });
       setFormKey((k) => k + 1);
 
       // Invalidate streams queries
@@ -278,6 +286,8 @@ const CreatePaymentStream = () => {
               isSubmitting={isSubmitting}
               balanceError={balanceError}
               insufficientBalance={insufficientBalance}
+              maxBalance={maxAmount}
+              onMaxClick={handleMaxClick}
             />
           </div>
         </div>

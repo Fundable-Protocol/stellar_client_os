@@ -4,50 +4,18 @@
  * or the SDK client wrappers in {@link @/lib/api.ts}.
  */
 import { Keypair, Networks, Horizon } from '@stellar/stellar-sdk'
-import { StreamRecord } from './validations'
+import { PaymentStreamFormData, SUPPORTED_TOKENS, StreamRecord } from './validations'
+import { throwIfAborted, withAbortSignal } from '../utils/retry'
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return withAbortSignal(new Promise((resolve) => setTimeout(resolve, ms)), signal)
+}
 
 // Use testnet for development
 export const server = new Horizon.Server('https://horizon-testnet.stellar.org')
 export const networkPassphrase = Networks.TESTNET
 
 export class StellarService {
-  static async createPaymentStream(formData: PaymentStreamFormData, signal?: AbortSignal): Promise<string> {
-    try {
-      throwIfAborted(signal)
-
-      // For demo purposes, we'll simulate the transaction
-      // In a real implementation, you would:
-      // 1. Connect to user's wallet (Freighter, etc.)
-      // 2. Get the user's keypair
-      // 3. Build and submit the actual transaction to the smart contract
-
-      // Get token info
-      const selectedToken = SUPPORTED_TOKENS.find(token => token.value === formData.token)
-      if (!selectedToken) {
-        throw new Error('Invalid token selected')
-      }
-
-      // Simulate contract interaction
-      const streamId = `stream_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-
-      // In a real implementation, you would:
-      // 1. Create a transaction that calls the payment stream contract
-      // 2. Include operations to transfer tokens to the contract
-      // 3. Submit the transaction to the network
-
-      // Simulate network delay
-      await abortableDelay(2000, signal)
-      throwIfAborted(signal)
-
-      return streamId
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw error
-      }
-      throw new Error('Failed to create payment stream: ' + (error instanceof Error ? error.message : 'Unknown error'))
-    }
-  }
-
   static async getAccountInfo(publicKey: string) {
     try {
       const account = await server.loadAccount(publicKey)

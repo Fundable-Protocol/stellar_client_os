@@ -59,4 +59,7 @@ Cargo.lock
 # Local issue tracking / scratch notes
 issues/
 .claude
+
+# Runtime webhook state
+apps/web/data/webhook_delivered_events.json
 test-results
