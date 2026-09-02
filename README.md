@@ -76,6 +76,7 @@ stellar_client/
 ├── contracts/               # Soroban smart contracts (Rust)
 │   ├── payment-stream/      # Payment streaming contract
 │   ├── distributor/         # Token distribution contract
+│   ├── campaign/            # Campaign fundraising contract
 │   └── Cargo.toml           # Rust workspace config
 │
 ├── docs/                      # Project documentation
@@ -99,6 +100,7 @@ stellar_client/
 
 - **Payment Streaming** - Create and manage continuous token streams
 - **Token Distribution** - Efficiently distribute tokens to multiple recipients
+- **Campaign Funding** - Launch and manage on-chain fundraising campaigns with milestones
 - **Multi-Asset Support** - USDC, XLM, and other Stellar assets
 - **Offramp Integration** - Convert crypto to fiat currencies
 
@@ -109,6 +111,41 @@ stellar_client/
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS v4 |
 | **Contracts** | Soroban SDK, Rust |
 | **SDK** | TypeScript, @stellar/stellar-sdk |
+
+## 📐 Campaign Contract Architecture
+
+The `contracts/campaign` Soroban contract powers on-chain fundraising campaigns.
+
+### State Machine
+
+Campaigns progress through `Draft -> Active -> Paused -> Successful/Failed -> PaidOut/Refunded`.
+
+- `Draft` – creator configures campaign and milestone payout schedule.
+- `Active` – contributions are accepted.
+- `Paused` – emergency stop; contributions suspended but state preserved.
+- `Successful` – all milestones verified and claimed by the creator.
+- `Failed` – end time reached without meeting the funding goal or cancelled by admin.
+- `PaidOut` – final milestone released and campaign fully settled.
+- `Refunded` – backers can claim proportional refunds after failure.
+
+Transitions are enforced by the contract and only the `admin` or `campaign_owner` may invoke restricted actions.
+
+### Security Model
+
+- **Admin guard**: privileged operations use an `admin` address set at deployment.
+- **Capability checks**: every state transition validates caller and current state.
+- **Reentrancy protection**: external calls to token contracts happen after internal state updates.
+- **Overflow-safe math**: checked arithmetic from the Soroban SDK prevents balance errors.
+- **Escrow accounting**: contributions are held in contract balance and only released by explicit `payout` or `refund` functions.
+- **Milestone approvals**: fund release requires multi-sig/approval from designated reviewers before owner can claim.
+
+### Scalability
+
+- Campaigns are stored as persistent map entries keyed by `u32` campaign id, avoiding unbounded collections.
+- Contributions are aggregated rather than stored as individual ledger entries.
+- Payouts batch milestone claims to minimize transaction count.
+- The contract is stateless with respect to off-chain indexers; event log entries enable efficient data replication.
+- Deployment uses a single contract with per-campaign storage, allowing the same contract ID to serve many campaigns without migrations.
 
 ## 🚀 Getting Started
 
@@ -260,6 +297,13 @@ Soroban contract for creating and managing payment streams with:
 Soroban contract for token distributions:
 - Equal distribution across recipients
 - Weighted distribution with custom amounts
+
+### `contracts/campaign`
+Soroban contract for on-chain fundraising campaigns:
+- Campaign creation with funding goals and expiration
+- Milestone-based payout approvals
+- Emergency pause and refund flows
+- Multi-token contribution support
 
 ### `packages/sdk`
 TypeScript SDK for interacting with the deployed contracts.

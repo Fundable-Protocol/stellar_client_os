@@ -4,6 +4,18 @@ use soroban_sdk::{
     Address, Env, Vec,
 };
 
+/// Optional `Address` wrapper suitable for use inside `#[contracttype]` structs.
+///
+/// Soroban's `#[contracttype]` macro does not support generic type parameters,
+/// so we cannot use `Option<Address>` directly.  This enum provides the same
+/// semantics.
+#[contracttype]
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum OptionalAddress {
+    None,
+    Some(Address),
+}
+
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -66,9 +78,12 @@ pub enum CampaignStatus {
 pub struct Campaign {
     /// Unique numeric identifier assigned at creation.
     pub id: u64,
-    /// Address that created the campaign and will receive the proceeds on
-    /// success.
+    /// Address that created the campaign and remains the primary owner.
     pub creator: Address,
+    /// All campaign owners in payout order.
+    pub creators: Vec<Address>,
+    /// Revenue shares in basis points, aligned with `creators`.
+    pub revenue_shares: Vec<u32>,
     /// Stellar asset contract address of the funding token.
     pub token: Address,
     /// Hard cap: the maximum amount the campaign may raise.  Once
@@ -86,6 +101,12 @@ pub struct Campaign {
     pub total_raised: i128,
     /// Current lifecycle state.
     pub status: CampaignStatus,
+    /// Unix timestamp (seconds) when the campaign was created.
+    /// Used to enforce the 90-day planter-assignment window.
+    pub created_at: u64,
+    /// Address of the planter assigned to this campaign, if any.
+    /// `OptionalAddress::None` means no planter has been assigned yet.
+    pub planter: OptionalAddress,
 }
 
 /// A single co-creator on a campaign team and the share of the proceeds they
@@ -257,7 +278,7 @@ pub enum Error {
     /// (`target_amount`).
     TargetExceeded = 16,
     /// The supplied deadline exceeds the maximum allowed duration of 180 days.
-    DeadlineTooFar = 17,
+    DeadlineTooFar = 23,
     /// The campaign is not in the `VerificationFailed` state.
     CampaignNotVerificationFailed = 18,
     /// The insurance pool fee rate exceeds the protocol maximum.
@@ -388,8 +409,39 @@ impl CampaignFundingContract {
         deadline: u64,
         insurance_fee: i128,
     ) -> u64 {
+        let mut creators = Vec::new(&env);
+        creators.push_back(creator);
+        let mut revenue_shares = Vec::new(&env);
+        revenue_shares.push_back(10_000);
+        Self::create_campaign_with_creators(
+            env,
+            creators,
+            revenue_shares,
+            token,
+            target_amount,
+            min_target,
+            deadline,
+            insurance_fee,
+        )
+    }
+
+    /// Create a campaign with multiple owners and proportional revenue shares.
+    /// Every creator authorises the transaction; shares are basis points totaling 10,000.
+    pub fn create_campaign_with_creators(
+        env: Env,
+        creators: Vec<Address>,
+        revenue_shares: Vec<u32>,
+        token: Address,
+        target_amount: i128,
+        min_target: i128,
+        deadline: u64,
+        insurance_fee: i128,
+    ) -> u64 {
         Self::assert_initialized(&env);
-        creator.require_auth();
+        Self::validate_creators(&env, &creators, &revenue_shares);
+        for owner in creators.iter() {
+            owner.require_auth();
+        }
 
         if target_amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
@@ -397,7 +449,8 @@ impl CampaignFundingContract {
         if min_target <= 0 || min_target > target_amount {
             panic_with_error!(&env, Error::InvalidTarget);
         }
-        if deadline <= env.ledger().timestamp() {
+        let now = env.ledger().timestamp();
+        if deadline <= now {
             panic_with_error!(&env, Error::InvalidDeadline);
         }
         if deadline > env.ledger().timestamp() + MAX_CAMPAIGN_DURATION_SECONDS {
@@ -406,16 +459,7 @@ impl CampaignFundingContract {
         if insurance_fee <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
-
-        // Transfer the insurance fee from the creator to the contract's
-        // insurance pool and record the pool balance.
-        let token_client = token::Client::new(&env, &token);
-        token_client.transfer(&creator, &env.current_contract_address(), &insurance_fee);
-
-        let pool_key = DataKey::InsurancePool(token.clone());
-        let mut pool_balance: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
-        pool_balance += insurance_fee;
-        env.storage().instance().set(&pool_key, &pool_balance);
+        let primary_creator = creators.get(0).unwrap();
 
         let mut count: u64 = env
             .storage()
@@ -433,6 +477,20 @@ impl CampaignFundingContract {
             panic_with_error!(&env, Error::ContractFull);
         }
         count += 1;
+
+        // Transfer the insurance fee from the primary creator to the contract's
+        // insurance pool and record the pool balance.
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(
+            &primary_creator,
+            &env.current_contract_address(),
+            &insurance_fee,
+        );
+
+        let pool_key = DataKey::InsurancePool(token.clone());
+        let mut pool_balance: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
+        pool_balance += insurance_fee;
+        env.storage().instance().set(&pool_key, &pool_balance);
         env.storage()
             .instance()
             .set(&DataKey::CampaignCount, &count);
@@ -440,15 +498,20 @@ impl CampaignFundingContract {
             .instance()
             .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
+        let creator = creators.get(0).unwrap();
         let campaign = Campaign {
             id: count,
             creator: creator.clone(),
+            creators: creators.clone(),
+            revenue_shares: revenue_shares.clone(),
             token: token.clone(),
             target_amount,
             min_target,
             deadline,
             total_raised: 0,
             status: CampaignStatus::Active,
+            created_at: now,
+            planter: OptionalAddress::None,
         };
 
         Self::save_campaign(&env, count, &campaign);
@@ -723,12 +786,13 @@ impl CampaignFundingContract {
     /// # Errors
     /// * [`Error::CampaignNotSuccessful`] — campaign is not `Successful`.
     /// * [`Error::AlreadyClaimed`]        — funds were already claimed.
-    /// * [`Error::Unauthorized`]          — caller is not the campaign creator.
+    /// * [`Error::Unauthorized`]          — the creator group did not authorise.
     pub fn claim_funds(env: Env, campaign_id: u64) {
         let mut campaign = Self::load_campaign(&env, campaign_id);
 
-        campaign.creator.require_auth();
-
+        for owner in campaign.creators.iter() {
+            owner.require_auth();
+        }
         if campaign.status == CampaignStatus::Claimed {
             panic_with_error!(&env, Error::AlreadyClaimed);
         }
@@ -919,6 +983,152 @@ impl CampaignFundingContract {
     }
 
     // -----------------------------------------------------------------------
+    // Reward streaming
+    // -----------------------------------------------------------------------
+
+    /// Stream a sponsor's reward back to them over 12 months after campaign
+    /// completion.
+    ///
+    /// Instead of a lump-sum distribution at campaign end, sponsors (i.e.
+    /// contributors) receive their reward via a linear payment stream that
+    /// vests continuously over the 12 months following the current ledger
+    /// time.  The campaign contract acts as the stream `sender`, transferring
+    /// the sponsor's pro-rata contribution amount through the configured
+    /// payment-stream contract.
+    ///
+    /// This function is **permissionless** after `claim_funds` has been
+    /// called — anyone may initiate the reward stream for any contributor.
+    /// This ensures sponsors are not dependent on a centralised party to
+    /// trigger their stream.
+    ///
+    /// # How the reward amount is determined
+    ///
+    /// The reward equals the contributor's recorded escrow balance for the
+    /// campaign (`Contribution(campaign_id, contributor)`).  These tokens
+    /// have already been transferred to the contract during `contribute`, so
+    /// the contract holds the funds and can approve a transfer to the stream.
+    ///
+    /// > Note: `claim_funds` sends the *creator's net proceeds* out of the
+    /// > contract, **not** the contributors' balances.  The contributor
+    /// > escrow entries remain intact and are used here.
+    ///
+    /// # Arguments
+    /// * `campaign_id`  — The completed (Claimed) campaign.
+    /// * `contributor`  — Sponsor address to receive the reward stream.
+    ///
+    /// # Returns
+    /// The `u64` stream ID assigned by the payment-stream contract.
+    ///
+    /// # Errors
+    /// * [`Error::CampaignNotFound`]       — no campaign with this ID.
+    /// * [`Error::CampaignNotClaimed`]     — campaign has not yet been claimed
+    ///   by the creator.
+    /// * [`Error::NoContributionFound`]    — contributor has no escrow balance.
+    /// * [`Error::StreamContractNotSet`]   — admin has not called
+    ///   `set_stream_contract`.
+    /// * [`Error::RewardsAlreadyStreamed`]  — a stream was already created for
+    ///   this contributor on this campaign.
+    pub fn stream_sponsor_rewards(
+        env: Env,
+        campaign_id: u64,
+        contributor: Address,
+    ) -> u64 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+
+        // Reward streams are only valid after the creator has claimed funds.
+        if campaign.status != CampaignStatus::Claimed {
+            panic_with_error!(&env, Error::CampaignNotClaimed);
+        }
+
+        // Retrieve the contributor's escrowed balance (reward amount).
+        let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
+        let reward_amount: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
+        if reward_amount <= 0 {
+            panic_with_error!(&env, Error::NoContributionFound);
+        }
+
+        // Guard against duplicate reward streams.
+        let streamed_key = DataKey::RewardStreamed(campaign_id, contributor.clone());
+        if env.storage().persistent().get(&streamed_key).unwrap_or(false) {
+            panic_with_error!(&env, Error::RewardsAlreadyStreamed);
+        }
+
+        // Ensure the stream contract has been configured.
+        let stream_contract: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::StreamContract)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::StreamContractNotSet));
+
+        // Build the 12-month stream window starting now.
+        let start_time: u64 = env.ledger().timestamp();
+        let end_time: u64 = start_time
+            .checked_add(TWELVE_MONTHS_SECS)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+
+        // The campaign contract is the stream sender; it must approve the
+        // payment-stream contract to pull `reward_amount` of the campaign
+        // token.
+        let token_client = token::Client::new(&env, &campaign.token);
+        token_client.approve(
+            &env.current_contract_address(),
+            &stream_contract,
+            &reward_amount,
+            &(env.ledger().sequence() + LEDGER_BUMP),
+        );
+
+        // Cross-contract call: invoke `create_stream` on the payment-stream
+        // contract.  The campaign contract address is the sender so that the
+        // stream contract pulls from this contract's token allowance.
+        let stream_id: u64 = env.invoke_contract(
+            &stream_contract,
+            &Symbol::new(&env, "create_stream"),
+            soroban_sdk::vec![
+                &env,
+                env.current_contract_address().into_val(&env),
+                contributor.clone().into_val(&env),
+                campaign.token.clone().into_val(&env),
+                reward_amount.into_val(&env),
+                0i128.into_val(&env),
+                start_time.into_val(&env),
+                end_time.into_val(&env),
+            ],
+        );
+
+        // Mark the reward as streamed before returning (check-effects).
+        env.storage().persistent().set(&streamed_key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&streamed_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.events().publish(
+            ("SponsorRewardStreamed", campaign_id),
+            SponsorRewardStreamedEvent {
+                campaign_id,
+                contributor,
+                amount: reward_amount,
+                stream_id,
+                start_time,
+                end_time,
+            },
+        );
+
+        stream_id
+    }
+
+    /// Check whether a reward stream has already been created for a given
+    /// sponsor on a specific campaign.
+    ///
+    /// Returns `true` if `stream_sponsor_rewards` was previously called and
+    /// succeeded for this `(campaign_id, contributor)` pair.
+    pub fn is_reward_streamed(env: Env, campaign_id: u64, contributor: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RewardStreamed(campaign_id, contributor))
+            .unwrap_or(false)
+    }
+
+    // -----------------------------------------------------------------------
     // Queries
     // -----------------------------------------------------------------------
 
@@ -928,6 +1138,42 @@ impl CampaignFundingContract {
     /// * [`Error::CampaignNotFound`] — no campaign with this ID exists.
     pub fn get_campaign(env: Env, campaign_id: u64) -> Campaign {
         Self::load_campaign(&env, campaign_id)
+    }
+
+    /// Add a co-creator before a campaign succeeds. All current creators and
+    /// the new owner must authorise the change.
+    pub fn add_creator(env: Env, campaign_id: u64, creator: Address, share: u32) {
+        let mut campaign = Self::load_campaign(&env, campaign_id);
+        for owner in campaign.creators.iter() {
+            owner.require_auth();
+        }
+        if campaign.status != CampaignStatus::Active || share == 0 {
+            panic_with_error!(&env, Error::CampaignNotActive);
+        }
+        if campaign.creators.iter().any(|item| item == creator) {
+            panic_with_error!(&env, Error::CreatorAlreadyExists);
+        }
+        creator.require_auth();
+        let total = campaign
+            .revenue_shares
+            .iter()
+            .fold(0u32, |sum, value| sum + value);
+        if total + share > 10_000 {
+            panic_with_error!(&env, Error::InvalidCreators);
+        }
+        campaign.creators.push_back(creator);
+        campaign.revenue_shares.push_back(share);
+        Self::save_campaign(&env, campaign_id, &campaign);
+    }
+
+    /// Return all campaign owners in payout order.
+    pub fn get_campaign_creators(env: Env, campaign_id: u64) -> Vec<Address> {
+        Self::load_campaign(&env, campaign_id).creators
+    }
+
+    /// Return revenue shares in basis points and payout order.
+    pub fn get_campaign_revenue_shares(env: Env, campaign_id: u64) -> Vec<u32> {
+        Self::load_campaign(&env, campaign_id).revenue_shares
     }
 
     /// Return the total amount contributed by `contributor` to `campaign_id`.
@@ -988,6 +1234,11 @@ impl CampaignFundingContract {
             .unwrap()
     }
 
+    /// Return the configured payment-stream contract address, if any.
+    pub fn get_stream_contract(env: Env) -> Option<Address> {
+        env.storage().instance().get(&DataKey::StreamContract)
+    }
+
     // -----------------------------------------------------------------------
     // Admin setters
     // -----------------------------------------------------------------------
@@ -1037,9 +1288,52 @@ impl CampaignFundingContract {
             .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
+    /// Set the payment-stream contract address used by `stream_sponsor_rewards`.
+    ///
+    /// Requires admin authorisation.  This must be called once after
+    /// deployment to enable the reward-streaming feature.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`] — contract not yet initialised.
+    pub fn set_stream_contract(env: Env, stream_contract: Address) {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        env.storage()
+            .instance()
+            .set(&DataKey::StreamContract, &stream_contract);
+        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
+
+    fn validate_creators(env: &Env, creators: &Vec<Address>, shares: &Vec<u32>) {
+        if creators.len() == 0 || creators.len() != shares.len() {
+            panic_with_error!(env, Error::InvalidCreators);
+        }
+        let mut total = 0u32;
+        for i in 0..creators.len() {
+            let share = shares.get(i).unwrap();
+            if share == 0
+                || creators
+                    .iter()
+                    .skip((i + 1) as usize)
+                    .any(|item| item == creators.get(i).unwrap())
+            {
+                panic_with_error!(env, Error::InvalidCreators);
+            }
+            total = total.checked_add(share).unwrap_or(0);
+        }
+        if total != 10_000 {
+            panic_with_error!(env, Error::InvalidCreators);
+        }
+    }
 
     /// Panic with [`Error::NotInitialized`] if the contract has not been
     /// initialised yet.
@@ -1127,15 +1421,36 @@ impl CampaignFundingContract {
 
     /// Compute the protocol fee for `amount` using the stored fee rate.
     ///
-    /// Uses the same split-calculation as the payment-stream contract to
-    /// preserve precision without overflow.
+    /// The fee is rounded **up** (ceiling division) so that the full
+    /// fractional entitlement goes to the fee collector rather than being
+    /// silently discarded.  Without ceiling rounding the remainder term
+    /// `(r * rate) / 10_000` (where `r = amount % 10_000`) would floor,
+    /// causing the fee collector to lose up to 1 base-unit per claim while
+    /// the creator keeps the dust instead.
+    ///
+    /// Formula: `ceil(amount * rate / 10_000)`
+    /// Implemented without overflow via the split identity:
+    ///   `amount = q * 10_000 + r`
+    ///   `ceil(r * rate / 10_000) = (r * rate + 9_999) / 10_000`
     fn calculate_fee(env: &Env, amount: i128) -> i128 {
         let fee_rate: u32 = env.storage().instance().get(&DataKey::FeeRate).unwrap_or(0);
         if fee_rate == 0 || amount <= 0 {
             return 0;
         }
         let rate = fee_rate as i128;
-        (amount / 10_000) * rate + ((amount % 10_000) * rate) / 10_000
+        let q = amount / 10_000;
+        let r = amount % 10_000;
+        // Ceiling division for the remainder term: ceil(r * rate / 10_000)
+        let remainder_fee = r
+            .checked_mul(rate)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+            .checked_add(9_999)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+            / 10_000;
+        q.checked_mul(rate)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+            .checked_add(remainder_fee)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
     }
 
     /// Compute the 10% reserve for tree replacement.
@@ -1324,6 +1639,26 @@ mod tests {
         assert_eq!(campaign.deadline, 2_000);
         assert_eq!(campaign.total_raised, 0);
         assert_eq!(campaign.status, CampaignStatus::Active);
+        // New fields: created_at should be set to ledger time; planter should be None.
+        assert_eq!(campaign.created_at, 1_000);
+        assert_eq!(campaign.planter, OptionalAddress::None);
+    }
+
+    #[test]
+    fn test_create_campaign_allows_optional_zero_insurance_fee() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_admin_client) = create_token(&env, &token_admin);
+        token_admin_client.mint(&creator, &500);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &0);
+        assert_eq!(id, 1);
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Active);
+        assert_eq!(client.get_campaign_count(), 1);
     }
 
     #[test]
@@ -1362,7 +1697,7 @@ mod tests {
                 .set(&DataKey::CampaignCount, &u64::MAX);
         });
 
-        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
     }
 
     #[test]
@@ -1459,7 +1794,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #17)")]
+    #[should_panic(expected = "Error(Contract, #23)")]
     fn test_create_campaign_deadline_exceeds_180_days_fails() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2108,9 +2443,9 @@ mod tests {
         client.trigger_expiry(&id);
         client.claim_funds(&id);
 
-        // fee = 9_999 * 100 / 10_000 = 99 (integer division); net = 9_900.
-        assert_eq!(token_client.balance(&creator), 9_900);
-        assert_eq!(token_client.balance(&fee_collector), 99);
+        // fee = ceil(9_999 * 100 / 10_000) = ceil(99.99) = 100; net = 9_899.
+        assert_eq!(token_client.balance(&creator), 9_899);
+        assert_eq!(token_client.balance(&fee_collector), 100);
     }
 
     // -----------------------------------------------------------------------
