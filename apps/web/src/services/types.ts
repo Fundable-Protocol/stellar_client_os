@@ -2,9 +2,6 @@
  * Type definitions for Stellar Service
  */
 
-/**
- * Stream status enum matching the contract's StreamStatus
- */
 export type StreamStatus = 'Active' | 'Paused' | 'Canceled' | 'Completed';
 
 /**
@@ -155,11 +152,51 @@ export interface ContractAddresses {
  */
 export interface StellarServiceConfig {
   /** Network configuration */
-  network: NetworkConfig;
+  network: Network Config;
   /** Contract addresses */
   contracts: ContractAddresses;
   /** Default transaction timeout in seconds */
   defaultTimeout?: number;
   /** Maximum retry attempts for failed transactions */
   maxRetries?: number;
+}
+
+/**
+ * Campaign description language detection and translation
+ */
+
+/**
+ * Detected language information for a campaign description
+ */
+export interface LanguageDetectionResult {
+  /** Detected language code (e.g., 'en', 'es') */
+  language: string;
+  /** Confidence score between 0 and 1 */
+  confidence: number;
+}
+
+/**
+ * A translated version of a campaign description
+ */
+export interface CampaignTranslation {
+  /** Language code of the translation */
+  language: string;
+  /** Translated text */
+  text: string;
+  /** Whether this translation was automatically generated */
+  autoTranslated: boolean;
+}
+
+/**
+ * Campaign description with original text and auto-generated translations
+ */
+export interface CampaignDescription {
+  /** Original text of the description */
+  originalText: string;
+  /** Original language code detected for the description */
+  originalLanguage: string;
+  /** Translations for other languages */
+  translations: CampaignTranslation[];
+  /** Language detection result with confidence */
+  detection?: LanguageDetectionResult;
 }
