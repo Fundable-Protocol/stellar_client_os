@@ -1333,14 +1333,35 @@ impl CampaignFundingContract {
 
     /// Compute the 10% reserve for tree replacement.
     ///
-    /// Uses the same precision-preserving calculation as `calculate_fee`.
+    /// Uses ceiling division (same technique as `calculate_fee`) so that the
+    /// remainder term is rounded **up** instead of floored.  Without ceiling
+    /// rounding the remainder term `(r * 1000) / 10_000` (where
+    /// `r = amount % 10_000`) can floor to zero even when non-zero, leaving
+    /// up to 1 base unit in the distributable amount instead of the reserve.
+    ///
+    /// Formula: `ceil(amount * 1000 / 10_000)`
+    /// Implemented as:
+    ///   `amount = q * 10_000 + r`
+    ///   `ceil(r * 1000 / 10_000) = (r * 1000 + 9_999) / 10_000`
     fn calculate_reserve(env: &Env, amount: i128) -> i128 {
         if amount <= 0 {
             return 0;
         }
         // 1000 basis points = 10%
         let rate: i128 = 1000;
-        (amount / 10_000) * rate + ((amount % 10_000) * rate) / 10_000
+        let q = amount / 10_000;
+        let r = amount % 10_000;
+        // Ceiling division for the remainder term: ceil(r * rate / 10_000)
+        let remainder_reserve = r
+            .checked_mul(rate)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+            .checked_add(9_999)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+            / 10_000;
+        q.checked_mul(rate)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+            .checked_add(remainder_reserve)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
     }
 
     /// Distribute proceeds to the campaign creator or team members.
@@ -1348,6 +1369,11 @@ impl CampaignFundingContract {
     /// If a team configuration exists via [`set_team_rewards`], the proceeds
     /// are split proportionally among team members. Otherwise, the full
     /// amount goes to the sole creator.
+    ///
+    /// Each member's share is computed with ceiling division on the remainder
+    /// term so no dust is silently discarded.  To guarantee that the sum of
+    /// all shares equals `amount` exactly, the last team member receives
+    /// whatever is left after the preceding members have been paid.
     fn distribute_proceeds(env: &Env, campaign: &Campaign, campaign_id: u64, amount: i128) {
         let token_client = token::Client::new(env, &campaign.token);
         let team_key = DataKey::TeamMembers(campaign_id);
@@ -1357,13 +1383,40 @@ impl CampaignFundingContract {
 
         match team {
             Some(members) if !members.is_empty() => {
+                let n = members.len();
+                let mut distributed: i128 = 0;
+
                 // Distribute to team members proportionally
-                for i in 0..members.len() {
+                for i in 0..n {
                     let member = members.get(i).unwrap();
-                    let member_share = (amount / 10_000) * (member.percentage_bps as i128)
-                        + ((amount % 10_000) * (member.percentage_bps as i128)) / 10_000;
+
+                    // The last member receives the exact remainder so the
+                    // total always sums to `amount` with no dust locked in
+                    // the contract.
+                    let member_share = if i + 1 == n {
+                        amount - distributed
+                    } else {
+                        // Ceiling division on the remainder term: no base unit
+                        // is silently discarded when the split is not exact.
+                        let bps = member.percentage_bps as i128;
+                        let q = amount / 10_000;
+                        let r = amount % 10_000;
+                        let remainder_share = r
+                            .checked_mul(bps)
+                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+                            .checked_add(9_999)
+                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+                            / 10_000;
+                        q.checked_mul(bps)
+                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+                            .checked_add(remainder_share)
+                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+                    };
 
                     if member_share > 0 {
+                        distributed = distributed
+                            .checked_add(member_share)
+                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow));
                         token_client.transfer(
                             &env.current_contract_address(),
                             &member.address,
