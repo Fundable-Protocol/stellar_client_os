@@ -6,7 +6,7 @@
  * JavaScript BigInt serialisation issues.
  */
 
-export const typeDefs = /* GraphQL */ `
+export const typeDefs = /* GraphQL */`
   """Supported Stellar network."""
   enum Network {
     testnet
@@ -36,7 +36,7 @@ export const typeDefs = /* GraphQL */ `
 
   """Aggregated metrics for a single asset (token)."""
   type AssetMetrics {
-    """Token contract address (C… Stellar address)."""
+    """Token contract address (C‚ Stellar address)."""
     asset: String!
     """Human-readable ticker symbol if known, otherwise the asset address."""
     symbol: String!
@@ -117,7 +117,7 @@ export const typeDefs = /* GraphQL */ `
     """Total volume across all assets and regions (USDC-equivalent, as string)."""
     totalVolumeUsd: String!
     """Number of distinct asset types used."""
-    uniqueAssets: Int!
+    uniquEbassets: Int!
     """Number of distinct regions represented."""
     uniqueRegions: Int!
     """Number of distinct categories represented."""
@@ -136,7 +136,7 @@ export const typeDefs = /* GraphQL */ `
 
   """Filter arguments for region metrics."""
   input RegionFilter {
-    """Return only this region (ISO 3166-1 alpha-2). Omit for all regions."""
+    """Return only this region (ISO 3166-1 alpha-2)  Omit for all regions."""
     region: String
     """Return only streams for this asset address. Omit for all assets."""
     asset: String
@@ -168,6 +168,30 @@ export const typeDefs = /* GraphQL */ `
     fromTimestamp: Int
     """Return streams created at or before this Unix timestamp (seconds)."""
     toTimestamp: Int
+  }
+
+  """Sort options for the Planter job board."""
+  enum JobSort {
+    """Sort by highest pay rate first."""
+    PAY_HIGHEST
+    """Sort by soonest deadline first."""
+    DEADLINE_SOONEST
+    """Sort by easiest (lowest altitude) first."""
+    ALTITUDE_LOWEST
+  }
+
+  """A job posting on the Planter job board."""
+  type Job {
+    """Unique job identifier."""
+    id: ID!
+    """Job title."""
+    title: String!
+    """Pay rate (as string to avoid floating point issues)."""
+    payRate: String!
+    """Unix timestamp (seconds) of application deadline."""
+    deadline: Int!
+    """Altitude of the job site in metres above sea level (lower is easier)."""
+    altitude: Float!
   }
 
   enum CampaignStatus {
@@ -229,6 +253,38 @@ export const typeDefs = /* GraphQL */ `
     reason: String
   }
 
+  type CampaignVerification {
+    emailVerified: Boolean!
+    phoneVerified: Boolean!
+    addressVerified: Boolean!
+    badges: [String!]!
+    status: String!
+    isVerified: Boolean!
+    verifiedCount: Int!
+    totalCount: Int!
+  }
+
+  type CampaignRiskAssessment {
+    score: Int!
+    level: String!
+    redFlags: [String!]!
+    reasons: [String!]!
+    flagged: Boolean!
+  }
+
+  type CampaignHealthBreakdown {
+    descriptionQuality: Int!
+    creatorHistory: Int!
+    responseTime: Int!
+    backerFeedback: Int!
+  }
+
+  type CampaignHealthAssessment {
+    score: Int!
+    level: String!
+    breakdown: CampaignHealthBreakdown!
+  }
+
   type Campaign {
     id: ID!
     creator: String!
@@ -242,6 +298,17 @@ export const typeDefs = /* GraphQL */ `
     createdAt: Int!
     updatedAt: Int!
     statusChangedAt: Int!
+    verification: CampaignVerification
+    verificationStatus: String!
+    verified: Boolean!
+    verificationBadges: [String!]!
+    riskScore: Int!
+    riskLevel: String!
+    riskFlags: [String!]!
+    riskAssessment: CampaignRiskAssessment
+    healthScore: Int!
+    healthLevel: String!
+    healthAssessment: CampaignHealthAssessment
     sponsors: [CampaignSponsor!]!
     statusHistory: [CampaignStatusHistory!]!
   }
@@ -276,6 +343,144 @@ export const typeDefs = /* GraphQL */ `
     symbol: String!
     streamCount: Int!
     totalVolume: String!
+  }
+
+  enum SequelRelation {
+    SEQUEL
+    PREQUEL
+    SPINOFF
+    RELATED
+  }
+
+  type CampaignSeries {
+    id: ID!
+    name: String!
+    description: String
+    creator: String!
+    campaignIds: [ID!]!
+    createdAt: Int!
+    updatedAt: Int!
+  }
+
+  type CampaignSequelLink {
+    id: ID!
+    sourceCampaignId: ID!
+    targetCampaignId: ID!
+    relation: SequelRelation!
+    order: Int
+    seriesId: ID
+    notes: String
+    linkedBy: String!
+    linkedAt: Int!
+  }
+
+  """A campaign plus how it relates to the queried campaign."""
+  type CampaignSequelSummary {
+    link: CampaignSequelLink!
+    campaign: Campaign!
+  }
+
+  """The campaign that continues a series, with its series context."""
+  type NextInSeriesResult {
+    link: CampaignSequelLink!
+    series: CampaignSeries
+    campaign: Campaign!
+  }
+
+  """Per-campaign creator analytics dashboard (issue: analytics dashboard)."""
+  type TrafficSourceStat {
+    source: String!
+    label: String!
+    visitors: Int!
+    views: Int!
+    share: Float!
+  }
+
+  type FunnelStage {
+    stage: String!
+    label: String!
+    count: Int!
+    conversionRate: Float!
+    dropoffRate: Float!
+  }
+
+  type BackerDemographic {
+    region: String!
+    backers: Int!
+    totalAmount: String!
+    share: Float!
+  }
+
+  type RewardTierStat {
+    tierId: String!
+    name: String!
+    price: String!
+    backers: Int!
+    revenue: String!
+    share: Float!
+  }
+
+  type DailyFundingPoint {
+    date: String!
+    amount: String!
+    contributions: Int!
+    cumulative: String!
+  }
+
+  type CampaignAnalyticsDashboard {
+    campaignId: ID!
+    updatedAt: Int!
+    trafficSources: [TrafficSourceStat!]!
+    funnel: [FunnelStage!]!
+    demographics: [BackerDemographic!]!
+    rewardTiers: [RewardTierStat!]!
+    dailyTrend: [DailyFundingPoint!]!
+    totals: CampaignAnalyticsTotals!
+  }
+
+  type CampaignAnalyticsTotals {
+    visitors: Int!
+    contributions: Int!
+    totalFunded: String!
+    conversionRate: Float!
+  }
+
+  enum GrantProgramStatus {
+    OPEN
+    PAUSED
+    CLOSED
+  }
+
+  type GrantProgram {
+    id: ID!
+    name: String!
+    description: String
+    matchPercentage: Int!
+    perCampaignCap: String!
+    totalPool: String!
+    allocated: String!
+    eligibilityCriteria: [String!]!
+    status: GrantProgramStatus!
+    createdAt: Int!
+    updatedAt: Int!
+  }
+
+  type GrantAllocation {
+    id: ID!
+    programId: ID!
+    campaignId: ID!
+    baseContribution: String!
+    matchedAmount: String!
+    allocatedBy: String!
+    allocatedAt: Int!
+  }
+
+  type GrantProgramSummary {
+    program: GrantProgram!
+    remainingPool: String!
+    eligible: Boolean!
+    matchedForCampaign: String!
+    nextMatchAmount: String!
   }
 
   type Query {
@@ -331,9 +536,77 @@ export const typeDefs = /* GraphQL */ `
     ): [AssetMetrics!]!
 
     """
+    Fetch job board postings with sort options.
+    """
+    jobBoard(
+      """Sort order for the job list."""
+      sort: JobSort = PAY_HIGHEST
+      """Pagination options."""
+      pagination: PaginationInput
+    ): [Job!]!
+
+    """
     A sponsor's impact (estimated CO2 offset) compared with the global
     average sponsor, including a percentile ranking (top 10%, etc.).
     """
     sponsorImpact(address: String!, network: Network): SponsorImpact!
+
+    """
+    Campaigns linked to the given campaign as sequels, prequels, spin-offs,
+    or related projects, including the franchise (series) it belongs to.
+    """
+    campaignSequels(campaignId: ID!, relation: SequelRelation): [CampaignSequelSummary!]!
+
+    """
+    The next campaign in a series (franchise) for the given campaign, when one
+    exists.
+    """
+    nextInSeries(campaignId: ID!): NextInSeriesResult
+
+    """
+    Detailed creator analytics for a campaign: traffic sources, conversion
+    funnel, backer demographics, reward tier popularity, and daily funding
+    trends.
+    """
+    campaignAnalytics(campaignId: ID!, network: Network): CampaignAnalyticsDashboard
+
+    """
+    The platform-funded grant matching programs available to underrepresented
+    creators.
+    """
+    grantPrograms: [GrantProgram!]!
+
+    """
+    Matching summary for a campaign within a grant program: eligibility,
+    amount already matched, and the next match available.
+    """
+    grantProgramSummary(programId: ID!, campaignId: ID!): GrantProgramSummary
+
+    """
+    The grant allocations awarded to a campaign across all programs.
+    """
+    campaignGrantAllocations(campaignId: ID!): [GrantAllocation!]!
+  }
+
+  """
+  A clone of an existing indexed stream/campaign returned by cloneCampaign.
+  """
+  type CloneResult {
+    id: ID!
+    sender: String!
+    recipient: String!
+    token: String!
+    status: StreamStatus!
+    totalAmount: String!
+    withdrawnAmount: String!
+    startTime: Int!
+    endTime: Int!
+  }
+
+  type Mutation {
+    """
+    Clones an indexed stream so a creator can start from an existing campaign.
+    """
+    cloneCampaign(id: ID!, network: Network): CloneResult
   }
 `;

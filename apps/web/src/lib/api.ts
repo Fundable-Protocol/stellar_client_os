@@ -11,10 +11,18 @@ import { Stream, StreamStatus } from '../types';
 
 type WalletSigner = (xdr: string) => Promise<string>;
 
-const HORIZON_URL = env.NEXT_PUBLIC_STELLAR_HORIZON_URL ||
-    (env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet'
-        ? 'https://horizon.stellar.org'
-        : 'https://horizon-testnet.stellar.org');
+function deriveHorizonUrl(): string {
+    if (env.NEXT_PUBLIC_STELLAR_HORIZON_URL) return env.NEXT_PUBLIC_STELLAR_HORIZON_URL;
+    if (env.NEXT_PUBLIC_STELLAR_NETWORK === 'mainnet') return 'https://horizon.stellar.org';
+    if (SOROBAN_RPC_URL) {
+        const { protocol, hostname, port } = new URL(SOROBAN_RPC_URL);
+        const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+        if (isLocalhost) return `${protocol}//${hostname}${port ? `:${port}` : ''}`;
+    }
+    return 'https://horizon-testnet.stellar.org';
+}
+
+const HORIZON_URL = deriveHorizonUrl();
 
 const stellarService = new StellarService({
     network: {
@@ -259,4 +267,28 @@ export async function cancelStream(params: { id: string; address: string; signTr
     const tx = await client.cancelStream(BigInt(params.id));
 
     await signAndSendTx(tx, params.signTransaction);
+}
+
+export async function submitFailureProof(params: {
+    streamId: number;
+    address: string;
+    evidence: string;
+    signTransaction?: WalletSigner;
+}): Promise<string> {
+    const client = createPaymentStreamClient(params.address);
+    const tx = await client.submitFailureProof(BigInt(params.streamId), params.evidence);
+    const hash = await signAndSendTx(tx, params.signTransaction);
+    return hash;
+}
+
+export async function submitFailureProof(params: {
+    streamId: number;
+    address: string;
+    evidence: string;
+    signTransaction?: WalletSigner;
+}): Promise<string> {
+    const client = createPaymentStreamClient(params.address);
+    const tx = await client.submitFailureProof(BigInt(params.streamId), params.evidence);
+    const hash = await signAndSendTx(tx, params.signTransaction);
+    return hash;
 }
