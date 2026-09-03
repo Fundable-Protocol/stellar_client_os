@@ -63,3 +63,44 @@ export {
 } from './errors';
 
 export { socialService, SocialService } from './social.service';
+
+export {
+  CampaignRecommendationService,
+  calculateCampaignSimilarity,
+  getCampaignRecommendationService,
+} from './campaign-recommendation.service';
+export type {
+  CampaignRecommendation,
+  CampaignRecommendationOptions,
+  CampaignRecommendationResponse,
+  CampaignRecommendationServiceOptions,
+  CampaignSimilarity,
+} from './campaign-recommendation.service';
+
+export {
+  PersonalizedCampaignRecommendationService,
+  getPersonalizedCampaignRecommendationService,
+} from './personalized-campaign-recommendation.service';
+export type {
+  PersonalizedCampaignRecommendation,
+  PersonalizedCampaignRecommendationComponents,
+  PersonalizedCampaignRecommendationServiceOptions,
+  PersonalizedRecommendationOptions,
+  PersonalizedRecommendationResponse,
+} from './personalized-campaign-recommendation.service';
+
+export { CampaignVotingService, campaignVotingService } from './campaign-voting.service';
+export {
+  OnChainCampaignTrackingService,
+  onChainCampaignTrackingService,
+} from './onchain-campaign-tracking.service';
+export {
+  CreatorRevenueShareService,
+  creatorRevenueShareService,
+} from './creator-revenue-share.service';
+export { FraudDetectionService, fraudDetectionService } from './fraud-detection.service';
+
+export {
+  CampaignInsuranceClaimService,
+  campaignInsuranceClaimService,
+} from './campaign-insurance-claim.service';

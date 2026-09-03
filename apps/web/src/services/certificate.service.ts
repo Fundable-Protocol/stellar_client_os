@@ -32,6 +32,31 @@ export interface ContributionLineItem {
   timestamp: number;
 }
 
+/** Impact metrics shown on campaign completion certificates. */
+export interface CampaignImpact {
+  /** Number of trees planted. */
+  trees: number;
+  /** CO₂ offset in metric tonnes. */
+  co2: number;
+  /** Human-readable cost saved (e.g. "$1,200.00"). */
+  cost: string;
+}
+
+/** Input payload for generating a certificate, invoice, or campaign PDF. */
+/** Carbon offset credit details for tradeable CO2 certificates. */
+export interface CarbonCreditDetails {
+  /** Registry serial number(s) for the carbon offset credits. */
+  serialNumbers: string[];
+  /** Quantity of CO2 offset in metric tonnes. */
+  quantityTonnes: number;
+  /** Registry / standard that issued the credits (e.g. Verra). */
+  registry?: string;
+  /** Whether these credits are tradeable on a carbon marketplace. */
+  tradeable?: boolean;
+  /** Marketplace listing URL where the credits can be sold. */
+  marketplaceUrl?: string;
+}
+
 /** Input payload for generating a certificate or invoice PDF. */
 export interface CertificateInput {
   /** Donor's display name */
@@ -48,12 +73,17 @@ export interface CertificateInput {
   lineItems: ContributionLineItem[];
   /** Total amount in human-readable form (e.g. "2,500.00 USDC") */
   totalAmount: string;
+  /** Optional campaign impact metrics for campaign completion certificates. */
+  campaignImpact?: CampaignImpact;
   /** ISO 8601 date string for the certificate ("2025-01-15") */
   issuedAt?: string;
   /** Optional organisation or project logo as a base64 PNG data URI */
   logoDataUri?: string;
+  /** Optional carbon offset credit details for tradeable CO2 certificates */
+  carbonCredits?: CarbonCreditDetails;
   /** Document type — controls the title printed on the PDF */
-  documentType?: "certificate" | "invoice";
+  documentType?: "certificate" | "invoice" | "campaign";
+  documentType?: "certificate" | "invoice" | "carbon";
 }
 
 /** Typed result from the certificate service. */
@@ -161,6 +191,10 @@ function drawHRule(
  * Throws `CertificateError` with code `INVALID_INPUT` on failure.
  */
 export function validateCertificateInput(input: CertificateInput): void {
+  if (input.documentType === "campaign" && !input.campaignImpact) {
+    throw new CertificateError("campaignImpact is required for campaign certificates", "INVALID_INPUT");
+  }
+
   if (!input.donorName?.trim()) {
     throw new CertificateError("donorName is required", "INVALID_INPUT");
   }
@@ -183,6 +217,27 @@ export function validateCertificateInput(input: CertificateInput): void {
     if (!item.description?.trim() || !item.token?.trim() || !item.amount?.trim()) {
       throw new CertificateError(
         "Each line item must have description, token, and amount",
+        "INVALID_INPUT"
+      );
+    }
+  }
+  if (input.documentType === "carbon" || input.carbonCredits) {
+    if (
+      !input.carbonCredits ||
+      !Array.isArray(input.carbonCredits.serialNumbers) ||
+      input.carbonCredits.serialNumbers.length === 0
+    ) {
+      throw new CertificateError(
+        "Carbon certificates require carbonCredits with at least one serial number",
+        "INVALID_INPUT"
+      );
+    }
+    if (
+      typeof input.carbonCredits.quantityTonnes !== "number" ||
+      input.carbonCredits.quantityTonnes <= 0
+    ) {
+      throw new CertificateError(
+        "Carbon certificates require a positive quantityTonnes",
         "INVALID_INPUT"
       );
     }
@@ -219,15 +274,22 @@ export async function buildCertificatePdf(
   certificateId: string,
   generatedAt: string
 ): Promise<Uint8Array> {
-  const docType = input.documentType ?? "certificate";
+  const docType = input.documentType ?? (input.carbonCredits ? "carbon" : "certificate");
   const title =
     docType === "invoice"
       ? "Contribution Invoice"
-      : "Contribution Receipt";
+      : docType === "campaign"
+        ? "Campaign Completion Certificate"
+      : docType === "carbon"
+        ? "Carbon Offset Certificate"
+        : "Contribution Receipt";
 
   // ── QR code ────────────────────────────────────────────────────────────────
   const txUrl = explorerUrl(input.transactionHash, input.network ?? "testnet");
-  const qrDataUri = await generateQrDataUri(txUrl);
+  const marketplaceUrl = input.carbonCredits?.marketplaceUrl;
+  const qrTargetUrl =
+    docType === "carbon" && marketplaceUrl ? marketplaceUrl : txUrl;
+  const qrDataUri = await generateQrDataUri(qrTargetUrl);
 
   // ── PDF scaffold ───────────────────────────────────────────────────────────
   const pdfDoc = await PDFDocument.create();
@@ -397,15 +459,58 @@ export async function buildCertificatePdf(
   drawHRule(page, cursor);
   cursor -= 20;
 
+  // ── Campaign impact metrics ────────────────────────────────────────────────
+  if (input.campaignImpact) {
+    page.drawText("CAMPAIGN IMPACT", { x: MARGIN, y: cursor, size: 8, font: fontBold, color: COLOR_MUTED });
+    cursor -= 16;
+    page.drawText(
+      `Trees Planted: ${input.campaignImpact.trees}    CO2 Offset: ${input.campaignImpact.co2}t    Cost Saved: ${input.campaignImpact.cost}`,
+      { x: MARGIN, y: cursor, size: 11, font: fontBold, color: COLOR_PRIMARY }
+    );
+    cursor -= 28;
+  if (docType === "carbon" && input.carbonCredits) {
+    cursor -= 20;
+    page.drawText("CARBON OFFSET CREDITS", {
+      x: MARGIN, y: cursor, size: 8, font: fontBold, color: COLOR_MUTED,
+    });
+    cursor -= 14;
+    page.drawText(
+      input.carbonCredits.registry
+        ? `Registry: ${input.carbonCredits.registry}`
+        : "Registry: Blockchain registry",
+      { x: MARGIN, y: cursor, size: 8.5, font: fontRegular, color: COLOR_DARK }
+    );
+    page.drawText(`Quantity: ${input.carbonCredits.quantityTonnes} tCO2e`, {
+      x: col2X, y: cursor, size: 8.5, font: fontBold, color: COLOR_DARK,
+    });
+    cursor -= 13;
+    page.drawText(
+      `Serial: ${input.carbonCredits.serialNumbers.join(", ")}`,
+      { x: MARGIN, y: cursor, size: 7.5, font: fontRegular, color: COLOR_MUTED }
+    );
+    page.drawText(
+      input.carbonCredits.tradeable === false
+        ? "Retired offset credit"
+        : "Tradeable on carbon marketplace",
+      { x: col2X, y: cursor, size: 7.5, font: fontBold, color: COLOR_VERIFIED }
+    );
+    cursor -= 18;
+    drawHRule(page, cursor);
+    cursor -= 20;
+  }
+
   // ── Verification status badge ──────────────────────────────────────────────
-  const badgeWidth = 120;
+  const badgeLabel = docType === "carbon"
+    ? "✓  TRADEABLE OFFSET CREDIT"
+    : "✓  VERIFIED ON STELLAR";
+  const badgeWidth = Math.max(120, fontBold.widthOfTextAtSize(badgeLabel, 7.5) + 16);
   page.drawRectangle({
     x: MARGIN, y: cursor - 16, width: badgeWidth, height: 24,
     color: rgb(0.9, 0.98, 0.94),
     borderColor: COLOR_VERIFIED,
     borderWidth: 1,
   });
-  page.drawText("✓  VERIFIED ON STELLAR", {
+  page.drawText(badgeLabel, {
     x: MARGIN + 8, y: cursor - 9, size: 7.5, font: fontBold, color: COLOR_VERIFIED,
   });
 
