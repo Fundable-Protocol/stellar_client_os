@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Rocket, Plus, Heart, Users, Sparkles, ShieldCheck, ChevronRight, Trophy, Scale, ShoppingBag } from "lucide-react";
+import { Rocket, Plus, Heart, Users, ShieldCheck, ChevronRight, Trophy, Scale, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SuccessStories from "@/components/modules/campaign/success-stories/SuccessStories";
@@ -37,8 +37,6 @@ export default function CampaignsDirectoryPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
-      <!-- Header -->
-      <div className="flex flex-col sm-flex-row sm-items-center sm-justify-between gap-4 border-b border-zinc-800 pb-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-zinc-800 pb-6">
         <div>
@@ -83,18 +81,17 @@ export default function CampaignsDirectoryPage() {
         </div>
       </div>
 
-      <!-- Success Stories Section -->
+      {/* Success Stories Section */}
       <SuccessStories />
 
-      <!-- Campaigns Grid -->
+      {/* Campaigns Grid */}
       <div className="grid grid-cols-1 md-grid-cols-2 gap-6">
         {campaigns.map((c) => {
           const progress = Math.round((parseFloat(c.raisedAmount.replace(/,/g, "")) / parseFloat(c.goalAmount.replace(/,/g, ""))) * 100);
           return (
             <div
               key={c.id}
-              className="group flex flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-xl transition-all duration-300 hover:border-purple-500/50 
-hover:shadow-2xl"
+              className="group flex flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-xl transition-all duration-300 hover:border-purple-500/50 hover:shadow-2xl"
             >
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -118,11 +115,11 @@ hover:shadow-2xl"
                   <span className="text-emerald-400 font-bold">{progress}% Goal</span>
                 </div>
 
-                <!-- Progress bar -->
+                {/* Progress bar */}
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
                   <div
                     className="h-full rounded-full bg-gradient-to-r from-purple-500 to-emerald-400"
-                    style={ width: `${progress}%` }
+                    style={{ width: `${progress}%` }}
                   />
                 </div>
 
@@ -138,7 +135,7 @@ hover:shadow-2xl"
                     </span>
                   </div>
 
-                  <Link href={"/campaigns/${c.id}"}>
+                  <Link href={`/campaigns/${c.id}`}>
                     <Button size="sm" variant="ghost" className="text-xs text-purple-400 hover-text-purple-300 hover-bg-purple-950/40">
                       View Campaign <ChevronRight className="ml-1 h-3.5 w-3.5" />
                     </Button>

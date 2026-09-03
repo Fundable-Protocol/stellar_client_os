@@ -82,8 +82,7 @@ export interface CertificateInput {
   /** Optional carbon offset credit details for tradeable CO2 certificates */
   carbonCredits?: CarbonCreditDetails;
   /** Document type — controls the title printed on the PDF */
-  documentType?: "certificate" | "invoice" | "campaign";
-  documentType?: "certificate" | "invoice" | "carbon";
+  documentType?: "certificate" | "invoice" | "carbon" | "campaign";
 }
 
 /** Typed result from the certificate service. */
@@ -468,6 +467,8 @@ export async function buildCertificatePdf(
       { x: MARGIN, y: cursor, size: 11, font: fontBold, color: COLOR_PRIMARY }
     );
     cursor -= 28;
+  }
+
   if (docType === "carbon" && input.carbonCredits) {
     cursor -= 20;
     page.drawText("CARBON OFFSET CREDITS", {
