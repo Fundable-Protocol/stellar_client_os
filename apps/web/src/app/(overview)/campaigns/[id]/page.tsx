@@ -8,6 +8,9 @@ import {
   Heart,
   Users,
   Target,
+  Edit,
+  ShieldCheck,
+  MessageSquare,
   Calendar,
   Download,
   Share2,
@@ -23,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CampaignSponsorWall } from "@/components/modules/campaign/sponsor-wall/CampaignSponsorWall";
 import { CampaignCollaboration } from "@/components/modules/campaign/collaboration/CampaignCollaboration";
+import { CampaignQAModeration } from "@/components/modules/campaign/qa/CampaignQAModeration";
 import { CampaignSeries } from "@/components/modules/campaign/series/CampaignSeries";
 import { CampaignAnalyticsDashboard } from "@/components/modules/campaign/analytics/CampaignAnalyticsDashboard";
 import { BackerCommunity } from "@/components/modules/campaign/community/BackerCommunity";
@@ -312,6 +316,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           <TabsTrigger value="collaboration" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Users className="mr-1.5 h-4 w-4 text-purple-400" /> Co-Creators (#722)
           </TabsTrigger>
+          <TabsTrigger value="qa" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <MessageSquare className="mr-1.5 h-4 w-4 text-purple-400" /> Q&A (#791)
           <TabsTrigger value="success" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Trophy className="mr-1.5 h-4 w-4 text-amber-400" /> Success Story
           <TabsTrigger value="series" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
@@ -395,6 +401,10 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         <TabsContent value="collaboration">
           <CampaignCollaboration campaignId={campaign.id} campaignTitle={campaign.title} />
         </TabsContent>
+
+        {/* Tab 4: Q&A Moderation (#791) */}
+        <TabsContent value="qa">
+          <CampaignQAModeration campaignId={campaign.id} campaignTitle={campaign.title} />
         {/* Tab 4: Success Story */}
         <TabsContent value="success" className="space-y-6">
           <div className="relative overflow-hidden rounded-2xl border border-emerald-800/60 bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-900 p-6 md:p-8">
