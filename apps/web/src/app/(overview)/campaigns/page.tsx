@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Rocket, Plus, Heart, Users, Sparkles, ShieldCheck, ChevronRight } from "lucide-react";
+import { Rocket, Plus, Heart, Users, Sparkles, ShieldCheck, ChevronRight, Trophy, Scale, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -37,22 +37,42 @@ export default function CampaignsDirectoryPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-800 pb-6">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-zinc-800 pb-6">
         <div>
           <h1 className="text-3xl font-extrabold text-zinc-50 tracking-tight flex items-center gap-3">
             <Rocket className="h-8 w-8 text-purple-500" />
             Campaigns Dashboard
           </h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Explore active crowdfunding campaigns, sponsor impactful initiatives, or launch a new 5-step wizard campaign.
+            Explore active crowdfunding campaigns, compare initiatives, buy creator toolkits, or launch a new wizard campaign.
           </p>
         </div>
 
-        <Link href="/campaigns/create">
-          <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover:from-purple-700 hover:to-blue-700 shadow-lg shadow-purple-900/30">
-            <Plus className="mr-2 h-4 w-4" /> Create Campaign Wizard (#720)
-          </Button>
-        </Link>
+<div className="flex flex-wrap items-center gap-2">
+          <Link href="/campaigns/compare">
+            <Button variant="outline" className="border-purple-800 bg-purple-950/40 text-purple-300 hover:bg-purple-900/60 font-semibold text-xs">
+              <Scale className="mr-1.5 h-3.5 w-3.5" /> Compare Tool (#778)
+            </Button>
+          </Link>
+
+          <Link href="/campaigns/marketplace">
+            <Button variant="outline" className="border-indigo-800 bg-indigo-950/40 text-indigo-300 hover:bg-indigo-900/60 font-semibold text-xs">
+              <ShoppingBag className="mr-1.5 h-3.5 w-3.5" /> Creator Marketplace (#786)
+            </Button>
+          </Link>
+
+          <Link href="/grants">
+            <Button variant="outline" className="border-amber-800 bg-amber-950/40 text-amber-300 hover:bg-amber-950/60 font-semibold shadow-lg text-xs">
+              <Trophy className="mr-1.5 h-3.5 w-3.5" /> Grant Programs
+            </Button>
+          </Link>
+
+          <Link href="/campaigns/create">
+            <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-xs text-white hover:from-purple-700 hover:to-blue-700 shadow-lg shadow-purple-900/30">
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> Create Campaign Wizard (#720)
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Campaigns Grid */}

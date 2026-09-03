@@ -152,7 +152,7 @@ export interface ContractAddresses {
  */
 export interface StellarServiceConfig {
   /** Network configuration */
-  network: Network Config;
+  network: NetworkConfig;
   /** Contract addresses */
   contracts: ContractAddresses;
   /** Default transaction timeout in seconds */

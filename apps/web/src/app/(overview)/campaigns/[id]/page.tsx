@@ -13,13 +13,18 @@ import {
   Share2,
   Edit,
   ShieldCheck,
+  BarChart3,
   Globe,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CampaignSponsorWall } from "@/components/modules/campaign/sponsor-wall/CampaignSponsorWall";
 import { CampaignCollaboration } from "@/components/modules/campaign/collaboration/CampaignCollaboration";
+import { CampaignSeries } from "@/components/modules/campaign/series/CampaignSeries";
+import { CampaignAnalyticsDashboard } from "@/components/modules/campaign/analytics/CampaignAnalyticsDashboard";
+import { BackerCommunity } from "@/components/modules/campaign/community/BackerCommunity";
 
 const translations = {
   es: {
@@ -69,6 +74,8 @@ const detectLanguage = (text: string): string => {
 export default function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [activeTab, setActiveTab] = useState("overview");
+  const [showInsuranceModal, setShowInsuranceModal] = useState(false);
+  const [claimSubmitted, setClaimSubmitted] = useState(false);
 
   // Mock campaign record data
   const campaign = {
@@ -159,8 +166,56 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Campaign
             </Button>
           </Link>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-amber-600/40 text-amber-300 hover:bg-amber-950/40 text-xs"
+            onClick={() => setShowInsuranceModal(true)}
+          >
+            <AlertTriangle className="mr-1.5 h-3.5 w-3.5" /> Submit Insurance Claim
+          </Button>
         </div>
       </div>
+
+      {showInsuranceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-zinc-100">Submit Insurance Claim</h2>
+              <button onClick={() => setShowInsuranceModal(false)} className="text-zinc-400 hover:text-zinc-200 text-xl">×</button>
+            </div>
+            {claimSubmitted ? (
+              <div className="space-y-2">
+                <p className="text-sm text-emerald-400 font-semibold">Claim submitted successfully.</p>
+                <p className="text-xs text-zinc-400">The campaign creator has submitted proof of failure. The insurance review process will evaluate your claim and pay out if eligible.</p>
+              </div>
+            ) : (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setClaimSubmitted(true);
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label htmlFor="evidence" className="block text-xs font-medium text-zinc-400 mb-1">Evidence of campaign failure</label>
+                  <textarea
+                    id="evidence"
+                    required
+                    rows={4}
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 p-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                    placeholder="Describe why the campaign failed to meet its goals and provide any supporting evidence or links..."
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setShowInsuranceModal(false)}>Cancel</Button>
+                  <Button type="submit" size="sm" className="bg-amber-600 text-white hover:bg-amber-700">Submit Claim</Button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Hero Banner Header */}
       <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-r from-zinc-900 via-purple-950/20 to-zinc-900 p-6 md:p-8 shadow-2xl">
@@ -232,9 +287,10 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         </div>
       </div>
 
-      {/* Main Content Tabs (Overview, Sponsor Wall #724, Co-Creators #722) */}
+{/* Main Content Tabs (Overview, Sponsor Wall #724, Co-Creators #722, Series, Analytics) */}
+      {/* Backer community spaces (#788) render inside the overview sidebar. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-        <TabsList className="grid w-full grid-cols-3 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
+        <TabsList className="grid w-full grid-cols-5 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
           <TabsTrigger value="overview" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Target className="mr-1.5 h-4 w-4" /> Overview & Story
           </TabsTrigger>
@@ -243,6 +299,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           </TabsTrigger>
           <TabsTrigger value="collaboration" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Users className="mr-1.5 h-4 w-4 text-purple-400" /> Co-Creators (#722)
+          </TabsTrigger>
+          <TabsTrigger value="series" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <Sparkles className="mr-1.5 h-4 w-4 text-amber-400" /> Series & Sequels
+          </TabsTrigger>
+          <TabsTrigger value="analytics" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <BarChart3 className="mr-1.5 h-4 w-4 text-emerald-400" /> Analytics
           </TabsTrigger>
         </TabsList>
 
@@ -291,6 +353,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   </div>
                 </div>
               </div>
+
+              <BackerCommunity campaignId={campaign.id} />
             </div>
           </div>
         </TabsContent>
@@ -304,7 +368,71 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         <TabsContent value="collaboration">
           <CampaignCollaboration campaignId={campaign.id} campaignTitle={campaign.title} />
         </TabsContent>
+
+        {/* Tab 4: Series & Sequels */}
+        <TabsContent value="series">
+          <CampaignSeries campaignId={campaign.id} campaignTitle={campaign.title} />
+        </TabsContent>
+
+        {/* Tab 5: Analytics for creators */}
+        <TabsContent value="analytics">
+          <CampaignAnalyticsDashboard campaignId={campaign.id} campaignTitle={campaign.title} />
+        </TabsContent>
       </Tabs>
+      {showInsuranceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-amber-400 flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5" /> Campaign Insurance Claim
+              </h3>
+              <button
+                type="button"
+                onClick={() => { setShowInsuranceModal(false); setClaimSubmitted(false); }}
+                className="text-xs font-semibold text-zinc-400 hover:text-zinc-200"
+              >
+                Close
+              </button>
+            </div>
+            {claimSubmitted ? (
+              <p className="mt-4 text-sm text-emerald-400">Claim submitted successfully.</p>
+            ) : (
+              <form
+                className="mt-4 space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setClaimSubmitted(true);
+                }}
+              >
+                <textarea
+                  required
+                  rows={4}
+                  placeholder="Describe how the campaign failed and upload proof below"
+                  className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-amber-500/40"
+                />
+                <input
+                  required
+                  type="file"
+                  className="w-full text-sm text-zinc-300 file:mr-3 file:rounded-md file:border-0 file:bg-amber-500/20 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-amber-300 hover:file:bg-amber-500/30"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setShowInsuranceModal(false); setClaimSubmitted(false); }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" className="bg-amber-600 text-white hover:bg-amber-700">
+                    Submit Claim
+                  </Button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

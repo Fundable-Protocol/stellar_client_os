@@ -80,6 +80,7 @@ export async function POST(request: Request) {
 
     const campaign = await createCampaign({
       creator: body.creator,
+      creatorEmail: body.creatorEmail,
       name: body.name,
       description,
       location: body.location,
