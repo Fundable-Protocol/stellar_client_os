@@ -8,10 +8,15 @@ import {
   Heart,
   Users,
   Target,
+  Edit,
+  ShieldCheck,
+  MessageSquare,
   Calendar,
   Share2,
   Edit,
   ShieldCheck,
+  Trophy,
+  BarChart3,
   Globe,
   AlertTriangle,
 } from "lucide-react";
@@ -21,7 +26,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CampaignSponsorWall } from "@/components/modules/campaign/sponsor-wall/CampaignSponsorWall";
 import { CampaignCollaboration } from "@/components/modules/campaign/collaboration/CampaignCollaboration";
 import { CampaignMilestones } from "@/components/modules/campaign/CampaignMilestones";
+import { CampaignQAModeration } from "@/components/modules/campaign/qa/CampaignQAModeration";
+import { CampaignSeries } from "@/components/modules/campaign/series/CampaignSeries";
+import { CampaignAnalyticsDashboard } from "@/components/modules/campaign/analytics/CampaignAnalyticsDashboard";
 import { BackerCommunity } from "@/components/modules/campaign/community/BackerCommunity";
+import { CampaignFundingVelocityChart } from "@/components/modules/campaign/FundingVelocityChart";
 
 const translations = {
   es: {
@@ -91,6 +100,16 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     impactStatement: "Permanently offset 150 metric tons of CO2 while securing habitat for 200+ endangered species.",
     beneficiaries: "5,000 local indigenous community members",
     co2OffsetTons: "150",
+    successStory: {
+      headline: "From Rainforest Pledge to On-the-Ground Impact",
+      creatorInterview: "Every XLM stream is tied to verifiable patrol hours and backers receive monthly GPS updates. The team shipped on every promise.",
+      backerTestimonials: [
+        { name: "Marta L.", location: "Lisbon, Portugal", quote: "I could see exactly where my contribution went." },
+        { name: "Devon K.", location: "Austin, TX", quote: "You can tell this is a team that ships." },
+        { name: "Priya N.", location: "Bengaluru, India", quote: "More campaigns should publish stories like this." },
+      ],
+    },
+    treesPlanted: "1,500",
   };
 
   const detectedLang = detectLanguage(campaign.title + campaign.shortDescription + campaign.fullStory);
@@ -255,6 +274,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       {/* Backer community spaces (#788) render inside the overview sidebar. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
         <TabsList className="grid w-full grid-cols-3 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
+        <TabsList className="grid w-full grid-cols-4 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
+        <TabsList className="grid w-full grid-cols-5 bg-zinc-900 border border-zinc-800 p-1 rounded-xl">
           <TabsTrigger value="overview" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Target className="mr-1.5 h-4 w-4" /> Overview & Story
           </TabsTrigger>
@@ -263,6 +284,16 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           </TabsTrigger>
           <TabsTrigger value="collaboration" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Users className="mr-1.5 h-4 w-4 text-purple-400" /> Co-Creators (#722)
+          </TabsTrigger>
+          <TabsTrigger value="qa" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <MessageSquare className="mr-1.5 h-4 w-4 text-purple-400" /> Q&A (#791)
+          <TabsTrigger value="success" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <Trophy className="mr-1.5 h-4 w-4 text-amber-400" /> Success Story
+          <TabsTrigger value="series" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <Sparkles className="mr-1.5 h-4 w-4 text-amber-400" /> Series & Sequels
+          </TabsTrigger>
+          <TabsTrigger value="analytics" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <BarChart3 className="mr-1.5 h-4 w-4 text-emerald-400" /> Analytics
           </TabsTrigger>
         </TabsList>
 
@@ -288,7 +319,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   lang={translationLang || detectedLang}
                   className="text-sm text-amber-200/90 italic bg-amber-950/20 p-4 rounded-lg border border-amber-900/30"
                 >
-                  "{translation?.impactStatement ?? campaign.impactStatement}"
+                  &ldquo;{translation?.impactStatement ?? campaign.impactStatement}&rdquo;
                 </p>
                 <div className="grid grid-cols-2 gap-4 text-xs pt-2">
                   <div>Beneficiaries: <strong className="text-zinc-100">{campaign.beneficiaries}</strong></div>
@@ -298,6 +329,19 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             </div>
 
             <div className="space-y-4">
+              <CampaignFundingVelocityChart
+                data={[
+                  { label: "Mon", raised: 2600 },
+                  { label: "Tue", raised: 3000 },
+                  { label: "Wed", raised: 4200 },
+                  { label: "Thu", raised: 5800 },
+                  { label: "Fri", raised: 7300 },
+                  { label: "Sat", raised: 8100 },
+                  { label: "Sun", raised: 9600 },
+                ]}
+                currency="XLM"
+              />
+
               <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 space-y-3">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400">Campaign Timeline</h4>
                 <div className="text-xs space-y-2">
@@ -325,6 +369,49 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         {/* Tab 3: Co-Creators Collaboration (#722) */}
         <TabsContent value="collaboration">
           <CampaignCollaboration campaignId={campaign.id} campaignTitle={campaign.title} />
+        </TabsContent>
+
+        {/* Tab 4: Q&A Moderation (#791) */}
+        <TabsContent value="qa">
+          <CampaignQAModeration campaignId={campaign.id} campaignTitle={campaign.title} />
+        {/* Tab 4: Success Story */}
+        <TabsContent value="success" className="space-y-6">
+          <div className="relative overflow-hidden rounded-2xl border border-emerald-800/60 bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-900 p-6 md:p-8">
+            <div className="flex items-center gap-2">
+              <Badge className="bg-emerald-600 text-white font-semibold text-xs">
+                <Trophy className="mr-1 h-3 w-3" /> Featured Success Story
+              </Badge>
+            </div>
+            <h3 className="text-2xl font-extrabold text-zinc-50 mt-4">{campaign.successStory.headline}</h3>
+            <div className="mt-4 space-y-2 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-purple-400">Creator Interview</p>
+              <p className="text-sm text-zinc-300 leading-relaxed">{campaign.successStory.creatorInterview}</p>
+            </div>
+          </div>
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 space-y-4">
+            <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+              <Users className="h-4 w-4 text-purple-400" /> Backer Testimonials
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {campaign.successStory.backerTestimonials.map((testimonial) => (
+                <figure key={testimonial.name} className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
+                  <blockquote className="text-sm text-zinc-300 leading-relaxed">"{testimonial.quote}"</blockquote>
+                  <figcaption className="mt-3 text-xs text-zinc-400">
+                    <strong className="text-zinc-200">{testimonial.name}</strong> · {testimonial.location}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+          </div>
+
+        {/* Tab 4: Series & Sequels */}
+        <TabsContent value="series">
+          <CampaignSeries campaignId={campaign.id} campaignTitle={campaign.title} />
+        </TabsContent>
+
+        {/* Tab 5: Analytics for creators */}
+        <TabsContent value="analytics">
+          <CampaignAnalyticsDashboard campaignId={campaign.id} campaignTitle={campaign.title} />
         </TabsContent>
       </Tabs>
       {showInsuranceModal && (

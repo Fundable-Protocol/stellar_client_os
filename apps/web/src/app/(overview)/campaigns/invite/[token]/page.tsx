@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Shield, Sparkles, CheckCircle2, AlertCircle, ArrowLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,31 +15,24 @@ export default function AcceptInvitePage() {
   const router = useRouter();
   const token = (params?.token as string) || "";
 
-  const [invite, setInvite] = useState<CoCreatorInvite | null>(null);
-  const [loading, setLoading] = useState(true);
+  const invite = useMemo(() => (token ? collaborationService.getInviteByToken(token) : null), [token]);
+  const errorMsg = useMemo(() => {
+    if (!token) return null;
+    return invite ? null : "This campaign invite link is invalid or has expired.";
+  }, [invite, token]);
   const [name, setName] = useState("");
   const [stellarAddress, setStellarAddress] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [acceptedSuccess, setAcceptedSuccess] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (token) {
-      const found = collaborationService.getInviteByToken(token);
-      if (found) {
-        setInvite(found);
-      } else {
-        setErrorMsg("This campaign invite link is invalid or has expired.");
-      }
-    }
-    setLoading(false);
-  }, [token]);
+  const loading = false;
 
   const handleAccept = () => {
     if (!token || !name.trim() || !stellarAddress.trim()) return;
 
     setIsSubmitting(true);
-    setErrorMsg(null);
+    setFormError(null);
 
     const result = collaborationService.acceptInvite(token, {
       name,
@@ -49,7 +42,7 @@ export default function AcceptInvitePage() {
     if (result.success) {
       setAcceptedSuccess(true);
     } else {
-      setErrorMsg(result.error || "Failed to accept invite.");
+      setFormError(result.error || "Failed to accept invite.");
     }
     setIsSubmitting(false);
   };
@@ -72,8 +65,8 @@ export default function AcceptInvitePage() {
             </div>
             <h2 className="text-2xl font-bold text-zinc-50">Invitation Accepted!</h2>
             <p className="text-sm text-zinc-300">
-              You are now a official <strong className="text-purple-400">{invite?.role}</strong> for campaign{" "}
-              <strong className="text-zinc-100">"{invite?.campaignTitle}"</strong>.
+              You are now an official <strong className="text-purple-400">{invite?.role}</strong> for campaign{" "}
+              <strong className="text-zinc-100">&ldquo;{invite?.campaignTitle}&rdquo;</strong>.
             </p>
             <div className="pt-4">
               <Button
@@ -109,14 +102,14 @@ export default function AcceptInvitePage() {
               <p className="mt-1 text-xs text-zinc-400">
                 You have been invited by <strong>{invite?.invitedByName}</strong> to co-manage:
               </p>
-              <h3 className="mt-2 text-base font-semibold text-purple-300">"{invite?.campaignTitle}"</h3>
+              <h3 className="mt-2 text-base font-semibold text-purple-300">&ldquo;{invite?.campaignTitle}&rdquo;</h3>
               <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-950/40 px-3 py-1 text-xs font-semibold text-purple-200">
                 <Shield className="h-3.5 w-3.5 text-purple-400" />
                 Offered Role: {invite?.role}
               </div>
             </div>
 
-            {errorMsg && <p className="text-xs text-rose-400 text-center">{errorMsg}</p>}
+            {formError && <p className="text-xs text-rose-400 text-center">{formError}</p>}
 
             <div className="space-y-4">
               <div>

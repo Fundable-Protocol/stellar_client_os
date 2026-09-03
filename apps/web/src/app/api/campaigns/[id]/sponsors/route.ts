@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { INITIAL_MOCK_SPONSORS, calculateSponsorTier, Sponsor } from "@/types/sponsor";
 
 // In-memory store for demo API route
-let sponsorsStore: Sponsor[] = [...INITIAL_MOCK_SPONSORS];
+const sponsorsStore: Sponsor[] = [...INITIAL_MOCK_SPONSORS];
 
 export async function GET(
   request: NextRequest,

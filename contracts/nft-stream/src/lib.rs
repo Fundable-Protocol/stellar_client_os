@@ -468,7 +468,13 @@ impl PaymentStreamContract {
         let elapsed = current_time - stream.start_time;
         let duration = stream.end_time - stream.start_time;
 
-        (stream.total_amount * elapsed as i128) / duration as i128
+        // Split-multiplication: (total / dur) * elapsed + ((total % dur) * elapsed) / dur
+        // This is mathematically equal to (total * elapsed) / dur but avoids both
+        // intermediate overflow and the floor-division rounding error that would
+        // inflate refund_amount by up to (duration - 1) base units.
+        let dur = duration as i128;
+        let el = elapsed as i128;
+        (stream.total_amount / dur) * el + ((stream.total_amount % dur) * el) / dur
     }
 
     fn calculate_claimable(stream: &Stream, current_time: u64) -> i128 {

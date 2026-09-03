@@ -20,7 +20,6 @@ import { computeMaxStreamableAmount } from "@/utils/amount-validation";
 import { useUnsavedChanges } from "@/hooks/use-unsaved-changes";
 import { createTestnetService } from "@/services/stellar.service";
 import { PAYMENT_STREAM_CONTRACT_ID, DISTRIBUTOR_CONTRACT_ID } from "@/lib/env";
-import { createStream } from "@/lib/api";
 
 // Stream form state type
 interface StreamFormData {

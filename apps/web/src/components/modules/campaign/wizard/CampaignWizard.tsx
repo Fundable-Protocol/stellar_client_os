@@ -78,7 +78,7 @@ export function CampaignWizard({
         </div>
         <h2 className="text-2xl font-bold text-zinc-50">Campaign Created Successfully!</h2>
         <p className="mt-2 text-sm text-zinc-300">
-          Your campaign <strong className="text-emerald-400">"{wizard.data.title}"</strong> has been created and prepared for launch on Stellar.
+          Your campaign <strong className="text-emerald-400">&ldquo;{wizard.data.title}&rdquo;</strong> has been created and prepared for launch on Stellar.
         </p>
         <div className="mt-6 flex justify-center gap-3">
           <Button

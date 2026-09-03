@@ -55,7 +55,7 @@ export function InviteCoCreatorModal({
             Invite Co-Creators & Editors
           </DialogTitle>
           <DialogDescription className="text-zinc-400 text-xs">
-            Generate a shareable link allowing other users to co-manage <strong>"{campaignTitle}"</strong> with edit permissions.
+            Generate a shareable link allowing other users to co-manage <strong>&ldquo;{campaignTitle}&rdquo;</strong> with edit permissions.
           </DialogDescription>
         </DialogHeader>
 

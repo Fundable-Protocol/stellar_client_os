@@ -316,6 +316,8 @@ pub enum Error {
     InvalidTier = 34,
     /// More than MAX_TIERS entries were supplied
     TooManyTiers = 35,
+    /// A reentrant call was detected while the lock was already held
+    ReentrancyGuard = 36,
 }
 
 // Constants
@@ -457,6 +459,54 @@ impl PaymentStreamContract {
         fee.max(0)
     }
 
+    /// Acquire a per-stream reentrancy lock stored in temporary storage.
+    ///
+    /// Temporary storage entries are automatically cleared at ledger close,
+    /// so a lock can never be left permanently set by a buggy call path.
+    ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — the lock is already held, indicating
+    ///   a reentrant call attempt (e.g. a malicious token contract calling
+    ///   back into the stream contract mid-transfer).
+    fn acquire_stream_lock(env: &Env, stream_id: u64) {
+        let key = (stream_id, Symbol::new(env, "lock"));
+        if env.storage().temporary().get::<_, bool>(&key).unwrap_or(false) {
+            panic_with_error!(env, Error::ReentrancyGuard);
+        }
+        env.storage().temporary().set(&key, &true);
+    }
+
+    /// Release the per-stream reentrancy lock.
+    ///
+    /// Must be called at the end of every function that called
+    /// [`acquire_stream_lock`].  Removing the entry is cheaper than setting
+    /// it to `false` and avoids leaving stale state.
+    fn release_stream_lock(env: &Env, stream_id: u64) {
+        let key = (stream_id, Symbol::new(env, "lock"));
+        env.storage().temporary().remove(&key);
+    }
+
+    /// Acquire the global reentrancy lock for non-stream operations.
+    ///
+    /// Used by admin functions that mutate instance storage without a
+    /// stream-scoped context.
+    ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — the global lock is already held.
+    fn acquire_global_lock(env: &Env) {
+        let key = Symbol::new(env, "g_lock");
+        if env.storage().temporary().get::<_, bool>(&key).unwrap_or(false) {
+            panic_with_error!(env, Error::ReentrancyGuard);
+        }
+        env.storage().temporary().set(&key, &true);
+    }
+
+    /// Release the global reentrancy lock.
+    fn release_global_lock(env: &Env) {
+        let key = Symbol::new(env, "g_lock");
+        env.storage().temporary().remove(&key);
+    }
+
     /// Activate the global emergency pause switch.
     ///
     /// When active, all calls to `create_stream`, `deposit`, `withdraw`, and
@@ -546,6 +596,10 @@ impl PaymentStreamContract {
     /// # Authorization
     /// Requires the `sender` address to sign the call.
     ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — reentrant call detected during token
+    ///   transfer.
+    ///
     /// # Returns
     /// The unique `u64` ID of the newly created stream.
     pub fn create_stream(
@@ -597,6 +651,7 @@ impl PaymentStreamContract {
     /// - `Error::InvalidTimeRange` - `end_time <= start_time`.
     /// - `Error::InvalidCliff` - `cliff_duration >= end_time - start_time`.
     /// - `Error::ContractPaused` - the emergency circuit breaker is active.
+    /// - `Error::ReentrancyGuard` - reentrant call detected during token transfer.
     ///
     /// # Returns
     /// The unique `u64` ID of the newly created stream.
@@ -647,6 +702,7 @@ impl PaymentStreamContract {
     /// - `Error::InvalidTimeRange` - any entry has `end_time <= start_time`.
     /// - `Error::InvalidCliff` - any entry has `cliff_duration >= end_time - start_time`.
     /// - `Error::ContractPaused` - the emergency circuit breaker is active.
+    /// - `Error::ReentrancyGuard` - reentrant call detected during token transfer.
     ///
     /// # Returns
     /// The stream IDs of the newly created streams, in batch order.
@@ -829,11 +885,19 @@ impl PaymentStreamContract {
         env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
+        // Acquire the per-stream reentrancy lock before the token transfer so
+        // a malicious token contract cannot re-enter create_stream_internal
+        // mid-execution and manipulate the freshly created stream's state.
+        Self::acquire_stream_lock(&env, stream_id);
+
         // Transfer tokens from sender to contract (escrow)
         if initial_amount > 0 {
             let token_client = token::Client::new(&env, &token);
             token_client.transfer(&sender, &env.current_contract_address(), &initial_amount);
         }
+
+        // Release the per-stream lock now that state is consistent.
+        Self::release_stream_lock(&env, stream_id);
 
         stream_id
     }
@@ -841,6 +905,7 @@ impl PaymentStreamContract {
     /// Deposit tokens to an existing stream
     pub fn deposit(env: Env, stream_id: u64, amount: i128) {
         Self::assert_not_paused(&env);
+        Self::acquire_stream_lock(&env, stream_id);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         if matches!(stream.status, StreamStatus::Canceled | StreamStatus::Completed) {
@@ -862,6 +927,11 @@ impl PaymentStreamContract {
         if new_balance > stream.total_amount {
             panic_with_error!(&env, Error::DepositExceedsTotal);
         }
+
+        // Release the lock immediately before the token transfer so that the
+        // transfer's cross-contract call cannot re-enter `deposit` on the
+        // same stream while the lock is still held.
+        Self::release_stream_lock(&env, stream_id);
 
         // Transfer tokens from sender to contract
         let token_client = token::Client::new(&env, &stream.token);
@@ -1141,10 +1211,14 @@ impl PaymentStreamContract {
     }
 
     /// Set a delegate for withdrawal rights on a stream
+    ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — reentrant call detected.
     pub fn set_delegate(env: Env, stream_id: u64, delegate: Address) {
+        Self::acquire_stream_lock(&env, stream_id);
         let stream: Stream = Self::get_stream(env.clone(), stream_id);
         stream.recipient.require_auth();
-    
+
         // Prevent self-delegation
         if delegate == stream.recipient {
             panic_with_error!(&env, Error::InvalidDelegate);
@@ -1189,6 +1263,8 @@ impl PaymentStreamContract {
         env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
+        Self::release_stream_lock(&env, stream_id);
+
         // Emit event
         DelegationGrantedEvent {
             stream_id,
@@ -1199,7 +1275,11 @@ impl PaymentStreamContract {
     }
 
     /// Revoke the delegate for a stream
+    ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — reentrant call detected.
     pub fn revoke_delegate(env: Env, stream_id: u64) {
+        Self::acquire_stream_lock(&env, stream_id);
         let stream: Stream = Self::get_stream(env.clone(), stream_id);
         stream.recipient.require_auth();
 
@@ -1221,12 +1301,16 @@ impl PaymentStreamContract {
             env.storage().persistent().set(&DataKey::Metrics(stream_id), &metrics);
             env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
 
+            Self::release_stream_lock(&env, stream_id);
+
             // Emit event
             DelegationRevokedEvent {
                 stream_id,
                 recipient: stream.recipient,
             }
             .publish(&env);
+        } else {
+            Self::release_stream_lock(&env, stream_id);
         }
     }
 
@@ -1290,8 +1374,13 @@ impl PaymentStreamContract {
     }
 
     /// Withdraw from a stream
+    ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — reentrant call detected during token
+    ///   transfer.
     pub fn withdraw(env: Env, stream_id: u64, amount: i128) {
         Self::assert_not_paused(&env);
+        Self::acquire_stream_lock(&env, stream_id);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         Self::assert_is_recipient_or_delegate(&env, stream_id);
@@ -1310,7 +1399,7 @@ impl PaymentStreamContract {
         // Check if stream is completed
         if stream.withdrawn_amount >= stream.total_amount {
             stream.status = StreamStatus::Completed;
-            
+
             // Update protocol metrics - decrease active streams
             let mut protocol_metrics: ProtocolMetrics = env.storage().instance()
                 .get(&DataKey::ProtocolMetrics)
@@ -1333,6 +1422,11 @@ impl PaymentStreamContract {
 
         env.storage().persistent().set(&DataKey::Metrics(stream_id), &metrics);
         env.storage().persistent().extend_ttl(&DataKey::Metrics(stream_id), LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        // Release the lock immediately before the token transfer so that the
+        // transfer's cross-contract call cannot re-enter `withdraw` on the
+        // same stream while the lock is still held.
+        Self::release_stream_lock(&env, stream_id);
 
         // Transfer net amount to recipient
         let token_client = token::Client::new(&env, &stream.token);
@@ -1357,7 +1451,11 @@ impl PaymentStreamContract {
     }
 
     /// Pause a stream (sender only)
+    ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — reentrant call detected.
     pub fn pause_stream(env: Env, stream_id: u64) {
+        Self::acquire_stream_lock(&env, stream_id);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         stream.sender.require_auth();
@@ -1367,7 +1465,7 @@ impl PaymentStreamContract {
         }
 
         let current_time = env.ledger().timestamp();
-        
+
         stream.status = StreamStatus::Paused;
         stream.paused_at = Some(current_time);
 
@@ -1393,6 +1491,8 @@ impl PaymentStreamContract {
         env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
+        Self::release_stream_lock(&env, stream_id);
+
         // Emit StreamPaused event
         StreamPausedEvent {
             stream_id,
@@ -1402,7 +1502,11 @@ impl PaymentStreamContract {
     }
 
     /// Resume a paused stream (sender only)
+    ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — reentrant call detected.
     pub fn resume_stream(env: Env, stream_id: u64) {
+        Self::acquire_stream_lock(&env, stream_id);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         stream.sender.require_auth();
@@ -1412,7 +1516,7 @@ impl PaymentStreamContract {
         }
 
         let current_time = env.ledger().timestamp();
-        
+
         // Calculate pause duration
         let paused_duration = if let Some(paused_at) = stream.paused_at {
             current_time.saturating_sub(paused_at)
@@ -1422,10 +1526,10 @@ impl PaymentStreamContract {
 
         // Update total paused duration
         stream.total_paused_duration += paused_duration;
-        
+
         // Extend end_time by the paused duration
         stream.end_time += paused_duration;
-        
+
         stream.status = StreamStatus::Active;
         stream.paused_at = None;
 
@@ -1450,6 +1554,8 @@ impl PaymentStreamContract {
         env.storage().instance().set(&DataKey::ProtocolMetrics, &protocol_metrics);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
+        Self::release_stream_lock(&env, stream_id);
+
         // Emit StreamResumed event
         StreamResumedEvent {
             stream_id,
@@ -1460,7 +1566,12 @@ impl PaymentStreamContract {
     }
 
     /// Cancel a stream
+    ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — reentrant call detected during token
+    ///   transfer.
     pub fn cancel_stream(env: Env, stream_id: u64) {
+        Self::acquire_stream_lock(&env, stream_id);
         let mut stream: Stream = Self::get_stream(env.clone(), stream_id);
 
         stream.sender.require_auth();
@@ -1468,7 +1579,7 @@ impl PaymentStreamContract {
         if stream.status != StreamStatus::Active && stream.status != StreamStatus::Paused {
             panic_with_error!(&env, Error::StreamCannotBeCanceled);
         }
-        
+
         let was_active = stream.status == StreamStatus::Active;
         stream.status = StreamStatus::Canceled;
 
@@ -1495,6 +1606,11 @@ impl PaymentStreamContract {
             env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
         }
 
+        // Release the lock immediately before the token transfer so that the
+        // transfer's cross-contract call cannot re-enter `cancel_stream` on
+        // the same stream while the lock is still held.
+        Self::release_stream_lock(&env, stream_id);
+
         // Refund remaining tokens to sender
         let remaining = (stream.balance - stream.withdrawn_amount).max(0);
         if remaining > 0 {
@@ -1509,7 +1625,9 @@ impl PaymentStreamContract {
     /// * [`Error::FeeTooHigh`] — `new_fee_rate > MAX_FEE`.
     /// * [`Error::InvalidTier`] — `new_fee_rate` is below the first configured
     ///   tier's fee_rate (would violate the non-increasing invariant).
+    /// * [`Error::ReentrancyGuard`] — reentrant call detected.
     pub fn set_protocol_fee_rate(env: Env, new_fee_rate: u32) {
+        Self::acquire_global_lock(&env);
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
@@ -1533,15 +1651,23 @@ impl PaymentStreamContract {
 
         env.storage().instance().set(&DataKey::FeeRate, &new_fee_rate);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        Self::release_global_lock(&env);
     }
 
     /// Set the fee collector address
+    ///
+    /// # Errors
+    /// * [`Error::ReentrancyGuard`] — reentrant call detected.
     pub fn set_fee_collector(env: Env, new_fee_collector: Address) {
+        Self::acquire_global_lock(&env);
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
 
         env.storage().instance().set(&DataKey::FeeCollector, &new_fee_collector);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        Self::release_global_lock(&env);
     }
 
     /// Get the current protocol fee rate

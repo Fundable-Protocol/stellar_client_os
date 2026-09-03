@@ -526,7 +526,7 @@ export function PreviewStep({ data, errors }: { data: CampaignWizardData; errors
         {/* Impact */}
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/80 p-4 space-y-2">
           <span className="text-xs uppercase font-semibold text-amber-400">4. Impact Statement</span>
-          <p className="text-xs text-zinc-300 italic">"{data.impactStatement || "No impact statement set"}"</p>
+          <p className="text-xs text-zinc-300 italic">&ldquo;{data.impactStatement || "No impact statement set"}&rdquo;</p>
           <div className="text-xs text-zinc-400 pt-2 border-t border-zinc-800 flex justify-between">
             <span>Beneficiaries: <strong className="text-zinc-200">{data.targetBeneficiaries || "N/A"}</strong></span>
             <span>CO2 Offset: <strong className="text-amber-300">{data.co2OffsetTons} Tons</strong></span>

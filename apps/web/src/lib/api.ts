@@ -280,15 +280,3 @@ export async function submitFailureProof(params: {
     const hash = await signAndSendTx(tx, params.signTransaction);
     return hash;
 }
-
-export async function submitFailureProof(params: {
-    streamId: number;
-    address: string;
-    evidence: string;
-    signTransaction?: WalletSigner;
-}): Promise<string> {
-    const client = createPaymentStreamClient(params.address);
-    const tx = await client.submitFailureProof(BigInt(params.streamId), params.evidence);
-    const hash = await signAndSendTx(tx, params.signTransaction);
-    return hash;
-}

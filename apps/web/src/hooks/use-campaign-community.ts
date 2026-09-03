@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import {
   CommunitySpace,
   CommunityMembership,
@@ -22,17 +22,24 @@ export function useCampaignCommunity({
   campaignId,
   currentUserAddress = "GD6W...X892",
 }: UseCampaignCommunityOptions) {
-  const [spaces, setSpaces] = useState<CommunitySpace[]>([]);
-  const [memberships, setMemberships] = useState<CommunityMembership[]>([]);
+  const [prevCampaignId, setPrevCampaignId] = useState(campaignId);
+  const [spaces, setSpaces] = useState<CommunitySpace[]>(() => [
+    ...communityService.getSpaces(campaignId),
+  ]);
+  const [memberships, setMemberships] = useState<CommunityMembership[]>(() => [
+    ...communityService.getMemberships(campaignId),
+  ]);
+
+  if (prevCampaignId !== campaignId) {
+    setPrevCampaignId(campaignId);
+    setSpaces([...communityService.getSpaces(campaignId)]);
+    setMemberships([...communityService.getMemberships(campaignId)]);
+  }
 
   const reloadData = useCallback(() => {
     setSpaces([...communityService.getSpaces(campaignId)]);
     setMemberships([...communityService.getMemberships(campaignId)]);
   }, [campaignId]);
-
-  useEffect(() => {
-    reloadData();
-  }, [reloadData]);
 
   const createSpace = useCallback(
     (input: Omit<CreateCommunitySpaceInput, "campaignId" | "linkedBy">) => {
