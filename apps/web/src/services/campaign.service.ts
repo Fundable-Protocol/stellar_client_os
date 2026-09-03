@@ -1,3 +1,5 @@
+import { EmailService } from "./email.service";
+
 export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
 
 export type CampaignSortField =
@@ -116,6 +118,7 @@ export interface CampaignInsuranceClaimInput {
 export interface CampaignRecord {
   id: string;
   creator: string;
+  creatorEmail?: string;
   name: string;
   description?: string;
   /** Detected ISO 639-1 language code of the campaign description. */
@@ -151,6 +154,15 @@ export interface CampaignRecord {
   healthAssessment?: CampaignHealthAssessment;
   healthScore?: number;
   healthLevel?: CampaignHealthLevel;
+  /** Narrative success story content (e.g., creator interview, backer testimonials). */
+  successStory?: {
+    creatorInterview?: string;
+    backerTestimonials?: string[];
+  };
+  /** Whether this campaign has been featured as a success story. */
+  featured?: boolean;
+  /** Timestamp when the campaign was featured as a success story. */
+  featuredAt?: number;
   insuranceClaim?: CampaignInsuranceClaim;
 }
 
@@ -339,6 +351,45 @@ export const assessCampaignRisk = getCampaignRiskAssessment;
 export const calculateCampaignHealthScore = getCampaignHealthAssessment;
 export const evaluateCampaignHealth = getCampaignHealthAssessment;
 
+export interface CampaignSuccessStory {
+  campaignId: string;
+  title: string;
+  summary: string;
+  featured: boolean;
+  successDate: number;
+  creatorInterview?: string;
+  backerTestimonials: string[];
+}
+
+export function isCampaignSuccessStory(campaign: CampaignRecord): boolean {
+  return campaign.status === "COMPLETED" && BigInt(campaign.raisedAmount) >= BigInt(campaign.goalAmount);
+}
+
+export function getCampaignSuccessStory(campaign: CampaignRecord): CampaignSuccessStory | null {
+  if (!isCampaignSuccessStory(campaign)) return null;
+  const story = campaign.successStory ?? {};
+  return {
+    campaignId: campaign.id,
+    title: campaign.name,
+    summary: campaign.description?.trim() || "This campaign successfully shipped.",
+    featured: Boolean(campaign.featured),
+    successDate: campaign.statusChangedAt,
+    creatorInterview: story.creatorInterview,
+    backerTestimonials: story.backerTestimonials ?? [],
+  };
+}
+
+export function getSuccessStoryCampaigns(campaigns: CampaignRecord[]): CampaignRecord[] {
+  return campaigns.filter(isCampaignSuccessStory);
+}
+
+export function getFeaturedSuccessStories(campaigns: CampaignRecord[]): CampaignSuccessStory[] {
+  return getSuccessStoryCampaigns(campaigns)
+    .filter((campaign) => campaign.featured)
+    .map(getCampaignSuccessStory)
+    .filter((story): story is CampaignSuccessStory => story !== null);
+}
+
 export async function getCampaign(campaignId: string, dataSource = getCampaignDataSource()): Promise<CampaignRecord | null> {
   return (await dataSource.getCampaigns()).find((campaign) => campaign.id === campaignId) ?? null;
 }
@@ -346,6 +397,7 @@ export async function getCampaign(campaignId: string, dataSource = getCampaignDa
 export async function createCampaign(input: {
   id?: string;
   creator: string;
+  creatorEmail?: string;
   name: string;
   description?: string;
   location?: string;
@@ -357,6 +409,7 @@ export async function createCampaign(input: {
   const campaign: CampaignRecord = {
     id: input.id ?? crypto.randomUUID(),
     creator: input.creator,
+    creatorEmail: input.creatorEmail,
     name: input.name,
     description: input.description,
     language: detectCampaignLanguage(input.description),
@@ -373,6 +426,7 @@ export async function createCampaign(input: {
     statusChangedAt: now,
     network: input.network,
     sponsors: [],
+    milestonesNotified: [],
     statusHistory: [{
       id: `${input.id ?? "campaign"}:${now}:0`,
       campaignId: input.id ?? "",

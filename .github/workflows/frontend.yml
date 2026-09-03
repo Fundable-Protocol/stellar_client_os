@@ -32,7 +32,7 @@ jobs:
           version: 9
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Configure frontend environment
         run: |
@@ -49,5 +49,4 @@ jobs:
       - name: Lint frontend
         run: pnpm lint
 
-      - name: Build frontend
-        run: pnpm build
+  

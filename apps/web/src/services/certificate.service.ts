@@ -32,6 +32,17 @@ export interface ContributionLineItem {
   timestamp: number;
 }
 
+/** Impact metrics shown on campaign completion certificates. */
+export interface CampaignImpact {
+  /** Number of trees planted. */
+  trees: number;
+  /** CO₂ offset in metric tonnes. */
+  co2: number;
+  /** Human-readable cost saved (e.g. "$1,200.00"). */
+  cost: string;
+}
+
+/** Input payload for generating a certificate, invoice, or campaign PDF. */
 /** Carbon offset credit details for tradeable CO2 certificates. */
 export interface CarbonCreditDetails {
   /** Registry serial number(s) for the carbon offset credits. */
@@ -62,6 +73,8 @@ export interface CertificateInput {
   lineItems: ContributionLineItem[];
   /** Total amount in human-readable form (e.g. "2,500.00 USDC") */
   totalAmount: string;
+  /** Optional campaign impact metrics for campaign completion certificates. */
+  campaignImpact?: CampaignImpact;
   /** ISO 8601 date string for the certificate ("2025-01-15") */
   issuedAt?: string;
   /** Optional organisation or project logo as a base64 PNG data URI */
@@ -69,6 +82,7 @@ export interface CertificateInput {
   /** Optional carbon offset credit details for tradeable CO2 certificates */
   carbonCredits?: CarbonCreditDetails;
   /** Document type — controls the title printed on the PDF */
+  documentType?: "certificate" | "invoice" | "campaign";
   documentType?: "certificate" | "invoice" | "carbon";
 }
 
@@ -177,6 +191,10 @@ function drawHRule(
  * Throws `CertificateError` with code `INVALID_INPUT` on failure.
  */
 export function validateCertificateInput(input: CertificateInput): void {
+  if (input.documentType === "campaign" && !input.campaignImpact) {
+    throw new CertificateError("campaignImpact is required for campaign certificates", "INVALID_INPUT");
+  }
+
   if (!input.donorName?.trim()) {
     throw new CertificateError("donorName is required", "INVALID_INPUT");
   }
@@ -260,6 +278,8 @@ export async function buildCertificatePdf(
   const title =
     docType === "invoice"
       ? "Contribution Invoice"
+      : docType === "campaign"
+        ? "Campaign Completion Certificate"
       : docType === "carbon"
         ? "Carbon Offset Certificate"
         : "Contribution Receipt";
@@ -439,6 +459,15 @@ export async function buildCertificatePdf(
   drawHRule(page, cursor);
   cursor -= 20;
 
+  // ── Campaign impact metrics ────────────────────────────────────────────────
+  if (input.campaignImpact) {
+    page.drawText("CAMPAIGN IMPACT", { x: MARGIN, y: cursor, size: 8, font: fontBold, color: COLOR_MUTED });
+    cursor -= 16;
+    page.drawText(
+      `Trees Planted: ${input.campaignImpact.trees}    CO2 Offset: ${input.campaignImpact.co2}t    Cost Saved: ${input.campaignImpact.cost}`,
+      { x: MARGIN, y: cursor, size: 11, font: fontBold, color: COLOR_PRIMARY }
+    );
+    cursor -= 28;
   if (docType === "carbon" && input.carbonCredits) {
     cursor -= 20;
     page.drawText("CARBON OFFSET CREDITS", {

@@ -42,8 +42,13 @@ pub enum DataKey {
     /// Full [`Campaign`] struct keyed by campaign ID (persistent storage).
     Campaign(u64),
     /// Per-contributor escrow balance keyed by `(campaign_id, contributor)`
-    /// (persistent storage).
+    /// (persistent storage). This remains the sponsor's gross contribution,
+    /// independent of protocol fees and matching funds.
     Contribution(u64, Address),
+    /// Status history entry keyed by `(campaign_id, entry_index)` (persistent storage).
+    StatusHistory(u64, u32),
+    /// Total number of status history entries for a campaign (persistent storage).
+    StatusHistoryCount(u64),
     /// Bitmask of campaign goal milestones (25 %, 50 %, 75 %, 100 %) that
     /// have been reached so far, keyed by campaign ID (persistent storage).
     MilestonesReached(u64),
@@ -70,6 +75,16 @@ pub enum CampaignStatus {
     /// Trees died during verification; sponsors are entitled to insurance
     /// refunds from the insurance pool.
     VerificationFailed,
+}
+
+/// Single entry in a campaign's status history.
+#[contracttype]
+#[derive(Clone)]
+pub struct StatusHistoryEntry {
+    /// The status that was set at this point in time.
+    pub status: CampaignStatus,
+    /// Unix timestamp (seconds) when this status change occurred.
+    pub timestamp: u64,
 }
 
 /// Core campaign record stored on-chain.
@@ -515,6 +530,7 @@ impl CampaignFundingContract {
         };
 
         Self::save_campaign(&env, count, &campaign);
+        Self::record_status_change(&env, count, CampaignStatus::Active);
 
         env.events().publish(
             ("CampaignCreated", count),
@@ -684,22 +700,42 @@ impl CampaignFundingContract {
         let token_client = token::Client::new(&env, &campaign.token);
         token_client.transfer(&contributor, &env.current_contract_address(), &amount);
 
-        // Update per-contributor balance.
+        // Update per-contributor balance. This is always the sponsor's gross
+        // amount, so a later refund returns the original contribution rather
+        // than any fee-adjusted net amount.
         let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
         let prev: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
         let new_contrib = prev
             .checked_add(amount)
             .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
         env.storage().persistent().set(&contrib_key, &new_contrib);
-        env.storage()
-            .persistent()
-            .extend_ttl(&contrib_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        // Keep the gross sponsor amount separate from any future fee or
+        // matching accounting so refunds always return the original deposit.
+        let original_key = DataKey::OriginalContribution(campaign_id, contributor.clone());
+        let original = prev.checked_add(amount).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        env.storage().persistent().set(&original_key, &original);
+        env.storage().persistent().extend_ttl(&contrib_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&original_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-        campaign.total_raised = new_total;
+        // Apply available admin-funded matching dollar-for-dollar. Matching
+        // is bounded by both the remaining campaign target and its budget.
+        let matching_cap: i128 = env.storage().persistent().get(&DataKey::MatchingCap(campaign_id)).unwrap_or(0);
+        let matching_used: i128 = env.storage().persistent().get(&DataKey::MatchingUsed(campaign_id)).unwrap_or(0);
+        let matching_balance: i128 = env.storage().persistent().get(&DataKey::MatchingBalance(campaign_id)).unwrap_or(0);
+        let remaining_budget = matching_cap.saturating_sub(matching_used);
+        let remaining_target = campaign.target_amount.saturating_sub(new_total);
+        let matched = amount.min(remaining_budget).min(matching_balance).min(remaining_target);
+        if matched > 0 {
+            let updated_matching = matching_used.checked_add(matched).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+            env.storage().persistent().set(&DataKey::MatchingUsed(campaign_id), &updated_matching);
+            env.storage().persistent().set(&DataKey::MatchingBalance(campaign_id), &(matching_balance - matched));
+        }
+        campaign.total_raised = new_total.checked_add(matched).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
 
         // Auto-succeed when the hard cap is reached.
         if campaign.total_raised >= campaign.target_amount {
             campaign.status = CampaignStatus::Successful;
+            Self::record_status_change(&env, campaign_id, CampaignStatus::Successful);
             env.events().publish(
                 ("CampaignStatusChanged", campaign_id),
                 CampaignStatusChangedEvent {
@@ -757,6 +793,7 @@ impl CampaignFundingContract {
         };
 
         let new_status = campaign.status;
+        Self::record_status_change(&env, campaign_id, new_status);
         Self::save_campaign(&env, campaign_id, &campaign);
 
         env.events().publish(
@@ -809,6 +846,7 @@ impl CampaignFundingContract {
         let distributable = after_fee - reserve;
 
         campaign.status = CampaignStatus::Claimed;
+        Self::record_status_change(&env, campaign_id, CampaignStatus::Claimed);
         Self::save_campaign(&env, campaign_id, &campaign);
 
         let token_client = token::Client::new(&env, &campaign.token);
@@ -960,7 +998,13 @@ impl CampaignFundingContract {
         }
 
         let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
-        let amount: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
+        // Prefer the gross ledger. The fallback lets pre-upgrade records
+        // continue to refund correctly because Contribution was historically
+        // the gross sponsor amount.
+        let original_key = DataKey::OriginalContribution(campaign_id, contributor.clone());
+        let amount: i128 = env.storage().persistent().get(&original_key)
+            .or_else(|| env.storage().persistent().get(&contrib_key))
+            .unwrap_or(0);
 
         if amount <= 0 {
             panic_with_error!(&env, Error::NoContributionFound);
@@ -968,6 +1012,7 @@ impl CampaignFundingContract {
 
         // Clear before transferring (check-effects-interactions).
         env.storage().persistent().remove(&contrib_key);
+        env.storage().persistent().remove(&original_key);
 
         let token_client = token::Client::new(&env, &campaign.token);
         token_client.transfer(&env.current_contract_address(), &contributor, &amount);
@@ -1234,6 +1279,35 @@ impl CampaignFundingContract {
             .unwrap()
     }
 
+    /// Return the full status history for a campaign.
+    ///
+    /// Returns a vector of `(status, timestamp)` tuples representing all
+    /// status changes in chronological order, starting from the initial
+    /// `Active` status at campaign creation.
+    ///
+    /// # Arguments
+    /// * `campaign_id` — The campaign to query.
+    ///
+    /// # Returns
+    /// A vector of status history entries ordered from oldest to newest.
+    pub fn get_status_history(env: Env, campaign_id: u64) -> Vec<StatusHistoryEntry> {
+        let count: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::StatusHistoryCount(campaign_id))
+            .unwrap_or(0);
+
+        let mut history = Vec::new(&env);
+        for i in 0..count {
+            if let Some(entry) = env
+                .storage()
+                .persistent()
+                .get(&DataKey::StatusHistory(campaign_id, i))
+            {
+                history.push_back(entry);
+            }
+        }
+        history
     /// Return the configured payment-stream contract address, if any.
     pub fn get_stream_contract(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::StreamContract)
@@ -1417,6 +1491,29 @@ impl CampaignFundingContract {
                 .persistent()
                 .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
         }
+    }
+
+    /// Record a status change in the campaign's status history.
+    fn record_status_change(env: &Env, campaign_id: u64, status: CampaignStatus) {
+        let count_key = DataKey::StatusHistoryCount(campaign_id);
+        let mut count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+
+        let entry = StatusHistoryEntry {
+            status,
+            timestamp: env.ledger().timestamp(),
+        };
+
+        let entry_key = DataKey::StatusHistory(campaign_id, count);
+        env.storage().persistent().set(&entry_key, &entry);
+        env.storage()
+            .persistent()
+            .extend_ttl(&entry_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        count += 1;
+        env.storage().persistent().set(&count_key, &count);
+        env.storage()
+            .persistent()
+            .extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     /// Compute the protocol fee for `amount` using the stored fee rate.
@@ -2449,6 +2546,32 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Status history
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_status_history_records_initial_active() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+        assert_eq!(history.get(0).unwrap().timestamp, 1_000);
+    }
+
+    #[test]
+    fn test_status_history_records_successful_transition() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
     // Funds-flow transparency events
     // -----------------------------------------------------------------------
 
@@ -2466,6 +2589,77 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        set_time(&env, 1_500);
+        client.contribute(&contributor, &id, &10_000); // Auto-succeed
+
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+        assert_eq!(history.get(0).unwrap().timestamp, 1_000);
+        assert_eq!(history.get(1).unwrap().status, CampaignStatus::Successful);
+        assert_eq!(history.get(1).unwrap().timestamp, 1_500);
+    }
+
+    #[test]
+    fn test_status_history_records_failed_transition() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&contributor, &3_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.contribute(&contributor, &id, &3_000); // Below min_target
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id); // → Failed
+
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+        assert_eq!(history.get(0).unwrap().timestamp, 1_000);
+        assert_eq!(history.get(1).unwrap().status, CampaignStatus::Failed);
+        assert_eq!(history.get(1).unwrap().timestamp, 3_000);
+    }
+
+    #[test]
+    fn test_status_history_records_claimed_transition() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.contribute(&contributor, &id, &10_000); // Auto-succeed
+        set_time(&env, 3_000);
+        client.claim_funds(&id);
+
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 3);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+        assert_eq!(history.get(1).unwrap().status, CampaignStatus::Successful);
+        assert_eq!(history.get(2).unwrap().status, CampaignStatus::Claimed);
+    }
+
+    #[test]
+    fn test_status_history_empty_for_nonexistent_campaign() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+
+        let history = client.get_status_history(&99);
+        assert_eq!(history.len(), 0);
         let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &8_000);
         set_time(&env, 3_000);

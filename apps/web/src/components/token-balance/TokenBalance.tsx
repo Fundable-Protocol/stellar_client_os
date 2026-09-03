@@ -72,6 +72,7 @@ export function TokenBalance({
   const [imageTimedOut, setImageTimedOut] = useState(false);
   const formattedBalance = formatBalance(balance);
 
+  // Handle image timeout for slow connections (3G)
   useEffect(() => {
     if (!iconUrl) return;
 
@@ -88,6 +89,7 @@ export function TokenBalance({
     setImageTimedOut(false);
   };
 
+  // Use key to reset state when iconUrl or assetCode changes
   const resetKey = `${iconUrl ?? ""}-${assetCode}`;
 
   return (
@@ -121,7 +123,6 @@ export function TokenBalance({
 
       <div className="flex-1 min-w-0">
         <div className="font-semibold text-zinc-50 text-base">{assetCode}</div>
-
         {assetIssuer && (
           <div className="text-xs text-zinc-400 font-mono truncate">
             {assetIssuer.substring(0, 8)}...

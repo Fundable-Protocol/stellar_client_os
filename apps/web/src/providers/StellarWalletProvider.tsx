@@ -91,7 +91,6 @@ function getNetworkName(passphrase: string): string {
       return "Unknown Network";
   }
 }
-
 /** Read all persisted wallet fields in one pass and validate them together. */
 function loadPersistedSession(): {
   address: string | null;
