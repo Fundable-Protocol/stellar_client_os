@@ -75,6 +75,15 @@ export function CampaignSponsorWall({ campaignId, campaignTitle = "Save the Amaz
         </div>
       </div>
 
+      {/* Carbon Offset Credits */}
+      <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-2 text-xs text-emerald-300">
+        <Award className="h-4 w-4" />
+        <span>This campaign issues tradeable CO2 offset certificates. </span>
+        <a href="/carbon-marketplace" className="underline font-semibold hover:text-emerald-200">
+          Sell on marketplace
+        </a>
+      </div>
+
       {/* Search & Filter Bar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-sm">

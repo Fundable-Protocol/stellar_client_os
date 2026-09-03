@@ -1,3 +1,4 @@
+// Refactor persistent storage keys to reduce footprint
 #![no_std]
 use soroban_sdk::{
     contract, contractimpl, contracttype, token, Address, Env, Symbol, Vec,
@@ -799,8 +800,3 @@ mod test {
     }
 
 }
-
-    
-
-
-
