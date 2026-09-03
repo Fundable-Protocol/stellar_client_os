@@ -15,7 +15,12 @@ export interface FundableStream {
   status: StreamStatus;
   creator: string;
   category: string;
+  payRate?: number;
+  deadline?: string;
+  altitude?: number;
 }
+
+export type JobSortOption = "pay" | "deadline" | "altitude";
 
 export interface StreamCluster {
   id: string;

@@ -16,6 +16,11 @@ const envSchema = z.object({
     .min(1, "Distributor contract ID is required")
     .startsWith("C", "Contract ID must start with 'C'"),
 
+  NEXT_PUBLIC_PLANTER_CONTRACT_ID: z
+    .string()
+    .startsWith("C", "Contract ID must start with 'C'")
+    .optional(),
+
   // Network Configuration
   NEXT_PUBLIC_SOROBAN_RPC_URL: z
     .string()
@@ -48,6 +53,10 @@ const envSchema = z.object({
   // Optional: Bridge configuration
   NEXT_PUBLIC_POLYGON_RPC_URL: z.string().url().optional(),
 
+  // Optional: escrow token contract pairs
+  NEXT_PUBLIC_USDT_CONTRACT_ID: z.string().startsWith('C').optional().or(z.literal('')),
+  NEXT_PUBLIC_EURC_CONTRACT_ID: z.string().startsWith('C').optional().or(z.literal('')),
+
   // Optional: Feature flags
   NEXT_PUBLIC_OFFRAMP_MOCK: z
     .string()
@@ -65,6 +74,7 @@ export function validateEnv(): Env {
   const env = {
     NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID: process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID,
     NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID: process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID,
+    NEXT_PUBLIC_PLANTER_CONTRACT_ID: process.env.NEXT_PUBLIC_PLANTER_CONTRACT_ID,
     NEXT_PUBLIC_SOROBAN_RPC_URL: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL,
     NEXT_PUBLIC_NETWORK_PASSPHRASE: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE,
     NEXT_PUBLIC_STELLAR_NETWORK: process.env.NEXT_PUBLIC_STELLAR_NETWORK,
@@ -75,6 +85,8 @@ export function validateEnv(): Env {
     NEXT_PUBLIC_BACKEND_BASE_URL: process.env.NEXT_PUBLIC_BACKEND_BASE_URL,
     NEXT_PUBLIC_STELLAR_HORIZON_URL: process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL,
     NEXT_PUBLIC_POLYGON_RPC_URL: process.env.NEXT_PUBLIC_POLYGON_RPC_URL,
+    NEXT_PUBLIC_USDT_CONTRACT_ID: process.env.NEXT_PUBLIC_USDT_CONTRACT_ID,
+    NEXT_PUBLIC_EURC_CONTRACT_ID: process.env.NEXT_PUBLIC_EURC_CONTRACT_ID,
     NEXT_PUBLIC_OFFRAMP_MOCK: process.env.NEXT_PUBLIC_OFFRAMP_MOCK,
   };
 
@@ -108,10 +120,13 @@ export const env = process.env.NODE_ENV === 'test'
   ? ({
       NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID: process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID ?? 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
       NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID: process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID ?? 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
+      NEXT_PUBLIC_PLANTER_CONTRACT_ID: process.env.NEXT_PUBLIC_PLANTER_CONTRACT_ID,
       NEXT_PUBLIC_SOROBAN_RPC_URL: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? 'https://soroban-testnet.stellar.org',
       NEXT_PUBLIC_NETWORK_PASSPHRASE: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015',
       NEXT_PUBLIC_STELLAR_NETWORK: (process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? 'testnet') as 'testnet' | 'mainnet',
       NEXT_PUBLIC_STELLAR_HORIZON_URL: process.env.NEXT_PUBLIC_STELLAR_HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
+      NEXT_PUBLIC_USDT_CONTRACT_ID: process.env.NEXT_PUBLIC_USDT_CONTRACT_ID ?? '',
+      NEXT_PUBLIC_EURC_CONTRACT_ID: process.env.NEXT_PUBLIC_EURC_CONTRACT_ID ?? '',
     } as ReturnType<typeof validateEnv>)
   : validateEnv();
 
