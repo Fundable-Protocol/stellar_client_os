@@ -21,7 +21,7 @@ import { useCampaignCommunity } from "@/hooks/use-campaign-community";
 export interface BackerCommunityProps {
   campaignId: string;
   currentUserAddress?: string;
-  canManage?: bool;
+  canManage?: boolean;
 }
 
 const PLATFORM_ICON: Record<CommunityPlatform, React.ReactNode> = {
@@ -127,7 +127,7 @@ export function BackerCommunity({
         </div>
       )}
 
-      {community.spaces.isEmpty ? (
+      {community.spaces.length === 0 ? (
         <p className="text-xs text-zinc-500 py-2">
           No community spaces linked yet.
         </p>

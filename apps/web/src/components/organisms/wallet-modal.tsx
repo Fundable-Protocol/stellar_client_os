@@ -125,8 +125,6 @@ export function WalletModal() {
     <Dialog open={isModalOpen} onOpenChange={(open) => !open && closeModal()}>
       <DialogContent
         onCloseAutoFocus={handleCloseAutoFocus}
-        className="max-w-md p-1 overflow-hidden border-white/10 bg-[#0F1621] rounded-3xl shadow-2xl"
-      >
         className="w-full max-w-sm sm:max-w-md p-1 overflow-hidden border-white/10 bg-[#0F1621] rounded-3xl shadow-2xl mx-4 sm:mx-auto"
         aria-modal="true"
       >
@@ -158,7 +156,6 @@ export function WalletModal() {
                 <button
                   key={wallet.id}
                   type="button"
-                  aria-pressed={isSelected}
                   role="radio"
                   aria-checked={isSelected}
                   onClick={() => setActiveSelection(wallet.id)}

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Trophy, Star, Quote, Users, Heart } from "lucide-react";
+import { Trophy, Star, Quote, Users } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { getSuccessStories, SuccessStory } from "@/services/campaign-success.service";
 
@@ -54,11 +54,11 @@ export default function SuccessStories() {
       <div className="border-b border-zinc-800 pb-4">
         <h2 className="text-2xl font-extrabold text-zinc-50 tracking-tight flex items-center gap-2">
           <Trophy className="h-6 w-6 text-amber-400" />
-          Success Stories</h2>
-          <p className="mt-1 text-sm text-zinc-400">
-            Campaigns that shipped and delivered real impact. Hear directly from creators and backers.
-          </p>
-        </div>
+          Success Stories
+        </h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Campaigns that shipped and delivered real impact. Hear directly from creators and backers.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 md-grid-cols-2 gap-6">

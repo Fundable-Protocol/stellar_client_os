@@ -29,6 +29,7 @@ const successStories = [
         author: 'John Doe',
         content: 'Been part of this journey was incredible. The team kept us updated every step of the way and the land is now protected.',
         rating: 5,
+      },
       {
         id: 'test-002',
         author: 'Jane Smith',
