@@ -49,6 +49,17 @@ export interface MilestoneItem {
   description: string;
 }
 
+/** Time-limited stretch goal configured in the campaign wizard. */
+export interface StretchGoalItem {
+  id: string;
+  title: string;
+  description: string;
+  /** Window length in hours (e.g. 24 for a 24-hour bonus). */
+  windowHours: string;
+  rewardTitle: string;
+  rewardDescription: string;
+}
+
 export interface CampaignWizardData {
   // Step 1: Details
   title: string;
@@ -105,6 +116,7 @@ export const INITIAL_WIZARD_DATA: CampaignWizardData = {
       description: "Setup operations and announce project kick-off.",
     },
   ],
+  stretchGoals: [],
 
   impactStatement: "",
   targetBeneficiaries: "",
