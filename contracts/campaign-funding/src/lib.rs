@@ -159,6 +159,7 @@ pub struct CampaignCreatedEvent {
     pub target_amount: i128,
     pub min_target: i128,
     pub deadline: u64,
+    pub co2_multiplier: u32,
 }
 
 /// Emitted each time a contributor adds tokens to a campaign.
@@ -607,6 +608,7 @@ impl CampaignFundingContract {
                 target_amount,
                 min_target,
                 deadline,
+                co2_multiplier,
             },
         );
 
@@ -3219,5 +3221,36 @@ mod tests {
         let ms = client.get_milestones_reached(&id);
         assert_eq!(ms.len(), 1);
         assert_eq!(ms.get(0).unwrap(), 25);
+    }
+
+    #[test]
+    fn test_rainy_season_co2_multiplier() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        // May 15, 2026 (rainy season -> 2x multiplier)
+        set_time(&env, 1_778_800_000);
+        let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000);
+        assert_eq!(client.get_co2_multiplier(&id_rainy), 2);
+
+        // January 15, 2026 (non-rainy season -> 1x multiplier)
+        set_time(&env, 1_768_400_000);
+        let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000);
+        assert_eq!(client.get_co2_multiplier(&id_dry), 1);
+    }
+
+    #[test]
+    fn test_set_and_get_reward_token() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+        let reward_token = Address::generate(&env);
+
+        assert_eq!(client.get_reward_token(), None);
+        client.set_reward_token(&reward_token);
+        assert_eq!(client.get_reward_token(), Some(reward_token));
     }
 }

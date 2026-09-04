@@ -35,6 +35,7 @@ export interface Co2ImpactResult {
   speciesLabel: string;
   co2PerTreePerYearKg: number;
   quantity: number;
+  co2Multiplier: number;
   co2PerYearKg: number;
   co2PerYearTonnes: number;
   co2Over10YearsKg: number;
@@ -43,7 +44,22 @@ export interface Co2ImpactResult {
 }
 
 /**
- * Compute the projected CO2 offset for a campaign.
+ * Helper to determine if a given date/timestamp falls within rainy season (May - October).
+ * (issue #714)
+ */
+export function isRainySeason(dateOrTimestamp?: Date | number): boolean {
+  const date = dateOrTimestamp
+    ? typeof dateOrTimestamp === "number"
+      ? new Date(dateOrTimestamp * 1000)
+      : dateOrTimestamp
+    : new Date();
+  const month = date.getMonth() + 1; // 1-indexed (1=Jan, 5=May, 10=Oct)
+  return month >= 5 && month <= 10;
+}
+
+/**
+ * Compute the projected CO2 offset for a campaign, applying a 2x bonus multiplier
+ * for campaigns created during the rainy season (May-October). (issue #714)
  *
  * @param speciesId - selected tree species id
  * @param quantity - number of trees (>= 0)
@@ -53,11 +69,16 @@ export interface Co2ImpactResult {
 export function calculateCo2Offset(
   speciesId: string,
   quantity: number,
+  dateOrTimestamp?: Date | number,
 ): Co2ImpactResult {
   const species = getTreeSpecies(speciesId);
   const qty = Math.max(0, Math.floor(quantity) || 0);
 
-  const co2PerYearKg = qty * species.co2PerTreePerYearKg;
+  const rainySeason = isRainySeason(dateOrTimestamp);
+  const co2Multiplier = rainySeason ? 2 : 1;
+
+  const baseCo2PerYearKg = qty * species.co2PerTreePerYearKg;
+  const co2PerYearKg = baseCo2PerYearKg * co2Multiplier;
   const co2Over10YearsKg = co2PerYearKg * 10;
 
   return {
@@ -65,6 +86,7 @@ export function calculateCo2Offset(
     speciesLabel: species.label,
     co2PerTreePerYearKg: species.co2PerTreePerYearKg,
     quantity: qty,
+    co2Multiplier,
     co2PerYearKg,
     co2PerYearTonnes: co2PerYearKg / 1000,
     co2Over10YearsKg,

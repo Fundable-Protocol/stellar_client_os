@@ -169,3 +169,25 @@ export const depositStreamSchema = z.object({
 })
 
 export type DepositStreamFormData = z.infer<typeof depositStreamSchema>
+
+/**
+ * Schema for creators updating campaign details before launch (issue #721).
+ * Allows updating name, description, goal amount, and deadline.
+ */
+export const updateCampaignSchema = z.object({
+  id: z.union([z.number(), z.string()]),
+  name: z.string().min(1, "Campaign name is required"),
+  description: z.string().min(1, "Description is required"),
+  goalAmount: z
+    .string()
+    .min(1, "Goal amount is required")
+    .refine((val) => {
+      const num = parseFloat(val)
+      return !isNaN(num) && num > 0
+    }, "Goal amount must be a positive number")
+    .refine((val) => TOKEN_AMOUNT_REGEX.test(val), "Goal amount cannot exceed 7 decimal places"),
+  deadline: z.string().min(1, "Deadline is required"),
+})
+
+export type UpdateCampaignFormData = z.infer<typeof updateCampaignSchema>
+
