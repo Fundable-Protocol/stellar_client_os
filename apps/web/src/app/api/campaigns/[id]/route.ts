@@ -1,46 +1,62 @@
-import { NextRequest, NextResponse } from "next/server";
-import { updateCampaignSchema } from "@/lib/validations";
+import { getCampaign, transitionCampaignStatus } from "../../../../services/campaign.service";
+import { autoTranslate, detectLanguage, SUPPORTED_TRANSLATION_LOCALES } from "@/lib/translation";
 
-/**
- * PATCH /api/campaigns/[id] (Issue #721)
- *
- * Allows creator to update campaign details (name, description, goal amount, deadline) before launch.
- */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const NO_STORE_HEADERS = { "Cache-Control": "private, no-store, max-age=0" };
+function noStore<T>(body: T, init?: ResponseInit): Response {
+  return Response.json(body, { ...init, headers: { ...NO_STORE_HEADERS, ...(init?.headers ?? {}) } });
+}
+
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const campaign = await getCampaign((await params).id);
+  return campaign ? noStore(campaign) : noStore({ error: "Campaign not found" }, { status: 404 });
+}
+
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const id = (await params).id;
+  const campaign = await getCampaign(id);
+  if (!campaign) return noStore({ error: "Campaign not found" }, { status: 404 });
+
   try {
-    const campaignId = params.id;
-    const body = await request.json();
-
-    const validation = updateCampaignSchema.safeParse({
-      id: campaignId,
-      ...body,
-    });
-
-    if (!validation.success) {
-      return NextResponse.json(
-        { message: "Validation failed", errors: validation.error.format() },
-        { status: 400 }
-      );
-    }
-
-    const { name, description, goalAmount, deadline } = validation.data;
-
-    // Simulated update logic / on-chain pre-launch update verification
-    const updatedCampaign = {
-      id: campaignId,
-      name,
-      description,
-      goal_amount: goalAmount,
-      deadline,
-      updatedAt: new Date().toISOString(),
+    const body = await request.json() as {
+      status?: never;
+      changedBy?: string;
+      reason?: string;
+      name?: string;
+      description?: string;
+      language?: string;
+      translations?: Record<string, string>;
+      autoTranslate?: boolean;
     };
-
-    return NextResponse.json(updatedCampaign, { status: 200 });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ message }, { status: 500 });
+    let updated = campaign;
+    if (body.status) {
+      if (!body.changedBy) return noStore({ error: "changedBy is required when changing status" }, { status: 400 });
+      updated = await transitionCampaignStatus(campaign, body.status, body.changedBy, body.reason);
+    }
+    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.autoTranslate !== undefined) {
+      const language = body.language ?? updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
+      let translations = body.translations ?? updated.translations ?? {};
+      const description = body.description ?? updated.description ?? "";
+      if (body.autoTranslate) {
+        translations = {
+          ...autoTranslate(description, SUPPORTED_TRANSLATION_LOCALES),
+          ...translations,
+        };
+      }
+      updated = await (await import("@/services/campaign.service")).getCampaignDataSource().saveCampaign({
+        ...updated,
+        name: body.name ?? updated.name,
+        description,
+        language,
+        translations,
+        updatedAt: Date.now(),
+      });
+    }
+    return noStore(updated);
+  } catch (error) {
+    return noStore({ error: error instanceof Error ? error.message : "Invalid JSON request body" }, { status: 400 });
   }
 }

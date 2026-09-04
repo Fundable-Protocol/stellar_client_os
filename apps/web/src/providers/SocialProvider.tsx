@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect } from "react";
 import { socialService } from "@/services/social.service";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { PLANTER_CONTRACT_ID, SOROBAN_RPC_URL, NETWORK_PASSPHRASE } from "@/lib/constants";
@@ -15,21 +15,21 @@ export const useSocial = () => useContext(SocialContext);
 
 export function SocialProvider({ children }: { children: React.ReactNode }) {
   const { address, isConnected } = useWallet();
-  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Initialization readiness is derived from wallet connectivity rather than
+  // stored in state, so the effect only performs the external initialization
+  // side effect (avoids a cascading render from setState inside the effect).
+  const isInitialized = Boolean(isConnected && address && PLANTER_CONTRACT_ID);
 
   useEffect(() => {
-    if (isConnected && address && PLANTER_CONTRACT_ID) {
+    if (isInitialized) {
       try {
         socialService.initialize(PLANTER_CONTRACT_ID, NETWORK_PASSPHRASE, SOROBAN_RPC_URL);
-        setIsInitialized(true);
       } catch {
         console.error("Failed to initialize SocialService");
-        setIsInitialized(false);
       }
-    } else {
-      setIsInitialized(false);
     }
-  }, [isConnected, address]);
+  }, [isInitialized]);
 
   return (
     <SocialContext.Provider value={{ isInitialized }}>
