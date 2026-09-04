@@ -107,12 +107,12 @@ pub struct Campaign {
     pub revenue_shares: Vec<u32>,
     /// Stellar asset contract address of the funding token.
     pub token: Address,
-    /// Hard cap: the maximum amount the campaign may raise.  Once
+    /// Hard cap: the maximum amount the campaign may raise. Once
     /// `total_raised` reaches this value the campaign auto-transitions to
     /// [`CampaignStatus::Successful`].
     pub target_amount: i128,
     /// Minimum threshold: the campaign is only considered successful when
-    /// `total_raised >= min_target` by `deadline`.  If the threshold is not
+    /// `total_raised >= min_target` by `deadline`. If the threshold is not
     /// met all escrowed contributions become refundable.
     pub min_target: i128,
     /// Unix timestamp (seconds) after which no new contributions are accepted
@@ -153,11 +153,17 @@ pub struct TeamMember {
 #[contracttype]
 #[derive(Clone)]
 pub struct CampaignCreatedEvent {
+    /// Unique identifier for the created campaign.
     pub campaign_id: u64,
+    /// Address of the campaign creator.
     pub creator: Address,
+    /// Token contract address accepted for funding.
     pub token: Address,
+    /// Maximum funding limit in token stroops.
     pub target_amount: i128,
+    /// Minimum required funding threshold.
     pub min_target: i128,
+    /// Unix timestamp deadline for contributions.
     pub deadline: u64,
 }
 
@@ -165,17 +171,23 @@ pub struct CampaignCreatedEvent {
 #[contracttype]
 #[derive(Clone)]
 pub struct ContributionMadeEvent {
+    /// Identifier of the target campaign.
     pub campaign_id: u64,
+    /// Address of the contributing donor.
     pub contributor: Address,
+    /// Amount of tokens contributed in stroops.
     pub amount: i128,
+    /// Updated total amount raised after this contribution.
     pub total_raised: i128,
 }
 
-/// Emitted when a campaign transitions out of the `Active` state.
+/// Emitted when a campaign transitions lifecycle states.
 #[contracttype]
 #[derive(Clone)]
 pub struct CampaignStatusChangedEvent {
+    /// Identifier of the campaign whose status changed.
     pub campaign_id: u64,
+    /// New lifecycle state assigned to the campaign.
     pub new_status: CampaignStatus,
 }
 
@@ -183,9 +195,11 @@ pub struct CampaignStatusChangedEvent {
 #[contracttype]
 #[derive(Clone)]
 pub struct FundsClaimedEvent {
+    /// Identifier of the claimed campaign.
     pub campaign_id: u64,
+    /// Creator address receiving net funds.
     pub creator: Address,
-    /// Net amount after protocol fee deduction.
+    /// Net amount transferred to creator after protocol fee deduction.
     pub amount: i128,
 }
 
@@ -193,8 +207,11 @@ pub struct FundsClaimedEvent {
 #[contracttype]
 #[derive(Clone)]
 pub struct RefundIssuedEvent {
+    /// Identifier of the failed campaign refunded from.
     pub campaign_id: u64,
+    /// Contributor receiving the refund.
     pub contributor: Address,
+    /// Total refunded token amount.
     pub amount: i128,
 }
 
@@ -744,6 +761,9 @@ impl CampaignFundingContract {
 
         let mut campaign = Self::load_campaign(&env, campaign_id);
 
+        if campaign.status == CampaignStatus::Paused {
+            panic_with_error!(&env, Error::CampaignPaused);
+        }
         if campaign.status != CampaignStatus::Active {
             panic_with_error!(&env, Error::CampaignNotActive);
         }
@@ -845,7 +865,7 @@ impl CampaignFundingContract {
     pub fn trigger_expiry(env: Env, campaign_id: u64) {
         let mut campaign = Self::load_campaign(&env, campaign_id);
 
-        if campaign.status != CampaignStatus::Active {
+        if campaign.status != CampaignStatus::Active && campaign.status != CampaignStatus::Paused {
             panic_with_error!(&env, Error::CampaignNotActive);
         }
         if env.ledger().timestamp() < campaign.deadline {
@@ -3219,5 +3239,52 @@ mod tests {
         let ms = client.get_milestones_reached(&id);
         assert_eq!(ms.len(), 1);
         assert_eq!(ms.get(0).unwrap(), 25);
+    }
+
+    // -----------------------------------------------------------------------
+    // pause / resume
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_pause_and_resume_campaign_success() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Active);
+
+        // Pause campaign
+        client.pause_campaign(&id);
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Paused);
+
+        // Resume campaign
+        client.resume_campaign(&id);
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Active);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #18)")]
+    fn test_contribute_while_paused_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&contributor, &5_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.pause_campaign(&id);
+
+        // Must panic with CampaignPaused (#18)
+        client.contribute(&contributor, &id, &1_000);
     }
 }
