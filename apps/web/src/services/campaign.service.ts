@@ -1,4 +1,5 @@
-import { EmailService } from "./email.service";
+import { MILESTONE_PERCENTAGES } from "../lib/campaign-milestones";
+import { EmailService, type SendEmailOptions } from "./email.service";
 
 export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
 
@@ -164,6 +165,9 @@ export interface CampaignRecord {
   /** Timestamp when the campaign was featured as a success story. */
   featuredAt?: number;
   insuranceClaim?: CampaignInsuranceClaim;
+  /** Funding milestones (e.g. 25, 50, 75, 100) that have already triggered a
+   * creator notification for this campaign (issue #793). */
+  milestonesNotified?: number[];
 }
 
 export interface CampaignCreatorBadge {
@@ -392,6 +396,113 @@ export function getFeaturedSuccessStories(campaigns: CampaignRecord[]): Campaign
 
 export async function getCampaign(campaignId: string, dataSource = getCampaignDataSource()): Promise<CampaignRecord | null> {
   return (await dataSource.getCampaigns()).find((campaign) => campaign.id === campaignId) ?? null;
+}
+
+/**
+ * Funding milestones (fractions of the goal) crossed when a campaign's raised
+ * amount moves from `previousRaised` to `newRaised`.
+ *
+ * Returns the ascending milestone percentages reached by the new total but not
+ * by the previous total. Arithmetic uses integers so large amounts never lose
+ * precision; a non-positive goal yields no milestones. (Issue #793.)
+ */
+export function crossedCampaignMilestones(
+  previousRaised: string,
+  newRaised: string,
+  goalAmount: string,
+): number[] {
+  const goal = BigInt(goalAmount || "0");
+  if (goal <= 0n) return [];
+  const previous = BigInt(previousRaised || "0");
+  const next = BigInt(newRaised || "0");
+  return MILESTONE_PERCENTAGES.filter((percentage) => {
+    const threshold = BigInt(percentage) * goal;
+    return previous * 100n < threshold && next * 100n >= threshold;
+  });
+}
+
+export interface CampaignContributionResult {
+  campaign: CampaignRecord;
+  /** Funding milestones newly crossed by this contribution. */
+  milestones: number[];
+}
+
+export interface CampaignEmailer {
+  sendEmail(options: SendEmailOptions): Promise<boolean>;
+}
+
+function parseContributionAmount(amount: string): bigint {
+  if (!/^\d+$/.test(amount.trim())) {
+    throw new Error("amount must be a non-negative integer string");
+  }
+  return BigInt(amount.trim());
+}
+
+function milestoneEmailHtml(campaignName: string, percentage: number): string {
+  const headline =
+    percentage === 100
+      ? `Your campaign is fully funded!`
+      : `Your campaign has reached ${percentage}% of its funding goal.`;
+  return [
+    `<h2>${campaignName}</h2>`,
+    `<p>${headline}</p>`,
+    `<p><a href="/campaigns">View your campaign</a></p>`,
+    `<p>— Fundable Protocol</p>`,
+  ].join("\n");
+}
+
+/**
+ * Record a contribution toward a campaign and alert the creator when it crosses
+ * a funding milestone (25%, 50%, 75%, 100% of goal).
+ *
+ * Each milestone prompts an email to the campaign creator exactly once — the
+ * reached thresholds are tracked on `CampaignRecord.milestonesNotified` so a
+ * later contribution never re-sends an alert. Returns the updated campaign
+ * together with the newly reached milestones, or `null` when the campaign is
+ * unknown. (Issue #793.)
+ */
+export async function recordCampaignContribution(
+  campaignId: string,
+  amount: string,
+  dataSource: CampaignDataSource = getCampaignDataSource(),
+  emailService: CampaignEmailer = new EmailService(),
+  now: number = Date.now(),
+): Promise<CampaignContributionResult | null> {
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) return null;
+
+  const contribution = parseContributionAmount(amount);
+  const previousRaised = /^\d+$/.test(campaign.raisedAmount)
+    ? BigInt(campaign.raisedAmount)
+    : 0n;
+  const newRaised = previousRaised + contribution;
+  const reached = crossedCampaignMilestones(
+    previousRaised.toString(),
+    newRaised.toString(),
+    campaign.goalAmount,
+  );
+
+  const notified = campaign.milestonesNotified ?? [];
+  const newlyReached = reached.filter((percentage) => !notified.includes(percentage));
+
+  if (newlyReached.length > 0 && campaign.creatorEmail) {
+    for (const percentage of newlyReached) {
+      await emailService.sendEmail({
+        to: campaign.creatorEmail,
+        subject: `${campaign.name} reached ${percentage}% of its goal`,
+        html: milestoneEmailHtml(campaign.name, percentage),
+      });
+    }
+  }
+
+  const updated: CampaignRecord = {
+    ...campaign,
+    raisedAmount: newRaised.toString(),
+    milestonesNotified: [...notified, ...newlyReached],
+    updatedAt: now,
+  };
+  await dataSource.saveCampaign(updated);
+  return { campaign: updated, milestones: newlyReached };
 }
 
 export async function createCampaign(input: {

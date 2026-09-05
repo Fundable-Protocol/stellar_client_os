@@ -1,6 +1,6 @@
 # Webhook Delivery System
 
-The Fundable Webhook Delivery System enables real-time notification of events on the platform (e.g., when a stream status is updated or milestone funds are released) directly to external HTTP endpoints.
+The Fundable Webhook Delivery System enables real-time notification of events on the platform (e.g., when a stream status is updated, milestone funds are released, or a campaign reaches a funding milestone) directly to external HTTP endpoints.
 
 ## 🚀 Subscription Management API
 
@@ -11,7 +11,7 @@ The Fundable Webhook Delivery System enables real-time notification of events on
 ```json
 {
   "url": "https://your-service.com/webhook",
-  "events": ["stream.status_updated", "milestone.funds_released"],
+  "events": ["stream.status_updated", "milestone.funds_released", "campaign.milestone_reached"],
   "secret": "your_custom_secret_key" // Optional: auto-generated if omitted (min 8 chars)
 }
 ```
@@ -20,7 +20,7 @@ The Fundable Webhook Delivery System enables real-time notification of events on
 {
   "id": "sub_12345abcd",
   "url": "https://your-service.com/webhook",
-  "events": ["stream.status_updated", "milestone.funds_released"],
+  "events": ["stream.status_updated", "milestone.funds_released", "campaign.milestone_reached"],
   "secret": "generated_or_provided_secret_key",
   "createdAt": "2026-07-29T13:00:00.000Z"
 }
@@ -34,7 +34,7 @@ The Fundable Webhook Delivery System enables real-time notification of events on
   {
     "id": "sub_12345abcd",
     "url": "https://your-service.com/webhook",
-    "events": ["stream.status_updated", "milestone.funds_released"],
+    "events": ["stream.status_updated", "milestone.funds_released", "campaign.milestone_reached"],
     "secret": "generated_or_provided_secret_key",
     "createdAt": "2026-07-29T13:00:00.000Z"
   }
@@ -104,3 +104,16 @@ If a subscriber's endpoint fails to acknowledge the webhook payload (returns a n
   * Attempt 4: 8s delay
   * Attempt 5: 16s delay
 * **Dead-Letter Queue:** If all 5 attempts fail, the delivery attempt (including the payload, destination URL, status code, timestamps, and error message) is permanently logged to the dead-letter queue (`apps/web/data/webhook_dead_letter.json`).
+
+## 📡 Event Types
+
+| Event | Description | Example payload fields |
+| ----- | ----------- | --------------------- |
+| `stream.status_updated` | A payment stream changed status | `streamId`, `status` |
+| `milestone.funds_released` | Funds were released at a stream/payout milestone | `campaignId`, `percentage` |
+| `campaign.milestone_reached` | A campaign crossed a funding milestone (25/50/75/100% of goal) | `eventId` (`"{campaignId}:{percentage}"`), `campaignId`, `campaignName`, `percentage`, `raisedAmount`, `goalAmount` |
+
+`campaign.milestone_reached` fires once per milestone crossed by a contribution
+(e.g. a contribution that crosses both 50% and 75% emits two events). The
+`eventId` is stable per (campaign, milestone), so idempotent delivery never
+re-sends a milestone that was already delivered.
