@@ -1,31 +1,39 @@
-import { NextResponse } from "next/server";
-import { TaxReportingSDK } from "@fundable/sdk";
+import { loadCreatorTaxYearEarnings } from "@/services/tax.service";
 
-const sdk = new TaxReportingSDK(process.env.NEXT_PUBLIC_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org");
+export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { creatorId, taxYear } = body;
+    const body = await request.json().catch(() => null);
+    const creatorId = typeof body?.creatorId === "string" ? body.creatorId.trim() : "";
+    const taxYear = Number(body?.taxYear);
 
-    if (!creatorId || !taxYear) {
-      return NextResponse.json(
-        { error: "Missing required fields: creatorId and taxYear" },
-        { status: 400 }
+    if (!creatorId || !Number.isInteger(taxYear) || taxYear < 2000 || taxYear > 2100) {
+      return Response.json(
+        { success: false, error: "Missing required fields: creatorId and a valid taxYear" },
+        { status: 400 },
       );
     }
 
-    const report = await sdk.getAnnualEarnings({ creatorId, taxYear: Number(taxYear) });
+    const { grossEarningsUSDC, totalTransactions, transactions } =
+      await loadCreatorTaxYearEarnings(creatorId, taxYear);
 
-    return NextResponse.json({
+    return Response.json({
       success: true,
-      data: report,
+      data: {
+        creatorId,
+        taxYear,
+        grossEarningsUSDC,
+        totalTransactions,
+        transactions,
+        generatedAt: new Date().toISOString(),
+      },
       message: `IRS 1099-NEC data compiled successfully for tax year ${taxYear}.`,
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, error: error.message || "Internal Server Error" },
-      { status: 500 }
+  } catch (error) {
+    return Response.json(
+      { success: false, error: error instanceof Error ? error.message : "Internal Server Error" },
+      { status: 500 },
     );
   }
 }

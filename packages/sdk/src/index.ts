@@ -48,6 +48,9 @@ export * from "./utils/transactions";
 export * from "./utils/GasEstimator";
 export * from "./utils/rpcConnectionOptions";
 
+// Export tax reporting utilities (issue #792)
+export * from "./tax";
+
 // Export error handling utilities
 export {
   parseContractError,
