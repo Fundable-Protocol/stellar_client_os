@@ -25,6 +25,11 @@ const items = [
     icon: <DashboardIcon aria-hidden="true" />,
   },
   {
+    title: "Campaigns",
+    url: "/campaigns",
+    icon: <BookIcon aria-hidden="true" />,
+  },
+  {
     title: "Distribution",
     url: "/distribution",
     icon: <DistributionIcon aria-hidden="true" />,
