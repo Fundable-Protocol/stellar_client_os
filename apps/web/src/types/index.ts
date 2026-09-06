@@ -43,4 +43,4 @@ export interface CloneCampaignInput {
 export * from './campaign-voting';
 export * from './onchain-tracking';
 export * from './creator-revenue-share';
-export * from './fraud-detection';
+export * from './fraud-detection';

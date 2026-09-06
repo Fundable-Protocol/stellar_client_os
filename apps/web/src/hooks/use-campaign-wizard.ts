@@ -9,6 +9,7 @@ import {
   validateStep,
   WizardStepErrors,
   MilestoneItem,
+  StretchGoalItem,
 } from "@/components/modules/campaign/wizard/campaign-wizard-config";
 
 export interface UseCampaignWizardReturn {
@@ -23,6 +24,8 @@ export interface UseCampaignWizardReturn {
   updateField: <K extends keyof CampaignWizardData>(field: K, value: CampaignWizardData[K]) => void;
   addMilestone: (milestone: Omit<MilestoneItem, "id">) => void;
   removeMilestone: (id: string) => void;
+  addStretchGoal: (goal: Omit<StretchGoalItem, "id">) => void;
+  removeStretchGoal: (id: string) => void;
   goNext: () => boolean;
   goBack: () => void;
   goToStep: (index: number) => void;
@@ -73,6 +76,26 @@ export function useCampaignWizard(initialData: Partial<CampaignWizardData> = {})
     setData((prev) => ({
       ...prev,
       milestones: prev.milestones.filter((m) => m.id !== id),
+    }));
+    setIsDirty(true);
+  }, []);
+
+  const addStretchGoal = useCallback((goal: Omit<StretchGoalItem, "id">) => {
+    const newItem: StretchGoalItem = {
+      ...goal,
+      id: `sg-${Date.now()}`,
+    };
+    setData((prev) => ({
+      ...prev,
+      stretchGoals: [...(prev.stretchGoals ?? []), newItem],
+    }));
+    setIsDirty(true);
+  }, []);
+
+  const removeStretchGoal = useCallback((id: string) => {
+    setData((prev) => ({
+      ...prev,
+      stretchGoals: (prev.stretchGoals ?? []).filter((g) => g.id !== id),
     }));
     setIsDirty(true);
   }, []);
