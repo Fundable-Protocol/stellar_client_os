@@ -165,6 +165,9 @@ export interface CampaignRecord {
   /** Timestamp when the campaign was featured as a success story. */
   featuredAt?: number;
   insuranceClaim?: CampaignInsuranceClaim;
+  /** Time-limited stretch goals that unlock special backer rewards. */
+  stretchGoals?: import("./campaign-stretch-goals.service").StretchGoal[];
+  /** Funding-percentage milestones already emailed to the creator. */
   /** Funding milestones (e.g. 25, 50, 75, 100) that have already triggered a
    * creator notification for this campaign (issue #793). */
   milestonesNotified?: number[];
