@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, Address,
-    Env, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error,
+    symbol_short, Address, Env, Symbol, Vec,
 };
 
 /// Funding milestone threshold levels for badge eligibility
@@ -57,6 +57,17 @@ pub struct ContributionRecordedEvent {
     pub timestamp: u64,
 }
 
+/// Emitted when the badge ID space is exhausted (`BadgeCounter` reached
+/// `u64::MAX`) and a mint attempt is rejected instead of overflowing.
+#[contractevent(topics = ["contract_full"])]
+#[derive(Clone)]
+pub struct ContractFullEvent {
+    /// The exhausted resource (always "badges" for this contract).
+    pub resource: Symbol,
+    /// Ledger timestamp of the rejected mint attempt.
+    pub timestamp: u64,
+}
+
 /// Custom errors for the contract
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -72,6 +83,8 @@ pub enum Error {
     InvalidContributor = 8,
     ArithmeticOverflow = 9,
     InvalidToken = 10,
+    /// The badge ID counter has reached `u64::MAX`; no more badges can be minted.
+    ContractFull = 11,
 }
 
 // Storage keys
@@ -381,6 +394,15 @@ impl SoulboundBadgeContract {
         let badge_counter: u64 = env.storage().instance()
             .get(&DataKey::BadgeCounter)
             .unwrap_or(0);
+        if badge_counter == u64::MAX {
+            // Badge ID space exhausted: reject gracefully instead of overflowing.
+            ContractFullEvent {
+                resource: symbol_short!("badges"),
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(&env);
+            panic_with_error!(&env, Error::ContractFull);
+        }
         let badge_id = badge_counter + 1;
         env.storage().instance().set(&DataKey::BadgeCounter, &badge_id);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
@@ -633,6 +655,33 @@ mod test {
             events.events().iter().any(|e| *e == expected),
             "expected ContributionRecordedEvent to be emitted"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #11)")]
+    fn test_mint_rejected_when_badge_counter_full() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(SoulboundBadgeContract, ());
+        let client = SoulboundBadgeContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let token = Address::generate(&env);
+        let contributor = Address::generate(&env);
+
+        client.initialize(&admin, &token);
+
+        // Exhaust the badge ID space: the next mint must be rejected with
+        // Error::ContractFull instead of panicking on arithmetic overflow.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::BadgeCounter, &u64::MAX);
+        });
+
+        // Reaching the Bronze threshold triggers a mint, which must fail.
+        client.record_contribution(&contributor, &1_000);
     }
 
     #[test]

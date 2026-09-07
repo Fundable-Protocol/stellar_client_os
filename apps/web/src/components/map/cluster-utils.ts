@@ -1,4 +1,9 @@
-import type { FundableStream, StreamCluster, FundableMapFilters } from "./types";
+import type {
+  FundableStream,
+  StreamCluster,
+  FundableMapFilters,
+  JobSortOption,
+} from "./types";
 
 export function getClusterColor(count: number): string {
   if (count === 1) return "#b102cd";
@@ -28,7 +33,7 @@ export function getStatusColor(status: string): string {
 export function clusterStreams(streams: FundableStream[]): StreamCluster[] {
   if (streams.length === 0) return [];
 
-  const gridSize = 2;
+  const stridSize = 2;
   const buckets = new Map<string, FundableStream[]>();
 
   for (const stream of streams) {
@@ -82,4 +87,43 @@ export function filterStreams(
 
 export function getCategories(streams: FundableStream[]): string[] {
   return [...new Set(streams.map((s) => s.category))].sort();
+}
+
+/**
+ * Sort streams by a job-board sort option.
+ *
+ * - "pay"       -> highest pay first (uses `payRate`, falling back to `amount`)
+ * - "deadline"  -> soonest deadline first (missing deadlines go last)
+ * - "altitude"  -> lowest altitude first (missing altitudes go last)
+ */
+export function sortStreams(
+  streams: FundableStream[],
+  sortBy: JobSortOption,
+): FundableStream[] {
+  const sorted = [...streams];
+
+  switch (sortBy) {
+    case "pay": {
+      sorted.sort((a, b) => {
+        const aPay = a.payRate ?? parseFloat(a.amount) || 0;
+        const bPay = b.payRate ?? parseFloat(b.amount) || 0;
+        return bPay - aPay;
+      });
+      break;
+    }
+    case "deadline": {
+      sorted.sort((a, b) => {
+        const aTime = a.deadline ? new Date(a.deadline).getTime() : Infinity;
+        const bTime = b.deadline ? new Date(b.deadline).getTime() : Infinity;
+        return aTime - bTime;
+      });
+      break;
+    }
+    case "altitude": {
+      sorted.sort((a, b) => (a.altitude ?? Infinity) - (b.altitude ?? Infinity));
+      break;
+    }
+  }
+
+  return sorted;
 }

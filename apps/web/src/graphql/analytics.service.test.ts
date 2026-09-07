@@ -325,3 +325,108 @@ describe("AnalyticsService.getAssetMetrics", () => {
     expect(await new AnalyticsService(makeSource([])).getAssetMetrics()).toHaveLength(0);
   });
 });
+
+// ── sponsorImpact ─────────────────────────────────────────────────────────────
+
+describe("AnalyticsService.getSponsorImpact", () => {
+  // Fixture per-sponsor volumes (from STREAMS, using usdEquivalent):
+  //   GAAA = 100 + 75 = 175
+  //   GBBB = 200
+  //   GCCC = 50
+  //   GDDD = 30
+  // Total = 455 across 4 sponsors → average = 455 / 4 = 113 (BigInt division)
+
+  it("aggregates the sponsor's total funded volume", async () => {
+    const svc = new AnalyticsService(makeSource());
+    const impact = await svc.getSponsorImpact("GAAA");
+    expect(impact.myVolumeUsd).toBe("175");
+    expect(impact.myCo2OffsetKg).toBe(175);
+  });
+
+  it("computes the global average across all sponsors", async () => {
+    const svc = new AnalyticsService(makeSource());
+    const impact = await svc.getSponsorImpact("GAAA");
+    expect(impact.globalSponsorCount).toBe(4);
+    expect(impact.globalAverageVolumeUsd).toBe("113");
+    expect(impact.globalAverageCo2OffsetKg).toBe(113);
+  });
+
+  it("reports the conversion factor used", async () => {
+    const svc = new AnalyticsService(makeSource());
+    const impact = await svc.getSponsorImpact("GAAA");
+    expect(impact.co2PerUsdKg).toBe(1);
+  });
+
+  it("ranks the top sponsor at the 100th percentile (top 1%)", async () => {
+    const svc = new AnalyticsService(makeSource());
+    const impact = await svc.getSponsorImpact("GBBB");
+    expect(impact.percentile).toBe(100);
+    expect(impact.rankingBand).toBe("top_1");
+  });
+
+  it("ranks a mid-tier sponsor into the top 50%", async () => {
+    const svc = new AnalyticsService(makeSource());
+    const impact = await svc.getSponsorImpact("GAAA");
+    // (4 - 1 - 1) / 3 = 66.67 → 67
+    expect(impact.percentile).toBe(67);
+    expect(impact.rankingBand).toBe("top_50");
+  });
+
+  it("ranks a low-tier sponsor as below average", async () => {
+    const svc = new AnalyticsService(makeSource());
+    const impact = await svc.getSponsorImpact("GCCC");
+    expect(impact.percentile).toBe(33);
+    expect(impact.rankingBand).toBe("below_average");
+  });
+
+  it("ranks the bottom sponsor at the 0th percentile", async () => {
+    const svc = new AnalyticsService(makeSource());
+    const impact = await svc.getSponsorImpact("GDDD");
+    expect(impact.percentile).toBe(0);
+    expect(impact.rankingBand).toBe("below_average");
+  });
+
+  it("treats an unknown address as a zero-volume sponsor without a negative percentile", async () => {
+    const svc = new AnalyticsService(makeSource());
+    const impact = await svc.getSponsorImpact("GXXXUNKNOWN");
+    expect(impact.myVolumeUsd).toBe("0");
+    expect(impact.myCo2OffsetKg).toBe(0);
+    expect(impact.percentile).toBe(0);
+    expect(impact.rankingBand).toBe("below_average");
+  });
+
+  it("returns nulls and zeros for an empty data source", async () => {
+    const svc = new AnalyticsService(makeSource([]));
+    const impact = await svc.getSponsorImpact("GAAA");
+    expect(impact.myVolumeUsd).toBe("0");
+    expect(impact.globalAverageVolumeUsd).toBe("0");
+    expect(impact.globalSponsorCount).toBe(0);
+    expect(impact.percentile).toBeNull();
+    expect(impact.rankingBand).toBeNull();
+  });
+
+  it("ranks a lone sponsor at the 100th percentile", async () => {
+    const loneSource = makeSource([STREAMS[0]]); // only GAAA, volume 100
+    const svc = new AnalyticsService(loneSource);
+    const impact = await svc.getSponsorImpact("GAAA");
+    expect(impact.globalSponsorCount).toBe(1);
+    expect(impact.myVolumeUsd).toBe("100");
+    expect(impact.globalAverageVolumeUsd).toBe("100");
+    expect(impact.percentile).toBe(100);
+    expect(impact.rankingBand).toBe("top_1");
+  });
+
+  it("gives tied leaders the same top percentile", async () => {
+    const tieSource = makeSource([
+      { ...STREAMS[0], sender: "GAAA", usdEquivalent: "100" },
+      { ...STREAMS[1], sender: "GBBB", usdEquivalent: "100" },
+    ]);
+    const svc = new AnalyticsService(tieSource);
+    const a = await svc.getSponsorImpact("GAAA");
+    const b = await svc.getSponsorImpact("GBBB");
+    expect(a.percentile).toBe(100);
+    expect(b.percentile).toBe(100);
+    expect(a.rankingBand).toBe("top_1");
+    expect(b.rankingBand).toBe("top_1");
+  });
+});

@@ -2,6 +2,9 @@
 name = "planter"
 version = "0.1.0"
 edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
 publish = false
 
 [dependencies]
@@ -9,6 +12,3 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
-
-[lib]
-crate-type = ["cdylib", "rlib"]

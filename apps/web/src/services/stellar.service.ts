@@ -72,6 +72,7 @@ export class StellarService {
   private readonly networkPassphrase: string;
   private readonly paymentStreamContractId: string;
   private readonly distributorContractId: string;
+  private readonly carbonCertificateContractId: string;
   private readonly defaultTimeout: number;
   private readonly maxRetries: number;
 
@@ -87,6 +88,8 @@ export class StellarService {
     this.networkPassphrase = config.network.networkPassphrase;
     this.paymentStreamContractId = config.contracts.paymentStream;
     this.distributorContractId = config.contracts.distributor;
+    this.carbonCertificateContractId =
+      (config.contracts as { carbonCertificate?: string }).carbonCertificate ?? '';
     this.defaultTimeout = config.defaultTimeout ?? DEFAULT_TIMEOUT;
     this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
   }
@@ -282,6 +285,34 @@ export class StellarService {
     } catch (error) {
       throw parseError(error);
     }
+  }
+
+  /**
+   * Clone an existing payment stream's structure to create a new stream.
+   * Used by the campaign "Clone" button to copy recipient, goal, and timeline
+   * from a successful campaign.
+   *
+   * @param streamId - ID of the stream/campaign to clone
+   * @param signerKeypair - Keypair for signing the new stream (becomes the new sender)
+   * @returns Transaction result with the new stream ID
+   */
+  async cloneStream(
+    streamId: bigint,
+    signerKeypair: Keypair
+  ): Promise<TransactionResult<bigint>> {
+    const existing = await this.getStream(streamId);
+
+    if (!existing) {
+      throw new StreamNotFoundError(streamId, new Error('Stream not found'));
+    }
+
+    return this.createStream({
+      recipient: existing.recipient,
+      token: existing.token,
+      totalAmount: existing.totalAmount,
+      startTime: existing.startTime,
+      endTime: existing.endTime,
+    }, signerKeypair);
   }
 
   /**
@@ -643,6 +674,109 @@ export class StellarService {
   }
 
   // ============================================
+  // Carbon Certificate Methods (Soroban RPC)
+  // ============================================
+
+  /**
+   * Get a carbon certificate by ID
+   * @param certificateId - Carbon certificate ID
+   * @returns Carbon certificate data or null if not found
+   */
+  async getCarbonCertificate(certificateId: bigint): Promise<{
+    id: bigint;
+    owner: string;
+    amount: bigint;
+    status: string;
+  } | null> {
+    try {
+      const result = await this.invokeContractReadOnly<Record<string, unknown>>(
+        this.carbonCertificateContractId,
+        'get_certificate',
+        [nativeToScVal(certificateId, { type: 'u64' })]
+      );
+
+      if (!result) {
+        return null;
+      }
+
+      return {
+        id: BigInt(String(result.id ?? certificateId)),
+        owner: String(result.owner),
+        amount: BigInt(String(result.amount ?? 0)),
+        status: String(result.status ?? 'Active'),
+      };
+    } catch (error) {
+      if ((error as Error).message?.includes('not found')) {
+        return null;
+      }
+      throw parseError(error);
+    }
+  }
+
+  /**
+   * Issue a tradeable carbon offset certificate.
+   * @param owner - Address receiving the certificate
+   * @param amount - Offset credit amount in the certificate
+   * @param signerKeypair - Keypair authorized to issue certificates
+   * @returns Transaction result with the new certificate ID
+   */
+  async issueCarbonCertificate(
+    owner: string,
+    amount: bigint,
+    signerKeypair: Keypair
+  ): Promise<TransactionResult<bigint>> {
+    if (!this.isValidAddress(owner)) {
+      throw new ValidationError('Invalid owner address', 'owner');
+    }
+    if (amount <= 0n) {
+      throw new ValidationError('Amount must be positive', 'amount');
+    }
+
+    const args = [
+      new Address(signerKeypair.publicKey()).toScVal(),
+      new Address(owner).toScVal(),
+      nativeToScVal(amount, { type: 'i128' }),
+    ];
+
+    return this.invokeContract<bigint>(
+      this.carbonCertificateContractId,
+      'issue_certificate',
+      args,
+      signerKeypair
+    );
+  }
+
+  /**
+   * Transfer a carbon certificate to a new owner (e.g. selling on a marketplace)
+   * @param certificateId - Certificate ID to transfer
+   * @param recipient - New owner address
+   * @param signerKeypair - Keypair of the current owner
+   * @returns Transaction result
+   */
+  async transferCarbonCertificate(
+    certificateId: bigint,
+    recipient: string,
+    signerKeypair: Keypair
+  ): Promise<TransactionResult<void>> {
+    if (!this.isValidAddress(recipient)) {
+      throw new ValidationError('Invalid recipient address', 'recipient');
+    }
+
+    const args = [
+      new Address(signerKeypair.publicKey()).toScVal(),
+      nativeToScVal(certificateId, { type: 'u64' }),
+      new Address(recipient).toScVal(),
+    ];
+
+    return this.invokeContract<void>(
+      this.carbonCertificateContractId,
+      'transfer_certificate',
+      args,
+      signerKeypair
+    );
+  }
+
+  // ============================================
   // Private Methods: Contract Invocation
   // ============================================
 
@@ -937,6 +1071,7 @@ export class StellarService {
 export function createTestnetService(contracts: {
   paymentStream: string;
   distributor: string;
+  carbonCertificate?: string;
 }): StellarService {
   return new StellarService({
     network: {
@@ -954,6 +1089,7 @@ export function createTestnetService(contracts: {
 export function createMainnetService(contracts: {
   paymentStream: string;
   distributor: string;
+  carbonCertificate?: string;
 }): StellarService {
   return new StellarService({
     network: {

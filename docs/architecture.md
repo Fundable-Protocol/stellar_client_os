@@ -8,23 +8,29 @@ The following diagram illustrates the interaction between the main components of
 
 ```mermaid
 graph TD
-    A[User] --> B{Frontend (Next.js)};
-    B --> C{SDK (@fundable/sdk)};
-    C --> D{Soroban Smart Contracts};
-    D --> E((Stellar Blockchain));
+    A[User] --> B{Frontend (Next.js)}
+    B <--> C{Backend (Node.js API)}
+    B --> SDK{SDK (@fundable/sdk)}
+    C --> SDK
+    SDK --> D{Soroban Smart Contracts}
+    D --> E((Stellar Blockchain))
+    B --> F[(IPFS - Decentralized Storage)]
+    C --> F
 
     subgraph "Client-Side"
         A
         B
     end
 
-    subgraph "Off-Chain"
+    subgraph "Off-Chain / API"
         C
+        SDK
     end
 
-    subgraph "On-Chain"
+    subgraph "Decentralized Network"
         D
         E
+        F
     end
 ```
 

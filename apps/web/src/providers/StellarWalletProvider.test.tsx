@@ -55,6 +55,8 @@ vi.mock("@/services/offramp.service", () => ({
 // Mock react-hot-toast (pulled in by notification util)
 vi.mock("react-hot-toast", () => ({ default: { error: vi.fn() } }));
 
+import toast from "react-hot-toast";
+
 // ---------------------------------------------------------------------------
 // Static import of the provider (after mocks are registered)
 // ---------------------------------------------------------------------------
@@ -327,6 +329,60 @@ describe("StellarWalletProvider – wallet state persistence on refresh", () => 
       expect(store["stellar_wallet_address"]).toBe(VALID_ADDRESS);
       expect(store["@fundable/web:selected_wallet"]).toBe(WALLET_ID);
       expect(store["stellar_wallet_network"]).toBe(WalletNetwork.TESTNET);
+    });
+
+    it("gracefully handles user cancellation / rejection without error notification", async () => {
+      mockGetAddress.mockRejectedValueOnce(new Error("User rejected"));
+
+      const { result } = renderHook(() => useWallet(), { wrapper: Wrapper });
+
+      await waitFor(() => expect(result.current.connectionStatus).toBe("idle"));
+
+      await act(async () => {
+        await result.current.connect(WALLET_ID);
+      });
+
+      expect(result.current.address).toBeNull();
+      expect(result.current.isConnected).toBe(false);
+      expect(result.current.connectionStatus).toBe("idle");
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("gracefully handles Freighter cancellation code -4 silently", async () => {
+      mockGetAddress.mockRejectedValueOnce({
+        code: -4,
+        message: "The user rejected this request.",
+      });
+
+      const { result } = renderHook(() => useWallet(), { wrapper: Wrapper });
+
+      await waitFor(() => expect(result.current.connectionStatus).toBe("idle"));
+
+      await act(async () => {
+        await result.current.connect(WALLET_ID);
+      });
+
+      expect(result.current.address).toBeNull();
+      expect(result.current.isConnected).toBe(false);
+      expect(result.current.connectionStatus).toBe("idle");
+      expect(toast.error).not.toHaveBeenCalled();
+    });
+
+    it("gracefully handles modal closed error silently", async () => {
+      mockGetAddress.mockRejectedValueOnce(new Error("User closed modal"));
+
+      const { result } = renderHook(() => useWallet(), { wrapper: Wrapper });
+
+      await waitFor(() => expect(result.current.connectionStatus).toBe("idle"));
+
+      await act(async () => {
+        await result.current.connect(WALLET_ID);
+      });
+
+      expect(result.current.address).toBeNull();
+      expect(result.current.isConnected).toBe(false);
+      expect(result.current.connectionStatus).toBe("idle");
+      expect(toast.error).not.toHaveBeenCalled();
     });
   });
 });

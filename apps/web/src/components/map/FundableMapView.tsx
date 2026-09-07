@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import {
   MapContainer,
   TileLayer,
@@ -190,6 +196,7 @@ function MapClusterMarker({
       }}
       radius={isHovered ? radius + 3 : radius}
       eventHandlers={eventHandlers}
+      aria-label={`Cluster of ${cluster.count} fundable stream${cluster.count !== 1 ? "s" : ""}`}
     >
       <Popup>
         <div style={popupStyles.container}>
@@ -212,11 +219,15 @@ export function FundableMapView({
   onStreamSelect,
   isLoading,
 }: FundableMapProps) {
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
+  const [isMounted] = useState(() => typeof window !== 'undefined');
+  // SSR hydration guard: true once mounted on the client, false during SSR.
+  // useSyncExternalStore avoids the setState-in-effect anti-pattern while
+  // preserving the same behaviour as the old isMounted flag.
+  const isMounted = useSyncExternalStore(
+    () => () => {}, // no external store to subscribe to
+    () => true,     // client snapshot: mounted
+    () => false     // server snapshot: not mounted
+  );
 
   const clusters = useMemo(() => clusterStreams(streams), [streams]);
 

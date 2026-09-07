@@ -22,9 +22,16 @@ export {
   DistributionHistory,
 } from "./generated/distributor/src/index";
 
+// Re-export generated types for Planter
+export {
+  PlanterInfo,
+  ReferralInfo,
+} from "./generated/planter/src/index";
+
 // Export high-level clients
 export * from "./PaymentStreamClient";
 export * from "./DistributorClient";
+export * from "./PlanterClient";
 
 // Export deployment module
 export * from "./deployer";
@@ -40,6 +47,9 @@ export * from "./utils/BalanceWatcher";
 export * from "./utils/transactions";
 export * from "./utils/GasEstimator";
 export * from "./utils/rpcConnectionOptions";
+
+// Export tax reporting utilities (issue #792)
+export * from "./tax";
 
 // Export error handling utilities
 export {

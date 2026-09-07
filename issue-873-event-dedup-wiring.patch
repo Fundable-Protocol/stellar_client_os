@@ -1,0 +1,247 @@
+--- a/scripts/watch-events.ts
++++ b/scripts/watch-events.ts
+@@ -12,6 +12,7 @@
+ import { logger } from "./logger";
+ import { sendWebhook, WebhookConfig } from "./webhook.js";
+ import { resolve } from "node:path";
++import { recordIndexerDedupStats, startMetricsServer } from "./metrics-server.js";
+ 
+ // ── Configuration ────────────────────────────────────────────────────────────────
+ 
+@@ -233,7 +234,6 @@
+ 
+ const server = new MultiEndpointServer(RPC_URL);
+ const dedupCache = new EventDedupCache();
+-const seenEvents = new Set<string>();
+ let currentLedger = 0;
+ let totalEventsSeen = 0;
+ 
+@@ -260,20 +260,20 @@
+       const parsed = parseEvent(event);
+       if (!parsed) continue;
+ 
+-      if (!seenEvents.has(parsed.id)) {
+-        seenEvents.add(parsed.id);
+-
+-        // Deduplication check
+-        if (!dedupCache.checkAndRecord(parsed.txHash, parsed.type, parsed.ledger)) {
+-          newEvents.push(parsed);
+-        } else {
+-          debugLog(`Duplicate event skipped: ${createCacheKey(parsed.txHash, parsed.type, parsed.ledger)}`);
+-        }
++      // Deduplication check — EventDedupCache is the single in-memory dedup
++      // gate (bounded/LRU, TTL-capable). It previously sat behind an
++      // unbounded `seenEvents` Set that grew forever on a long-running
++      // process; that Set has been removed so this bounded cache is
++      // actually what limits memory growth, per issue #078.
++      if (!dedupCache.checkAndRecord(parsed.txHash, parsed.type, parsed.ledger)) {
++        newEvents.push(parsed);
++      } else {
++        debugLog(`Duplicate event skipped: ${createCacheKey(parsed.txHash, parsed.type, parsed.ledger)}`);
+       }
+     }
+ 
+     
+-    // Periodic stats logging (every 100 events processed)
++    // Periodic stats logging + metrics export (every 100 events processed)
+     totalEventsSeen += response.events.length;
+     if (totalEventsSeen >= 100) {
+       const s = dedupCache.stats;
+@@ -283,6 +283,7 @@
+         `${s.size}/${s.maxSize} cache entries, ` +
+         `${s.evictions} evictions` + colors.reset
+       );
++      recordIndexerDedupStats(s);
+       totalEventsSeen = 0;
+     }
+     
+@@ -324,6 +325,13 @@
+   if (webhookConfig) {
+     console.log(colors.dim + `Webhook delivery enabled to: ${webhookConfig.url}` + colors.reset);
+   }
++  // Recording dedup stats into metrics-server's counters (above) only
++  // updates in-process state; the HTTP endpoint must also be started in
++  // this process for those counters to actually be scrapeable. Safe to
++  // call even if another process (e.g. indexer.ts) already holds the
++  // configured port — startMetricsServer() logs and continues without
++  // crashing on EADDRINUSE.
++  startMetricsServer();
+   console.log("");
+   
+   // Initial fetch
+--- a/scripts/indexer.ts
++++ b/scripts/indexer.ts
+@@ -51,7 +51,7 @@
+ import { fileURLToPath } from "node:url";
+ import { Server } from "@stellar/stellar-sdk/rpc";
+ import { EventDedupCache, type DedupStats } from "./event-dedup.js";
+-import { recordIndexerDedupStats } from "./metrics-server.js";
++import { recordIndexerDedupStats, startMetricsServer } from "./metrics-server.js";
+ 
+ // ── Configuration ─────────────────────────────────────────────────────────────
+ 
+@@ -482,6 +482,13 @@
+       (process.env.EVENT_DEDUP_TTL_MS ? `, TTL: ${process.env.EVENT_DEDUP_TTL_MS}ms` : ""),
+   );
+ 
++  // recordIndexerDedupStats() below only updates in-process Prometheus
++  // counter state; the HTTP endpoint must be started in this process too
++  // for those counters to be scrapeable. startMetricsServer() logs and
++  // continues (does not crash) if the port is already bound by another
++  // process.
++  startMetricsServer();
++
+   // Determine the ledger to resume from.
+   const savedLedger = getMeta(db, "last_ledger");
+   let currentLedger: number;
+--- /dev/null
++++ b/scripts/test-watch-events-dedup.ts
+@@ -0,0 +1,148 @@
++#!/usr/bin/env tsx
++/**
++ * test-watch-events-dedup.ts — Tests for EventDedupCache integration into
++ * the watch-events.ts pipeline (issue #078).
++ *
++ * test-event-dedup-integration.ts already covers the indexer side
++ * (in-memory + DB layered dedup, metrics counters). This file covers the
++ * gap on the watch-events side specifically:
++ *
++ *   1. watch-events previously gated on both an unbounded `seenEvents` Set
++ *      *and* the bounded EventDedupCache — the Set made the cache
++ *      redundant and grew forever on a long-running process. Duplicate
++ *      detection must now work correctly through EventDedupCache alone.
++ *   2. watch-events' dedup stats must be recorded into metrics-server's
++ *      Prometheus counters, not just logged to the console.
++ *
++ * Run directly: tsx test-watch-events-dedup.ts
++ */
++import { EventDedupCache } from "./event-dedup.js";
++import { recordIndexerDedupStats, metricsText } from "./metrics-server.js";
++
++function assert(condition: boolean, message: string): void {
++  if (!condition) {
++    throw new Error(`Assertion failed: ${message}`);
++  }
++}
++
++function assertEqual<T>(actual: T, expected: T, message: string): void {
++  assert(
++    actual === expected,
++    `${message} (expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)})`,
++  );
++}
++
++/**
++ * EventDedupCache alone (no separate unbounded Set) correctly skips a
++ * duplicate (txHash, eventName, ledger) triple across repeated polls.
++ */
++function testDedupCacheAloneSkipsDuplicates(): void {
++  const dedup = new EventDedupCache();
++
++  const isDupe1 = dedup.checkAndRecord("tx1", "TransferEvent", 1000);
++  assertEqual(isDupe1, false, "first occurrence should not be a duplicate");
++
++  // Simulate the same event reappearing in the next poll (overlapping
++  // ledger range) — this is exactly the scenario the removed unbounded
++  // `seenEvents` Set used to guard against.
++  const isDupe2 = dedup.checkAndRecord("tx1", "TransferEvent", 1000);
++  assertEqual(isDupe2, true, "repeated occurrence should be detected as a duplicate");
++
++  assertEqual(dedup.stats.deduplicatedTotal, 1, "one duplicate should be recorded");
++  assertEqual(dedup.stats.totalProcessed, 1, "one unique event should be recorded");
++}
++
++/**
++ * A different ledger for the same (txHash, eventName) is treated as a
++ * distinct event — dedup granularity includes the ledger, same as
++ * indexer.ts's usage.
++ */
++function testDifferentLedgerIsNotADuplicate(): void {
++  const dedup = new EventDedupCache();
++
++  dedup.checkAndRecord("tx1", "TransferEvent", 1000);
++  const isDupe = dedup.checkAndRecord("tx1", "TransferEvent", 1001);
++
++  assertEqual(isDupe, false, "same tx+event at a different ledger is a distinct event");
++  assertEqual(dedup.stats.totalProcessed, 2, "both ledgers should count as unique");
++}
++
++/**
++ * Bounded memory: with an unbounded Set removed, the cache's own maxSize
++ * cap is what limits memory growth. Exercise the LRU eviction path
++ * directly to confirm the cache — not an external Set — is doing the
++ * bounding.
++ */
++function testCacheIsBoundedByMaxSize(): void {
++  const dedup = new EventDedupCache(3);
++
++  for (let i = 0; i < 5; i++) {
++    dedup.checkAndRecord(`tx${i}`, "TransferEvent", 1000 + i);
++  }
++
++  assertEqual(dedup.stats.size, 3, "cache size should never exceed maxSize");
++  assertEqual(dedup.stats.evictions, 2, "two entries should have been evicted");
++
++  // The oldest two entries (tx0, tx1) were evicted, so they now look like
++  // "new" events again if reprocessed — this is the documented, accepted
++  // trade-off of a bounded LRU cache (see event-dedup.ts).
++  const isDupeAfterEviction = dedup.checkAndRecord("tx0", "TransferEvent", 1000);
++  assertEqual(isDupeAfterEviction, false, "an evicted entry is treated as new on reprocessing");
++}
++
++/**
++ * watch-events' periodic stats block calls recordIndexerDedupStats() the
++ * same way indexer.ts does — verify that call actually surfaces in the
++ * Prometheus text output, closing the "metrics" half of the acceptance
++ * criteria for watch-events specifically.
++ */
++async function testWatchEventsStatsReachMetricsOutput(): Promise<void> {
++  const dedup = new EventDedupCache();
++
++  dedup.checkAndRecord("tx1", "TransferEvent", 1000);
++  dedup.checkAndRecord("tx1", "TransferEvent", 1000); // duplicate
++
++  recordIndexerDedupStats(dedup.stats);
++
++  const text = await metricsText();
++  assert(
++    text.includes("indexer_duplicate_events_total"),
++    "duplicate events counter should be present in metrics output",
++  );
++  assert(
++    text.includes("indexer_dedup_cache_size"),
++    "cache size gauge should be present in metrics output",
++  );
++}
++
++async function main(): Promise<void> {
++  const tests: Array<[string, () => void | Promise<void>]> = [
++    ["EventDedupCache alone skips duplicates (no unbounded Set needed)", testDedupCacheAloneSkipsDuplicates],
++    ["Different ledger is not a duplicate", testDifferentLedgerIsNotADuplicate],
++    ["Cache is bounded by maxSize, not an external Set", testCacheIsBoundedByMaxSize],
++    ["watch-events dedup stats reach metrics output", testWatchEventsStatsReachMetricsOutput],
++  ];
++
++  let passed = 0;
++  let failed = 0;
++
++  for (const [name, fn] of tests) {
++    try {
++      await fn();
++      console.log(`  ✓ ${name}`);
++      passed++;
++    } catch (err) {
++      console.error(`  ✗ ${name}`);
++      console.error(`    ${err instanceof Error ? err.message : err}`);
++      failed++;
++    }
++  }
++
++  console.log(`\n${passed} passed, ${failed} failed`);
++  if (failed > 0) process.exit(1);
++}
++
++main().catch((err) => {
++  console.error("Fatal:", err instanceof Error ? err.message : err);
++  process.exit(1);
++});

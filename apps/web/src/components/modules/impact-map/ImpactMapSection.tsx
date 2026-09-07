@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentType } from "react";
 import dynamic from "next/dynamic";
 import AppSelect from "@/components/molecules/AppSelect";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -47,13 +47,14 @@ const ImpactMap = dynamic(
           <Skeleton className="h-5 w-48 bg-zinc-800" />
           <Skeleton className="h-4 w-72 bg-zinc-800" />
         </div>
-        <Skeleton className="h-[300px] md:h-[400px] lg:h-[500px] rounded-xl bg-zinc-900" />
+        <Skeleton className="h-[300px] md:h-[400px] lg:h-[500px] rounded-xl bj-zinc-900" />
       </div>
     ),
   }
-);
+) as ComponentType<{ sortBy?: string }>
 
 export function ImpactMapSection() {
+  const [sortBy, setSortBy] = useState("deadline");
   const [treeStatus, setTreeStatus] = useState<TreeStatus>("all");
 
   const filteredProjects = useMemo(
@@ -77,17 +78,35 @@ export function ImpactMapSection() {
           </p>
         </div>
 
-        <div className="w-full max-w-[220px]">
-          <p className="mb-1.5 ml-1 text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">
-            Tree status
-          </p>
-          <AppSelect
-            options={TREE_STATUS_OPTIONS}
-            value={treeStatus}
-            setValue={(value) => setTreeStatus(value as TreeStatus)}
-            placeholder="All"
-            className="bg-zinc-900 border-zinc-700 text-white"
-          />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="w-full max-w-[220px]">
+            <p className="mb-1.5 ml-1 text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">
+              Tree status
+            </p>
+            <AppSelect
+              options={TREE_STATUS_OPTIONS}
+              value={treeStatus}
+              setValue={(value) => setTreeStatus(value as TreeStatus)}
+              placeholder="All"
+              className="bg-zinc-900 border-zinc-700 text-white"
+            />
+          </div>
+
+          <div className="w-full max-w-[220px]">
+            <p className="mb-1.5 ml-1 text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">
+              Sort by
+            </p>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full bg-zinc-800 text-sm text-zinc-200 rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-zinc-600"
+              aria-label="Sort projects"
+            >
+              <option value="pay">Highest pay</option>
+              <option value="deadline">Soonest deadline</option>
+              <option value="altitude">Easiest (lowest altitude)</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -114,7 +133,7 @@ export function ImpactMapSection() {
         </div>
       </div>
 
-      <ImpactMap />
+      <ImpactMap sortBy={sortBy} />
     </div>
   );
 }
