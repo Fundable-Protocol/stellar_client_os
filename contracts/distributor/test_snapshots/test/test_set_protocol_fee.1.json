@@ -230,7 +230,7 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "history"
+                    "symbol": "History"
                   },
                   {
                     "u64": "0"
@@ -286,7 +286,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 535680
       },
       {
         "entry": {
@@ -298,7 +298,7 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "tok_stats"
+                    "symbol": "TokenStats"
                   },
                   {
                     "address": "CACMVW2KK4H5FZDFF2AUCAKQTEJMZZWJUIZF23XMRVYQBSXYLHZ6BKWN"
@@ -338,7 +338,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 535680
       },
       {
         "entry": {
@@ -350,7 +350,7 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "usr_stats"
+                    "symbol": "UserStats"
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -382,7 +382,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 535680
       },
       {
         "entry": {
@@ -401,7 +401,11 @@
                   "storage": [
                     {
                       "key": {
-                        "symbol": "admin"
+                        "vec": [
+                          {
+                            "symbol": "Admin"
+                          }
+                        ]
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -409,7 +413,11 @@
                     },
                     {
                       "key": {
-                        "symbol": "fee_addr"
+                        "vec": [
+                          {
+                            "symbol": "FeeAddress"
+                          }
+                        ]
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -417,7 +425,11 @@
                     },
                     {
                       "key": {
-                        "symbol": "fee_pct"
+                        "vec": [
+                          {
+                            "symbol": "FeePercent"
+                          }
+                        ]
                       },
                       "val": {
                         "u32": 500
@@ -425,7 +437,11 @@
                     },
                     {
                       "key": {
-                        "symbol": "hist_cnt"
+                        "vec": [
+                          {
+                            "symbol": "HistoryCount"
+                          }
+                        ]
                       },
                       "val": {
                         "u64": "1"
@@ -433,7 +449,11 @@
                     },
                     {
                       "key": {
-                        "symbol": "tot_amt"
+                        "vec": [
+                          {
+                            "symbol": "TotalAmount"
+                          }
+                        ]
                       },
                       "val": {
                         "i128": "1000"
@@ -441,7 +461,11 @@
                     },
                     {
                       "key": {
-                        "symbol": "tot_dist"
+                        "vec": [
+                          {
+                            "symbol": "TotalDistributions"
+                          }
+                        ]
                       },
                       "val": {
                         "u64": "1"
@@ -454,7 +478,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 535680
       },
       {
         "entry": {
@@ -807,7 +831,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 535680
       }
     ]
   },

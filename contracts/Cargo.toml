@@ -5,18 +5,17 @@ members = [
     "payment-stream",
     "distributor",
     "nft-stream",
+    "libs/common",
     "campaign-funding",
     "soulbound-badge",
-    "verifier-penalty"
+    "verifier-penalty",
     "planter",
     "dispute-arbiter",
-    "campaign-funding",
-    "soulbound-badge"
-    "soulbound-badge",
     "timelock",
     "upgrade-proxy",
     "sponsor-crowdfunding",
     "sponsor-insurance",
+    "donor-verification",
 ]
 
 [workspace.package]
@@ -27,6 +26,7 @@ repository = "https://github.com/Fundable-Protocol/stellar_client"
 
 [workspace.dependencies]
 soroban-sdk = "=25.3.2"
+contract-common = { path = "libs/common" }
 
 [profile.release]
 opt-level = "z"

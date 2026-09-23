@@ -1,11 +1,30 @@
-// Refactor persistent storage keys to reduce footprint
 #![no_std]
+
+use contract_common::{
+    extend_instance_ttl, ReentrancyGuard, FEE_BPS_DENOMINATOR, LEDGER_TTL_EXTEND_TO,
+    LEDGER_TTL_THRESHOLD, MAX_PROTOCOL_FEE_BPS,
+};
 use soroban_sdk::{
-    contract, contractimpl, contracttype, token, Address, Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env, Vec,
 };
 
 #[contract]
 pub struct DistributorContract;
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum Error {
+    AlreadyInitialized = 1,
+    NotInitialized = 2,
+    Unauthorized = 3,
+    InvalidAmount = 4,
+    NoRecipients = 5,
+    AmountTooSmall = 6,
+    RecipientsAmountsMismatch = 7,
+    FeeTooHigh = 8,
+    ReentrantCall = 9,
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -32,24 +51,42 @@ pub struct DistributionHistory {
     pub timestamp: u64,
 }
 
+#[contracttype]
+pub enum DataKey {
+    Admin,
+    FeePercent,
+    FeeAddress,
+    TotalDistributions,
+    TotalAmount,
+    HistoryCount,
+    TokenStats(Address),
+    UserStats(Address),
+    History(u64),
+}
+
 #[contractimpl]
 impl DistributorContract {
     pub fn initialize(env: Env, admin: Address, protocol_fee_percent: u32, fee_address: Address) {
-        if env.storage().instance().has(&Symbol::new(&env, "admin")) {
-            panic!("Contract already initialized");
+        let _guard = Self::acquire_guard(&env);
+
+        if env.storage().instance().has(&DataKey::Admin) {
+            panic_with_error!(&env, Error::AlreadyInitialized);
+        }
+        if protocol_fee_percent > MAX_PROTOCOL_FEE_BPS {
+            panic_with_error!(&env, Error::FeeTooHigh);
         }
         admin.require_auth();
-        
+
         let storage = env.storage().instance();
-        storage.set(&Symbol::new(&env, "admin"), &admin);
-        storage.set(&Symbol::new(&env, "fee_pct"), &protocol_fee_percent);
-        storage.set(&Symbol::new(&env, "fee_addr"), &fee_address);
-        storage.set(&Symbol::new(&env, "tot_dist"), &0u64);
-        storage.set(&Symbol::new(&env, "tot_amt"), &0i128);
-        storage.set(&Symbol::new(&env, "hist_cnt"), &0u64);
+        storage.set(&DataKey::Admin, &admin);
+        storage.set(&DataKey::FeePercent, &protocol_fee_percent);
+        storage.set(&DataKey::FeeAddress, &fee_address);
+        storage.set(&DataKey::TotalDistributions, &0u64);
+        storage.set(&DataKey::TotalAmount, &0i128);
+        storage.set(&DataKey::HistoryCount, &0u64);
+        extend_instance_ttl(&env);
     }
 
-    
     pub fn distribute_equal(
         env: Env,
         sender: Address,
@@ -57,40 +94,42 @@ impl DistributorContract {
         total_amount: i128,
         recipients: Vec<Address>,
     ) {
+        let _guard = Self::acquire_guard(&env);
+        Self::require_initialized(&env);
         sender.require_auth();
-        
+
         let recipient_count = recipients.len() as i128;
-        assert!(recipient_count > 0, "No recipients provided");
-        assert!(total_amount > 0, "Amount must be positive");
-        
+        if recipient_count == 0 {
+            panic_with_error!(&env, Error::NoRecipients);
+        }
+        if total_amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
         let amount_per_recipient = total_amount / recipient_count;
-        assert!(amount_per_recipient > 0, "Amount too small to distribute");
-        
+        if amount_per_recipient <= 0 {
+            panic_with_error!(&env, Error::AmountTooSmall);
+        }
+
         let token_client = token::Client::new(&env, &token);
-        
-       
         let protocol_fee = Self::calculate_fee(&env, total_amount);
-        
+
         if protocol_fee > 0 {
-            let fee_address: Address = env.storage().instance()
-                .get(&Symbol::new(&env, "fee_addr"))
-                .unwrap();
+            let fee_address: Address = env.storage().instance().get(&DataKey::FeeAddress).unwrap();
             token_client.transfer(&sender, &fee_address, &protocol_fee);
         }
-        
-        
+
         for recipient in recipients.iter() {
             token_client.transfer(&sender, &recipient, &amount_per_recipient);
         }
-        
-        
+
         Self::update_global_stats(&env, total_amount);
-        Self::update_token_stats(&env, &token, total_amount, recipients.len());
+        Self::update_token_stats(&env, &token, total_amount);
         Self::update_user_stats(&env, &sender, total_amount);
         Self::record_history(&env, sender, token, total_amount, recipients.len());
+        extend_instance_ttl(&env);
     }
 
-  
     pub fn distribute_weighted(
         env: Env,
         sender: Address,
@@ -98,103 +137,109 @@ impl DistributorContract {
         recipients: Vec<Address>,
         amounts: Vec<i128>,
     ) {
+        let _guard = Self::acquire_guard(&env);
+        Self::require_initialized(&env);
         sender.require_auth();
-        
-        assert!(recipients.len() == amounts.len(), "Recipients and amounts must match");
-        assert!(recipients.len() > 0, "No recipients provided");
-        
+
+        if recipients.len() != amounts.len() {
+            panic_with_error!(&env, Error::RecipientsAmountsMismatch);
+        }
+        if recipients.is_empty() {
+            panic_with_error!(&env, Error::NoRecipients);
+        }
+
         let token_client = token::Client::new(&env, &token);
-        
+
         let mut total_amount: i128 = 0;
         for amount in amounts.iter() {
-            assert!(amount > 0, "All amounts must be positive");
+            if amount <= 0 {
+                panic_with_error!(&env, Error::InvalidAmount);
+            }
             total_amount += amount;
         }
-        
-       
+
         let protocol_fee = Self::calculate_fee(&env, total_amount);
-        
-       
+
         if protocol_fee > 0 {
-            let fee_address: Address = env.storage().instance()
-                .get(&Symbol::new(&env, "fee_addr"))
-                .unwrap();
+            let fee_address: Address = env.storage().instance().get(&DataKey::FeeAddress).unwrap();
             token_client.transfer(&sender, &fee_address, &protocol_fee);
         }
-        
-        
+
         for i in 0..recipients.len() {
             let recipient = recipients.get(i).unwrap();
             let amount = amounts.get(i).unwrap();
             token_client.transfer(&sender, &recipient, &amount);
         }
-        
-        
+
         Self::update_global_stats(&env, total_amount);
-        Self::update_token_stats(&env, &token, total_amount, recipients.len());
+        Self::update_token_stats(&env, &token, total_amount);
         Self::update_user_stats(&env, &sender, total_amount);
         Self::record_history(&env, sender, token, total_amount, recipients.len());
+        extend_instance_ttl(&env);
     }
 
-   
     fn update_global_stats(env: &Env, amount: i128) {
         let storage = env.storage().instance();
-        let mut total_dist: u64 = storage.get(&Symbol::new(&env, "tot_dist")).unwrap_or(0);
-        let mut total_amt: i128 = storage.get(&Symbol::new(&env, "tot_amt")).unwrap_or(0);
-        
+        let mut total_dist: u64 = storage.get(&DataKey::TotalDistributions).unwrap_or(0);
+        let mut total_amt: i128 = storage.get(&DataKey::TotalAmount).unwrap_or(0);
+
         total_dist += 1;
         total_amt += amount;
-        
-        storage.set(&Symbol::new(&env, "tot_dist"), &total_dist);
-        storage.set(&Symbol::new(&env, "tot_amt"), &total_amt);
+
+        storage.set(&DataKey::TotalDistributions, &total_dist);
+        storage.set(&DataKey::TotalAmount, &total_amt);
     }
 
-    fn update_token_stats(env: &Env, token: &Address, amount: i128, _recipient_count: u32) {
+    fn update_token_stats(env: &Env, token: &Address, amount: i128) {
         let storage = env.storage().persistent();
-        let key = (Symbol::new(&env, "tok_stats"), token);
-        
+        let key = DataKey::TokenStats(token.clone());
+
         let mut stats: TokenStats = storage.get(&key).unwrap_or(TokenStats {
             total_amount: 0,
             distribution_count: 0,
             last_time: 0,
         });
-        
+
         stats.total_amount += amount;
         stats.distribution_count += 1;
-    
+
         let ts = env.ledger().timestamp();
         stats.last_time = if ts == 0 { 1 } else { ts };
-        
+
         storage.set(&key, &stats);
+        storage.extend_ttl(&key, LEDGER_TTL_THRESHOLD, LEDGER_TTL_EXTEND_TO);
     }
 
     fn update_user_stats(env: &Env, user: &Address, amount: i128) {
         let storage = env.storage().persistent();
-        let key = (Symbol::new(&env, "usr_stats"), user);
-        
+        let key = DataKey::UserStats(user.clone());
+
         let mut stats: UserStats = storage.get(&key).unwrap_or(UserStats {
             distributions_initiated: 0,
             total_amount: 0,
         });
-        
+
         stats.distributions_initiated += 1;
         stats.total_amount += amount;
-        
+
         storage.set(&key, &stats);
+        storage.extend_ttl(&key, LEDGER_TTL_THRESHOLD, LEDGER_TTL_EXTEND_TO);
     }
 
-    fn record_history(env: &Env, sender: Address, token: Address, amount: i128, recipient_count: u32) {
+    fn record_history(
+        env: &Env,
+        sender: Address,
+        token: Address,
+        amount: i128,
+        recipient_count: u32,
+    ) {
         let storage = env.storage().persistent();
-        let mut count: u64 = env.storage().instance()
-            .get(&Symbol::new(&env, "hist_cnt"))
+        let mut count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::HistoryCount)
             .unwrap_or(0);
-        if count == u64::MAX {
-            // History index space exhausted: reject gracefully instead of overflowing.
-            panic!(
-                "Contract is full: distribution history index exhausted (u64::MAX); no further distributions can be recorded"
-            );
-        }
-        
+
         let history = DistributionHistory {
             sender,
             token,
@@ -202,601 +247,96 @@ impl DistributorContract {
             recipients_count: recipient_count,
             timestamp: env.ledger().timestamp(),
         };
-        
-        storage.set(&(Symbol::new(&env, "history"), count), &history);
+
+        let key = DataKey::History(count);
+        storage.set(&key, &history);
+        storage.extend_ttl(&key, LEDGER_TTL_THRESHOLD, LEDGER_TTL_EXTEND_TO);
         count += 1;
-        env.storage().instance().set(&Symbol::new(&env, "hist_cnt"), &count);
+        env.storage().instance().set(&DataKey::HistoryCount, &count);
     }
 
     fn calculate_fee(env: &Env, amount: i128) -> i128 {
-        let fee_percent: u32 = env.storage().instance()
-            .get(&Symbol::new(&env, "fee_pct"))
+        let fee_percent: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::FeePercent)
             .unwrap_or(0);
-        (amount * fee_percent as i128) / 10000
+        (amount * fee_percent as i128) / FEE_BPS_DENOMINATOR
     }
 
-  
     pub fn get_total_distributions(env: Env) -> u64 {
-        env.storage().instance().get(&Symbol::new(&env, "tot_dist")).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::TotalDistributions)
+            .unwrap_or(0)
     }
 
     pub fn get_total_distributed_amount(env: Env) -> i128 {
-        env.storage().instance().get(&Symbol::new(&env, "tot_amt")).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&DataKey::TotalAmount)
+            .unwrap_or(0)
     }
 
     pub fn get_token_stats(env: Env, token: Address) -> Option<TokenStats> {
-        env.storage().persistent().get(&(Symbol::new(&env, "tok_stats"), token))
+        env.storage().persistent().get(&DataKey::TokenStats(token))
     }
 
     pub fn get_user_stats(env: Env, user: Address) -> Option<UserStats> {
-        env.storage().persistent().get(&(Symbol::new(&env, "usr_stats"), user))
+        env.storage().persistent().get(&DataKey::UserStats(user))
     }
 
-    pub fn get_distribution_history(env: Env, start_id: u64, limit: u64) -> Vec<DistributionHistory> {
+    pub fn get_distribution_history(
+        env: Env,
+        start_id: u64,
+        limit: u64,
+    ) -> Vec<DistributionHistory> {
         let mut history = Vec::new(&env);
         let storage = env.storage().persistent();
-        
+
         for i in start_id..(start_id + limit) {
-            if let Some(record) = storage.get::<_, DistributionHistory>(&(Symbol::new(&env, "history"), i)) {
+            if let Some(record) = storage.get::<_, DistributionHistory>(&DataKey::History(i)) {
                 history.push_back(record);
             }
         }
-        
+
         history
     }
 
     pub fn get_admin(env: Env) -> Option<Address> {
-        env.storage().instance().get(&Symbol::new(&env, "admin"))
+        env.storage().instance().get(&DataKey::Admin)
     }
 
     pub fn set_protocol_fee(env: Env, admin: Address, new_fee_percent: u32) {
+        let _guard = Self::acquire_guard(&env);
+        Self::require_initialized(&env);
         admin.require_auth();
-        let stored_admin: Address = env.storage().instance()
-            .get(&Symbol::new(&env, "admin"))
-            .unwrap();
-        assert!(admin == stored_admin, "Unauthorized");
-        
-        env.storage().instance().set(&Symbol::new(&env, "fee_pct"), &new_fee_percent);
+
+        let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if admin != stored_admin {
+            panic_with_error!(&env, Error::Unauthorized);
+        }
+        if new_fee_percent > MAX_PROTOCOL_FEE_BPS {
+            panic_with_error!(&env, Error::FeeTooHigh);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::FeePercent, &new_fee_percent);
+        extend_instance_ttl(&env);
     }
 
-    
+    fn require_initialized(env: &Env) {
+        if !env.storage().instance().has(&DataKey::Admin) {
+            panic_with_error!(env, Error::NotInitialized);
+        }
+    }
+
+    fn acquire_guard(env: &Env) -> ReentrancyGuard {
+        ReentrancyGuard::acquire(env)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ReentrantCall))
+    }
 }
 
 #[cfg(test)]
-mod test {
-  use super::*;
-    use soroban_sdk::{
-        testutils::{Address as _, Ledger, LedgerInfo},
-        token::{Client as TokenClient, StellarAssetClient},
-        Address, Env,
-    };
-
-
-    fn create_token_contract<'a>(
-        env: &'a Env,
-        admin: &Address,
-    ) -> (Address, TokenClient<'a>, StellarAssetClient<'a>) {
-        let token_address = env.register_stellar_asset_contract_v2(admin.clone()).address();
-        let token_client = TokenClient::new(env, &token_address);
-        let token_admin_client = StellarAssetClient::new(env, &token_address);
-        (token_address, token_client, token_admin_client)
-    }
-
-     
-    fn setup_distributor(env: &Env) -> (Address, DistributorContractClient<'_>, Address, Address) {
-        let contract_id = env.register(DistributorContract, ());
-        let client = DistributorContractClient::new(&env, &contract_id);
-        
-        let admin = Address::generate(&env);
-        let fee_address = Address::generate(&env);
-        
-        client.initialize(&admin, &250, &fee_address); 
-        
-        (contract_id, client, admin, fee_address)
-    }
-
-
-    #[test]
-    fn test_initialize() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let contract_id = env.register(DistributorContract, ());
-        let client = DistributorContractClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let fee_address = Address::generate(&env);
-
-        client.initialize(&admin, &250, &fee_address);
-
-        let stored_admin = client.get_admin();
-        assert_eq!(stored_admin, Some(admin));
-    }
-
-    #[test]
-    #[should_panic(expected = "Contract is full")]
-    fn test_distribute_rejected_when_history_index_full() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
-        let (contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        let recipient1 = Address::generate(&env);
-        let recipient2 = Address::generate(&env);
-        let recipient3 = Address::generate(&env);
-
-        token_admin.mint(&sender, &10000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(recipient1.clone());
-        recipients.push_back(recipient2.clone());
-        recipients.push_back(recipient3.clone());
-
-        // Exhaust the history index: the next distribution must be rejected
-        // with a descriptive panic instead of overflowing.
-        env.as_contract(&contract_id, || {
-            env.storage()
-                .instance()
-                .set(&Symbol::new(&env, "hist_cnt"), &u64::MAX);
-        });
-
-        distributor_client.distribute_equal(&sender, &token_address, &900i128, &recipients);
-    }
-
-    #[test]
-    #[should_panic(expected = "Contract already initialized")]
-    fn test_re_initialize_fails() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let contract_id = env.register(DistributorContract, ());
-        let client = DistributorContractClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let fee_address = Address::generate(&env);
-
-        client.initialize(&admin, &250, &fee_address);
-        // This should panic
-        client.initialize(&admin, &250, &fee_address);
-    }
-
-    #[test]
-    fn test_distribute_equal() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        let recipient1 = Address::generate(&env);
-        let recipient2 = Address::generate(&env);
-        let recipient3 = Address::generate(&env);
-
-       
-        token_admin.mint(&sender, &10000);
-
-       
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(recipient1.clone());
-        recipients.push_back(recipient2.clone());
-        recipients.push_back(recipient3.clone());
-
-        
-        let total_amount = 900i128;
-        
-        distributor_client.distribute_equal(&sender, &token_address, &total_amount, &recipients);
-
-        
-        assert_eq!(token_client.balance(&recipient1), 300);
-        assert_eq!(token_client.balance(&recipient2), 300);
-        assert_eq!(token_client.balance(&recipient3), 300);
-
-        assert_eq!(distributor_client.get_total_distributions(), 1);
-        assert_eq!(distributor_client.get_total_distributed_amount(), 900);
-    }
-
-    #[test]
-    fn test_distribute_weighted() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        let recipient1 = Address::generate(&env);
-        let recipient2 = Address::generate(&env);
-        let recipient3 = Address::generate(&env);
-
-        token_admin.mint(&sender, &10000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(recipient1.clone());
-        recipients.push_back(recipient2.clone());
-        recipients.push_back(recipient3.clone());
-
-        let mut amounts = Vec::new(&env);
-        amounts.push_back(100);
-        amounts.push_back(200);
-        amounts.push_back(300);
-
-        distributor_client.distribute_weighted(&sender, &token_address, &recipients, &amounts);
-
-        
-        assert_eq!(token_client.balance(&recipient1), 100);
-        assert_eq!(token_client.balance(&recipient2), 200);
-        assert_eq!(token_client.balance(&recipient3), 300);
-
-       
-        assert_eq!(distributor_client.get_total_distributions(), 1);
-        assert_eq!(distributor_client.get_total_distributed_amount(), 600);
-    }
-
-#[test]
-    fn test_distribute_equal_with_protocol_fee() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        let recipient1 = Address::generate(&env);
-        let recipient2 = Address::generate(&env);
-
-        
-        token_admin.mint(&sender, &10000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(recipient1.clone());
-        recipients.push_back(recipient2.clone());
-
-       
-        let total_amount = 1000i128;
-        
-        distributor_client.distribute_equal(&sender, &token_address, &total_amount, &recipients);
-
-        assert_eq!(token_client.balance(&recipient1), 500);
-        assert_eq!(token_client.balance(&recipient2), 500);
-        
-        
-        assert_eq!(token_client.balance(&fee_address), 25);
-        
-        
-        assert_eq!(token_client.balance(&sender), 8975);
-    }
-
-    
-
-     #[test]
-    fn test_distribute_weighted_with_protocol_fee() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        let recipient1 = Address::generate(&env);
-        let recipient2 = Address::generate(&env);
-
-        token_admin.mint(&sender, &10000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(recipient1.clone());
-        recipients.push_back(recipient2.clone());
-
-        let mut amounts = Vec::new(&env);
-        amounts.push_back(400);
-        amounts.push_back(600);
-
-        distributor_client.distribute_weighted(&sender, &token_address, &recipients, &amounts);
-
-        assert_eq!(token_client.balance(&recipient1), 400);
-        assert_eq!(token_client.balance(&recipient2), 600);
-        
-       
-        assert_eq!(token_client.balance(&fee_address), 25);
-    }
-
-    
-    #[test]
-    fn test_update_global_stats() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        token_admin.mint(&sender, &100000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(Address::generate(&env));
-
-        assert_eq!(distributor_client.get_total_distributions(), 0);
-        assert_eq!(distributor_client.get_total_distributed_amount(), 0);
-
-      
-        distributor_client.distribute_equal(&sender, &token_address, &1000, &recipients);
-        
-        
-        assert_eq!(distributor_client.get_total_distributions(), 1);
-        assert_eq!(distributor_client.get_total_distributed_amount(), 1000);
-
-       
-        distributor_client.distribute_equal(&sender, &token_address, &2500, &recipients);
-        
-       
-        assert_eq!(distributor_client.get_total_distributions(), 2);
-        assert_eq!(distributor_client.get_total_distributed_amount(), 3500);
-
-       
-        distributor_client.distribute_equal(&sender, &token_address, &500, &recipients);
-        
-       
-        assert_eq!(distributor_client.get_total_distributions(), 3);
-        assert_eq!(distributor_client.get_total_distributed_amount(), 4000);
-
-        
-        let mut amounts = Vec::new(&env);
-        amounts.push_back(300);
-        
-        distributor_client.distribute_weighted(&sender, &token_address, &recipients, &amounts);
-        
-        
-        assert_eq!(distributor_client.get_total_distributions(), 4);
-        assert_eq!(distributor_client.get_total_distributed_amount(), 4300);
-    }
-
-     #[test]
-    fn test_update_token_statistics() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        let recipient1 = Address::generate(&env);
-
-        token_admin.mint(&sender, &100000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(recipient1.clone());
-
-        distributor_client.distribute_equal(&sender, &token_address, &1000, &recipients);
-
-     
-        distributor_client.distribute_equal(&sender, &token_address, &2000, &recipients);
-
-       
-        let token_stats = distributor_client.get_token_stats(&token_address);
-        assert!(token_stats.is_some());
-        
-        let stats = token_stats.unwrap();
-        assert_eq!(stats.total_amount, 3000);
-        assert_eq!(stats.distribution_count, 2);
-        assert!(stats.last_time > 0);
-    }
-
-    #[test]
-    fn test_update_user_statistics() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        let recipient1 = Address::generate(&env);
-
-        token_admin.mint(&sender, &100000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(recipient1.clone());
-
-       
-        distributor_client.distribute_equal(&sender, &token_address, &500, &recipients);
-        distributor_client.distribute_equal(&sender, &token_address, &1500, &recipients);
-        distributor_client.distribute_equal(&sender, &token_address, &2000, &recipients);
-
- 
-        let user_stats = distributor_client.get_user_stats(&sender);
-        assert!(user_stats.is_some());
-        
-        let stats = user_stats.unwrap();
-        assert_eq!(stats.distributions_initiated, 3);
-        assert_eq!(stats.total_amount, 4000);
-    }
-
-
-
-#[test]
-    fn test_record_history() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-       
-        env.ledger().set(LedgerInfo {
-            timestamp: 12345,
-            protocol_version: 25,
-            sequence_number: 10,
-            network_id: Default::default(),
-            base_reserve: 10,
-            min_temp_entry_ttl: 16,
-            min_persistent_entry_ttl: 16,
-            max_entry_ttl: 6312000,
-        });
-
-        let admin = Address::generate(&env);
-        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        let recipient1 = Address::generate(&env);
-        let recipient2 = Address::generate(&env);
-
-        token_admin.mint(&sender, &100000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(recipient1.clone());
-        recipients.push_back(recipient2.clone());
-
-       
-        distributor_client.distribute_equal(&sender, &token_address, &1000, &recipients);
-        distributor_client.distribute_equal(&sender, &token_address, &2000, &recipients);
-
-       
-        let history = distributor_client.get_distribution_history(&0, &2);
-        assert_eq!(history.len(), 2);
-
-        let record1 = history.get(0).unwrap();
-        assert_eq!(record1.sender, sender);
-        assert_eq!(record1.token, token_address);
-        assert_eq!(record1.amount, 1000);
-        assert_eq!(record1.recipients_count, 2);
-        assert_eq!(record1.timestamp, 12345);
-
-    
-        let record2 = history.get(1).unwrap();
-        assert_eq!(record2.amount, 2000);
-    }
-
-
-
-    #[test]
-    fn test_set_protocol_fee() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let contract_id = env.register(DistributorContract, ());
-        let client = DistributorContractClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let fee_address = Address::generate(&env);
-
-        client.initialize(&admin, &250, &fee_address);
-
-        // Change fee to 5% (500 basis points)
-        client.set_protocol_fee(&admin, &500);
-
-        // Test with new fee
-        let sender = Address::generate(&env);
-        let token_admin_addr = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &token_admin_addr);
-        token_admin.mint(&sender, &10000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(Address::generate(&env));
-
-        // 1000 tokens with 5% fee = 50 fee
-        client.distribute_equal(&sender, &token_address, &1000, &recipients);
-        assert_eq!(token_client.balance(&fee_address), 50);
-    }
-
-
-
-#[test]
-    fn test_zero_protocol_fee() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let contract_id = env.register(DistributorContract, ());
-        let client = DistributorContractClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let fee_address = Address::generate(&env);
-
-        // Initialize with 0% fee
-        client.initialize(&admin, &0, &fee_address);
-
-        let sender = Address::generate(&env);
-        let (token_address, token_client, token_admin) = create_token_contract(&env, &admin);
-        token_admin.mint(&sender, &10000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(Address::generate(&env));
-
-        client.distribute_equal(&sender, &token_address, &1000, &recipients);
-
-        // Fee address should have 0 balance
-        assert_eq!(token_client.balance(&fee_address), 0);
-    }
-
-
-    #[test]
-    #[should_panic(expected = "All amounts must be positive")]
-    fn test_distribute_weighted_zero_amount() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        token_admin.mint(&sender, &10000);
-
-        let mut recipients = Vec::new(&env);
-        recipients.push_back(Address::generate(&env));
-        recipients.push_back(Address::generate(&env));
-
-        let mut amounts = Vec::new(&env);
-        amounts.push_back(100);
-        amounts.push_back(0); // Invalid: zero amount
-
-        distributor_client.distribute_weighted(&sender, &token_address, &recipients, &amounts);
-    }
-
-     #[test]
-    #[should_panic(expected = "Amount too small to distribute")]
-    fn test_distribute_equal_amount_too_small() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        token_admin.mint(&sender, &10000);
-
-        // Create many recipients so amount per recipient becomes 0
-        let mut recipients = Vec::new(&env);
-        for _ in 0..1000 {
-            recipients.push_back(Address::generate(&env));
-        }
-
-        distributor_client.distribute_equal(&sender, &token_address, &10, &recipients);
-    }
-
-    #[test]
-    #[should_panic(expected = "No recipients provided")]
-    fn test_distribute_equal_empty_recipients() {
-        let env = Env::default();
-        env.mock_all_auths();
-
-        let admin = Address::generate(&env);
-        let (token_address, _token_client, token_admin) = create_token_contract(&env, &admin);
-        let (_contract_id, distributor_client, _admin, _fee_address) = setup_distributor(&env);
-
-        let sender = Address::generate(&env);
-        token_admin.mint(&sender, &10000);
-
-        let recipients = Vec::new(&env);
-        distributor_client.distribute_equal(&sender, &token_address, &1000, &recipients);
-    }
-
-}
+mod test;
