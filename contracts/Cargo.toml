@@ -17,6 +17,7 @@ members = [
     "upgrade-proxy",
     "sponsor-crowdfunding",
     "sponsor-insurance",
+    "campaign-verification-audit",
 ]
 
 [workspace.package]
