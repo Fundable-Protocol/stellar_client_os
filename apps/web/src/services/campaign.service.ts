@@ -1,5 +1,10 @@
 import { MILESTONE_PERCENTAGES } from "../lib/campaign-milestones";
 import { EmailService, type SendEmailOptions } from "./email.service";
+import {
+  buildCampaignNotificationDispatch,
+  type CampaignNotificationPreference,
+  type CampaignPushNotifier,
+} from "./campaign-notification.service";
 
 export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
 
@@ -171,6 +176,8 @@ export interface CampaignRecord {
   /** Funding milestones (e.g. 25, 50, 75, 100) that have already triggered a
    * creator notification for this campaign (issue #793). */
   milestonesNotified?: number[];
+  /** Per-campaign sponsor/creator notification preferences (issue #1018). */
+  notificationPreferences?: CampaignNotificationPreference[];
 }
 
 export interface CampaignCreatorBadge {
@@ -434,6 +441,10 @@ export interface CampaignEmailer {
   sendEmail(options: SendEmailOptions): Promise<boolean>;
 }
 
+export interface CampaignContributionOptions {
+  pushNotifier?: CampaignPushNotifier;
+}
+
 function parseContributionAmount(amount: string): bigint {
   if (!/^\d+$/.test(amount.trim())) {
     throw new Error("amount must be a non-negative integer string");
@@ -470,6 +481,7 @@ export async function recordCampaignContribution(
   dataSource: CampaignDataSource = getCampaignDataSource(),
   emailService: CampaignEmailer = new EmailService(),
   now: number = Date.now(),
+  options: CampaignContributionOptions = {},
 ): Promise<CampaignContributionResult | null> {
   const campaign = await getCampaign(campaignId, dataSource);
   if (!campaign) return null;
@@ -488,7 +500,7 @@ export async function recordCampaignContribution(
   const notified = campaign.milestonesNotified ?? [];
   const newlyReached = reached.filter((percentage) => !notified.includes(percentage));
 
-  if (newlyReached.length > 0 && campaign.creatorEmail) {
+  if (newlyReached.length > 0 && campaign.creatorEmail && !campaign.notificationPreferences?.length) {
     for (const percentage of newlyReached) {
       await emailService.sendEmail({
         to: campaign.creatorEmail,
@@ -498,10 +510,22 @@ export async function recordCampaignContribution(
     }
   }
 
+  const dispatch = buildCampaignNotificationDispatch(
+    campaign,
+    newlyReached,
+    campaign.notificationPreferences ?? [],
+    now,
+  );
+  for (const email of dispatch.emails) await emailService.sendEmail(email);
+  if (options.pushNotifier) {
+    for (const push of dispatch.pushes) await options.pushNotifier.sendPush(push);
+  }
+
   const updated: CampaignRecord = {
     ...campaign,
     raisedAmount: newRaised.toString(),
     milestonesNotified: [...notified, ...newlyReached],
+    notificationPreferences: dispatch.updatedPreferences,
     updatedAt: now,
   };
   await dataSource.saveCampaign(updated);

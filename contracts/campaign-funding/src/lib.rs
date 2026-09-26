@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
-    Address, Env, Vec,
+    Address, Env, IntoVal, Symbol, Vec,
 };
 
 /// Optional `Address` wrapper suitable for use inside `#[contracttype]` structs.
@@ -42,19 +42,8 @@ pub enum DataKey {
     /// Full [`Campaign`] struct keyed by campaign ID (persistent storage).
     Campaign(u64),
     /// Per-contributor escrow balance keyed by `(campaign_id, contributor)`
-    /// (persistent storage). This remains the sponsor's gross contribution,
-    /// independent of protocol fees and matching funds.
+    /// (persistent storage).
     Contribution(u64, Address),
-    /// Campaign metadata IPFS CID or hex hash keyed by campaign ID.
-    CampaignIpfsHash(u64),
-    /// Total count of tree planting records.
-    PlantingCount(u64),
-    /// Tree planting verification SLA record keyed by `(campaign_id, planting_id)`.
-    PlantingSla(u64, u64),
-    /// Status history entry keyed by `(campaign_id, entry_index)` (persistent storage).
-    StatusHistory(u64, u32),
-    /// Total number of status history entries for a campaign (persistent storage).
-    StatusHistoryCount(u64),
     /// Bitmask of campaign goal milestones (25 %, 50 %, 75 %, 100 %) that
     /// have been reached so far, keyed by campaign ID (persistent storage).
     MilestonesReached(u64),
@@ -63,6 +52,12 @@ pub enum DataKey {
     Reserve(u64),
     /// Team members configuration keyed by campaign ID (persistent storage).
     TeamMembers(u64),
+    OriginalContribution(u64, Address),
+    MatchingCap(u64),
+    MatchingUsed(u64),
+    MatchingBalance(u64),
+    RewardStreamed(u64, Address),
+    StreamContract,
 }
 
 /// Current lifecycle state of a campaign.
@@ -83,16 +78,6 @@ pub enum CampaignStatus {
     VerificationFailed,
 }
 
-/// Single entry in a campaign's status history.
-#[contracttype]
-#[derive(Clone)]
-pub struct StatusHistoryEntry {
-    /// The status that was set at this point in time.
-    pub status: CampaignStatus,
-    /// Unix timestamp (seconds) when this status change occurred.
-    pub timestamp: u64,
-}
-
 /// Core campaign record stored on-chain.
 #[contracttype]
 #[derive(Clone)]
@@ -107,12 +92,12 @@ pub struct Campaign {
     pub revenue_shares: Vec<u32>,
     /// Stellar asset contract address of the funding token.
     pub token: Address,
-    /// Hard cap: the maximum amount the campaign may raise. Once
+    /// Hard cap: the maximum amount the campaign may raise.  Once
     /// `total_raised` reaches this value the campaign auto-transitions to
     /// [`CampaignStatus::Successful`].
     pub target_amount: i128,
     /// Minimum threshold: the campaign is only considered successful when
-    /// `total_raised >= min_target` by `deadline`. If the threshold is not
+    /// `total_raised >= min_target` by `deadline`.  If the threshold is not
     /// met all escrowed contributions become refundable.
     pub min_target: i128,
     /// Unix timestamp (seconds) after which no new contributions are accepted
@@ -128,6 +113,8 @@ pub struct Campaign {
     /// Address of the planter assigned to this campaign, if any.
     /// `OptionalAddress::None` means no planter has been assigned yet.
     pub planter: OptionalAddress,
+    /// Carbon-credit multiplier fixed at campaign creation.
+    pub co2_multiplier: u32,
 }
 
 /// A single co-creator on a campaign team and the share of the proceeds they
@@ -153,42 +140,29 @@ pub struct TeamMember {
 #[contracttype]
 #[derive(Clone)]
 pub struct CampaignCreatedEvent {
-    /// Unique identifier for the created campaign.
     pub campaign_id: u64,
-    /// Address of the campaign creator.
     pub creator: Address,
-    /// Token contract address accepted for funding.
     pub token: Address,
-    /// Maximum funding limit in token stroops.
     pub target_amount: i128,
-    /// Minimum required funding threshold.
     pub min_target: i128,
-    /// Unix timestamp deadline for contributions.
     pub deadline: u64,
-    pub co2_multiplier: u32,
 }
 
 /// Emitted each time a contributor adds tokens to a campaign.
 #[contracttype]
 #[derive(Clone)]
 pub struct ContributionMadeEvent {
-    /// Identifier of the target campaign.
     pub campaign_id: u64,
-    /// Address of the contributing donor.
     pub contributor: Address,
-    /// Amount of tokens contributed in stroops.
     pub amount: i128,
-    /// Updated total amount raised after this contribution.
     pub total_raised: i128,
 }
 
-/// Emitted when a campaign transitions lifecycle states.
+/// Emitted when a campaign transitions out of the `Active` state.
 #[contracttype]
 #[derive(Clone)]
 pub struct CampaignStatusChangedEvent {
-    /// Identifier of the campaign whose status changed.
     pub campaign_id: u64,
-    /// New lifecycle state assigned to the campaign.
     pub new_status: CampaignStatus,
 }
 
@@ -196,11 +170,9 @@ pub struct CampaignStatusChangedEvent {
 #[contracttype]
 #[derive(Clone)]
 pub struct FundsClaimedEvent {
-    /// Identifier of the claimed campaign.
     pub campaign_id: u64,
-    /// Creator address receiving net funds.
     pub creator: Address,
-    /// Net amount transferred to creator after protocol fee deduction.
+    /// Net amount after protocol fee deduction.
     pub amount: i128,
 }
 
@@ -208,65 +180,22 @@ pub struct FundsClaimedEvent {
 #[contracttype]
 #[derive(Clone)]
 pub struct RefundIssuedEvent {
-    /// Identifier of the failed campaign refunded from.
     pub campaign_id: u64,
-    /// Contributor receiving the refund.
-    pub contributor: Address,
-    /// Total refunded token amount.
-    pub amount: i128,
-}
-
-/// Emitted when campaign IPFS metadata hash is updated.
-#[contracttype]
-#[derive(Clone)]
-pub struct CampaignIpfsHashUpdatedEvent {
-    pub campaign_id: u64,
-    pub ipfs_hash: soroban_sdk::String,
-}
-
-/// Tree planting verification SLA record.
-#[contracttype]
-#[derive(Clone)]
-pub struct PlantingSlaRecord {
-    pub planting_id: u64,
-    pub campaign_id: u64,
-    pub planter: Address,
-    pub tree_count: u32,
-    pub planted_at: u64,
-    pub verification_deadline: u64,
-    pub is_verified: bool,
-    pub verified_at: u64,
-    pub is_refunded: bool,
-}
-
-/// Emitted when a tree planting batch is recorded with 30-day SLA window.
-#[contracttype]
-#[derive(Clone)]
-pub struct TreePlantingRecordedEvent {
-    pub campaign_id: u64,
-    pub planting_id: u64,
-    pub planter: Address,
-    pub tree_count: u32,
-    pub verification_deadline: u64,
-}
-
-/// Emitted when tree planting is verified on-chain.
-#[contracttype]
-#[derive(Clone)]
-pub struct TreePlantingVerifiedEvent {
-    pub campaign_id: u64,
-    pub planting_id: u64,
-    pub verified_at: u64,
-}
-
-/// Emitted when SLA verification refund is issued for unverified tree planting.
-#[contracttype]
-#[derive(Clone)]
-pub struct SlaRefundIssuedEvent {
-    pub campaign_id: u64,
-    pub planting_id: u64,
     pub contributor: Address,
     pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct SponsorRewardStreamedEvent {
+    pub campaign_id: u64,
+    pub contributor: Address,
+    pub amount: i128,
+    pub stream_id: u64,
+    pub start_time: u64,
+    pub end_time: u64,
+}
+
 /// Emitted when cumulative contributions cross one of a campaign's funding
 /// milestones (25 %, 50 %, 75 % or 100 % of `target_amount`).
 ///
@@ -368,13 +297,6 @@ pub enum Error {
     /// (`target_amount`).
     TargetExceeded = 16,
     /// The supplied deadline exceeds the maximum allowed duration of 180 days.
-    DeadlineTooFar = 17,
-    /// Verification SLA period has not expired yet.
-    SlaNotBreached = 18,
-    /// Requested tree planting record was not found.
-    PlantingNotFound = 19,
-    /// Tree planting is already verified.
-    AlreadyVerified = 20,
     DeadlineTooFar = 23,
     /// The campaign is not in the `VerificationFailed` state.
     CampaignNotVerificationFailed = 18,
@@ -388,7 +310,12 @@ pub enum Error {
     /// The team contains two members with the same payout address.
     TeamDuplicateMember = 22,
     /// Campaign ID space exhausted (u64::MAX reached).
-    ContractFull = 23,
+    ContractFull = 17,
+    CampaignNotClaimed = 25,
+    RewardsAlreadyStreamed = 26,
+    StreamContractNotSet = 27,
+    CreatorAlreadyExists = 28,
+    InvalidCreators = 29,
 }
 
 // ---------------------------------------------------------------------------
@@ -405,8 +332,7 @@ const LEDGER_THRESHOLD: u32 = 518_400;
 const LEDGER_BUMP: u32 = 535_680;
 /// Maximum duration for a campaign (180 days in seconds).
 const MAX_CAMPAIGN_DURATION_SECONDS: u64 = 180 * 24 * 60 * 60;
-/// 30-day Tree Verification SLA duration in seconds (30 * 24 * 60 * 60).
-const VERIFICATION_SLA_SECONDS: u64 = 2_592_000;
+const TWELVE_MONTHS_SECS: u64 = 31_536_000;
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -555,7 +481,7 @@ impl CampaignFundingContract {
         if deadline > env.ledger().timestamp() + MAX_CAMPAIGN_DURATION_SECONDS {
             panic_with_error!(&env, Error::DeadlineTooFar);
         }
-        if insurance_fee <= 0 {
+        if insurance_fee < 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
         let primary_creator = creators.get(0).unwrap();
@@ -611,10 +537,10 @@ impl CampaignFundingContract {
             status: CampaignStatus::Active,
             created_at: now,
             planter: OptionalAddress::None,
+            co2_multiplier: Self::seasonal_multiplier(now),
         };
 
         Self::save_campaign(&env, count, &campaign);
-        Self::record_status_change(&env, count, CampaignStatus::Active);
 
         env.events().publish(
             ("CampaignCreated", count),
@@ -625,7 +551,6 @@ impl CampaignFundingContract {
                 target_amount,
                 min_target,
                 deadline,
-                co2_multiplier,
             },
         );
 
@@ -763,9 +688,6 @@ impl CampaignFundingContract {
 
         let mut campaign = Self::load_campaign(&env, campaign_id);
 
-        if campaign.status == CampaignStatus::Paused {
-            panic_with_error!(&env, Error::CampaignPaused);
-        }
         if campaign.status != CampaignStatus::Active {
             panic_with_error!(&env, Error::CampaignNotActive);
         }
@@ -788,42 +710,22 @@ impl CampaignFundingContract {
         let token_client = token::Client::new(&env, &campaign.token);
         token_client.transfer(&contributor, &env.current_contract_address(), &amount);
 
-        // Update per-contributor balance. This is always the sponsor's gross
-        // amount, so a later refund returns the original contribution rather
-        // than any fee-adjusted net amount.
+        // Update per-contributor balance.
         let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
         let prev: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
         let new_contrib = prev
             .checked_add(amount)
             .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
         env.storage().persistent().set(&contrib_key, &new_contrib);
-        // Keep the gross sponsor amount separate from any future fee or
-        // matching accounting so refunds always return the original deposit.
-        let original_key = DataKey::OriginalContribution(campaign_id, contributor.clone());
-        let original = prev.checked_add(amount).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
-        env.storage().persistent().set(&original_key, &original);
-        env.storage().persistent().extend_ttl(&contrib_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-        env.storage().persistent().extend_ttl(&original_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .persistent()
+            .extend_ttl(&contrib_key, LEDGER_THRESHOLD, LEDGER_BUMP);
 
-        // Apply available admin-funded matching dollar-for-dollar. Matching
-        // is bounded by both the remaining campaign target and its budget.
-        let matching_cap: i128 = env.storage().persistent().get(&DataKey::MatchingCap(campaign_id)).unwrap_or(0);
-        let matching_used: i128 = env.storage().persistent().get(&DataKey::MatchingUsed(campaign_id)).unwrap_or(0);
-        let matching_balance: i128 = env.storage().persistent().get(&DataKey::MatchingBalance(campaign_id)).unwrap_or(0);
-        let remaining_budget = matching_cap.saturating_sub(matching_used);
-        let remaining_target = campaign.target_amount.saturating_sub(new_total);
-        let matched = amount.min(remaining_budget).min(matching_balance).min(remaining_target);
-        if matched > 0 {
-            let updated_matching = matching_used.checked_add(matched).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
-            env.storage().persistent().set(&DataKey::MatchingUsed(campaign_id), &updated_matching);
-            env.storage().persistent().set(&DataKey::MatchingBalance(campaign_id), &(matching_balance - matched));
-        }
-        campaign.total_raised = new_total.checked_add(matched).unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        campaign.total_raised = new_total;
 
         // Auto-succeed when the hard cap is reached.
         if campaign.total_raised >= campaign.target_amount {
             campaign.status = CampaignStatus::Successful;
-            Self::record_status_change(&env, campaign_id, CampaignStatus::Successful);
             env.events().publish(
                 ("CampaignStatusChanged", campaign_id),
                 CampaignStatusChangedEvent {
@@ -867,7 +769,7 @@ impl CampaignFundingContract {
     pub fn trigger_expiry(env: Env, campaign_id: u64) {
         let mut campaign = Self::load_campaign(&env, campaign_id);
 
-        if campaign.status != CampaignStatus::Active && campaign.status != CampaignStatus::Paused {
+        if campaign.status != CampaignStatus::Active {
             panic_with_error!(&env, Error::CampaignNotActive);
         }
         if env.ledger().timestamp() < campaign.deadline {
@@ -881,7 +783,6 @@ impl CampaignFundingContract {
         };
 
         let new_status = campaign.status;
-        Self::record_status_change(&env, campaign_id, new_status);
         Self::save_campaign(&env, campaign_id, &campaign);
 
         env.events().publish(
@@ -934,7 +835,6 @@ impl CampaignFundingContract {
         let distributable = after_fee - reserve;
 
         campaign.status = CampaignStatus::Claimed;
-        Self::record_status_change(&env, campaign_id, CampaignStatus::Claimed);
         Self::save_campaign(&env, campaign_id, &campaign);
 
         let token_client = token::Client::new(&env, &campaign.token);
@@ -1086,13 +986,7 @@ impl CampaignFundingContract {
         }
 
         let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
-        // Prefer the gross ledger. The fallback lets pre-upgrade records
-        // continue to refund correctly because Contribution was historically
-        // the gross sponsor amount.
-        let original_key = DataKey::OriginalContribution(campaign_id, contributor.clone());
-        let amount: i128 = env.storage().persistent().get(&original_key)
-            .or_else(|| env.storage().persistent().get(&contrib_key))
-            .unwrap_or(0);
+        let amount: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
 
         if amount <= 0 {
             panic_with_error!(&env, Error::NoContributionFound);
@@ -1100,7 +994,6 @@ impl CampaignFundingContract {
 
         // Clear before transferring (check-effects-interactions).
         env.storage().persistent().remove(&contrib_key);
-        env.storage().persistent().remove(&original_key);
 
         let token_client = token::Client::new(&env, &campaign.token);
         token_client.transfer(&env.current_contract_address(), &contributor, &amount);
@@ -1273,6 +1166,20 @@ impl CampaignFundingContract {
         Self::load_campaign(&env, campaign_id)
     }
 
+    /// Return the demand-adjusted cost per tree using integer basis points.
+    pub fn get_dynamic_cost_per_tree(env: Env, campaign_id: u64, base_cost: i128) -> i128 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if base_cost <= 0 || campaign.target_amount <= 0 { return 0; }
+        let demand_bps = (campaign.total_raised * 10_000 / campaign.target_amount).min(10_000);
+        let multiplier_bps: i128 = if demand_bps >= 10_000 { 15_000 } else if demand_bps >= 9_000 { 12_500 } else if demand_bps >= 7_000 { 11_000 } else { 10_000 };
+        base_cost * multiplier_bps / 10_000
+    }
+
+    /// Return the seasonal carbon-credit multiplier fixed at creation.
+    pub fn get_co2_multiplier(env: Env, campaign_id: u64) -> u32 {
+        Self::load_campaign(&env, campaign_id).co2_multiplier
+    }
+
     /// Add a co-creator before a campaign succeeds. All current creators and
     /// the new owner must authorise the change.
     pub fn add_creator(env: Env, campaign_id: u64, creator: Address, share: u32) {
@@ -1367,35 +1274,6 @@ impl CampaignFundingContract {
             .unwrap()
     }
 
-    /// Return the full status history for a campaign.
-    ///
-    /// Returns a vector of `(status, timestamp)` tuples representing all
-    /// status changes in chronological order, starting from the initial
-    /// `Active` status at campaign creation.
-    ///
-    /// # Arguments
-    /// * `campaign_id` — The campaign to query.
-    ///
-    /// # Returns
-    /// A vector of status history entries ordered from oldest to newest.
-    pub fn get_status_history(env: Env, campaign_id: u64) -> Vec<StatusHistoryEntry> {
-        let count: u32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::StatusHistoryCount(campaign_id))
-            .unwrap_or(0);
-
-        let mut history = Vec::new(&env);
-        for i in 0..count {
-            if let Some(entry) = env
-                .storage()
-                .persistent()
-                .get(&DataKey::StatusHistory(campaign_id, i))
-            {
-                history.push_back(entry);
-            }
-        }
-        history
     /// Return the configured payment-stream contract address, if any.
     pub fn get_stream_contract(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::StreamContract)
@@ -1472,181 +1350,6 @@ impl CampaignFundingContract {
     }
 
     // -----------------------------------------------------------------------
-    // IPFS Metadata Storage (issue #743)
-    // -----------------------------------------------------------------------
-
-    /// Set or update the decentralized IPFS metadata hash for a campaign.
-    pub fn set_campaign_ipfs_hash(env: Env, campaign_id: u64, ipfs_hash: soroban_sdk::String) {
-        let campaign = Self::load_campaign(&env, campaign_id);
-        campaign.creator.require_auth();
-
-        let key = DataKey::CampaignIpfsHash(campaign_id);
-        env.storage().persistent().set(&key, &ipfs_hash);
-        env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-        env.events().publish(
-            ("CampaignIpfsHashUpdated", campaign_id),
-            CampaignIpfsHashUpdatedEvent {
-                campaign_id,
-                ipfs_hash,
-            },
-        );
-    }
-
-    /// Retrieve the IPFS metadata hash associated with a campaign.
-    pub fn get_campaign_ipfs_hash(env: Env, campaign_id: u64) -> soroban_sdk::String {
-        let key = DataKey::CampaignIpfsHash(campaign_id);
-        env.storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| soroban_sdk::String::from_str(&env, ""))
-    }
-
-    // -----------------------------------------------------------------------
-    // Tree Verification SLA (issue #742)
-    // -----------------------------------------------------------------------
-
-    /// Record a tree planting batch with a strict 30-day verification SLA.
-    pub fn record_tree_planting(
-        env: Env,
-        campaign_id: u64,
-        planter: Address,
-        tree_count: u32,
-    ) -> u64 {
-        planter.require_auth();
-        let _campaign = Self::load_campaign(&env, campaign_id);
-
-        let count_key = DataKey::PlantingCount(campaign_id);
-        let mut planting_count: u64 = env
-            .storage()
-            .instance()
-            .get(&count_key)
-            .unwrap_or(0);
-        planting_count += 1;
-
-        let planted_at = env.ledger().timestamp();
-        let verification_deadline = planted_at + VERIFICATION_SLA_SECONDS;
-
-        let record = PlantingSlaRecord {
-            planting_id: planting_count,
-            campaign_id,
-            planter: planter.clone(),
-            tree_count,
-            planted_at,
-            verification_deadline,
-            is_verified: false,
-            verified_at: 0,
-            is_refunded: false,
-        };
-
-        let key = DataKey::PlantingSla(campaign_id, planting_count);
-        env.storage().persistent().set(&key, &record);
-        env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-        env.storage().instance().set(&count_key, &planting_count);
-
-        env.events().publish(
-            ("TreePlantingRecorded", campaign_id),
-            TreePlantingRecordedEvent {
-                campaign_id,
-                planting_id: planting_count,
-                planter,
-                tree_count,
-                verification_deadline,
-            },
-        );
-
-        planting_count
-    }
-
-    /// Mark a tree planting batch as verified on-chain.
-    pub fn verify_tree_planting(env: Env, campaign_id: u64, planting_id: u64) {
-        Self::assert_initialized(&env);
-        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
-        admin.require_auth();
-
-        let key = DataKey::PlantingSla(campaign_id, planting_id);
-        let mut record: PlantingSlaRecord = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound));
-
-        if record.is_verified {
-            panic_with_error!(&env, Error::AlreadyVerified);
-        }
-
-        record.is_verified = true;
-        record.verified_at = env.ledger().timestamp();
-
-        env.storage().persistent().set(&key, &record);
-
-        env.events().publish(
-            ("TreePlantingVerified", campaign_id),
-            TreePlantingVerifiedEvent {
-                campaign_id,
-                planting_id,
-                verified_at: record.verified_at,
-            },
-        );
-    }
-
-    /// Claim SLA auto-refund if 30-day verification deadline passes without proof verification.
-    pub fn claim_sla_refund(
-        env: Env,
-        campaign_id: u64,
-        planting_id: u64,
-        contributor: Address,
-    ) {
-        contributor.require_auth();
-
-        let key = DataKey::PlantingSla(campaign_id, planting_id);
-        let record: PlantingSlaRecord = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound));
-
-        if record.is_verified {
-            panic_with_error!(&env, Error::AlreadyVerified);
-        }
-        if env.ledger().timestamp() <= record.verification_deadline {
-            panic_with_error!(&env, Error::SlaNotBreached);
-        }
-
-        let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
-        let amount: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
-        if amount <= 0 {
-            panic_with_error!(&env, Error::NoContributionFound);
-        }
-
-        env.storage().persistent().remove(&contrib_key);
-
-        let campaign = Self::load_campaign(&env, campaign_id);
-        let token_client = token::Client::new(&env, &campaign.token);
-        token_client.transfer(&env.current_contract_address(), &contributor, &amount);
-
-        env.events().publish(
-            ("SlaRefundIssued", campaign_id),
-            SlaRefundIssuedEvent {
-                campaign_id,
-                planting_id,
-                contributor,
-                amount,
-            },
-        );
-    }
-
-    /// Retrieve tree planting SLA record.
-    pub fn get_planting_sla(env: Env, campaign_id: u64, planting_id: u64) -> PlantingSlaRecord {
-        let key = DataKey::PlantingSla(campaign_id, planting_id);
-        env.storage()
-            .persistent()
-            .get(&key)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound))
-    }
-
-    // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
 
@@ -1693,6 +1396,18 @@ impl CampaignFundingContract {
             }
             None => panic_with_error!(env, Error::CampaignNotFound),
         }
+    }
+
+    fn seasonal_multiplier(timestamp: u64) -> u32 {
+        let z = (timestamp / 86_400) as i64 + 719_468;
+        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let month = mp + if mp < 10 { 3 } else { -9 };
+        let day = doy - (153 * mp + 2) / 5 + 1;
+        if month == 4 || (month == 3 && day == 21) { 15_000 } else if month >= 5 && month <= 10 { 20_000 } else { 10_000 }
     }
 
     /// Persist a [`Campaign`] and extend TTL for both persistent and instance
@@ -1756,29 +1471,6 @@ impl CampaignFundingContract {
         }
     }
 
-    /// Record a status change in the campaign's status history.
-    fn record_status_change(env: &Env, campaign_id: u64, status: CampaignStatus) {
-        let count_key = DataKey::StatusHistoryCount(campaign_id);
-        let mut count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
-
-        let entry = StatusHistoryEntry {
-            status,
-            timestamp: env.ledger().timestamp(),
-        };
-
-        let entry_key = DataKey::StatusHistory(campaign_id, count);
-        env.storage().persistent().set(&entry_key, &entry);
-        env.storage()
-            .persistent()
-            .extend_ttl(&entry_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-        count += 1;
-        env.storage().persistent().set(&count_key, &count);
-        env.storage()
-            .persistent()
-            .extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-    }
-
     /// Compute the protocol fee for `amount` using the stored fee rate.
     ///
     /// The fee is rounded **up** (ceiling division) so that the full
@@ -1815,35 +1507,14 @@ impl CampaignFundingContract {
 
     /// Compute the 10% reserve for tree replacement.
     ///
-    /// Uses ceiling division (same technique as `calculate_fee`) so that the
-    /// remainder term is rounded **up** instead of floored.  Without ceiling
-    /// rounding the remainder term `(r * 1000) / 10_000` (where
-    /// `r = amount % 10_000`) can floor to zero even when non-zero, leaving
-    /// up to 1 base unit in the distributable amount instead of the reserve.
-    ///
-    /// Formula: `ceil(amount * 1000 / 10_000)`
-    /// Implemented as:
-    ///   `amount = q * 10_000 + r`
-    ///   `ceil(r * 1000 / 10_000) = (r * 1000 + 9_999) / 10_000`
+    /// Uses the same precision-preserving calculation as `calculate_fee`.
     fn calculate_reserve(env: &Env, amount: i128) -> i128 {
         if amount <= 0 {
             return 0;
         }
         // 1000 basis points = 10%
         let rate: i128 = 1000;
-        let q = amount / 10_000;
-        let r = amount % 10_000;
-        // Ceiling division for the remainder term: ceil(r * rate / 10_000)
-        let remainder_reserve = r
-            .checked_mul(rate)
-            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
-            .checked_add(9_999)
-            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
-            / 10_000;
-        q.checked_mul(rate)
-            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
-            .checked_add(remainder_reserve)
-            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
+        (amount / 10_000) * rate + ((amount % 10_000) * rate) / 10_000
     }
 
     /// Distribute proceeds to the campaign creator or team members.
@@ -1851,11 +1522,6 @@ impl CampaignFundingContract {
     /// If a team configuration exists via [`set_team_rewards`], the proceeds
     /// are split proportionally among team members. Otherwise, the full
     /// amount goes to the sole creator.
-    ///
-    /// Each member's share is computed with ceiling division on the remainder
-    /// term so no dust is silently discarded.  To guarantee that the sum of
-    /// all shares equals `amount` exactly, the last team member receives
-    /// whatever is left after the preceding members have been paid.
     fn distribute_proceeds(env: &Env, campaign: &Campaign, campaign_id: u64, amount: i128) {
         let token_client = token::Client::new(env, &campaign.token);
         let team_key = DataKey::TeamMembers(campaign_id);
@@ -1865,40 +1531,13 @@ impl CampaignFundingContract {
 
         match team {
             Some(members) if !members.is_empty() => {
-                let n = members.len();
-                let mut distributed: i128 = 0;
-
                 // Distribute to team members proportionally
-                for i in 0..n {
+                for i in 0..members.len() {
                     let member = members.get(i).unwrap();
-
-                    // The last member receives the exact remainder so the
-                    // total always sums to `amount` with no dust locked in
-                    // the contract.
-                    let member_share = if i + 1 == n {
-                        amount - distributed
-                    } else {
-                        // Ceiling division on the remainder term: no base unit
-                        // is silently discarded when the split is not exact.
-                        let bps = member.percentage_bps as i128;
-                        let q = amount / 10_000;
-                        let r = amount % 10_000;
-                        let remainder_share = r
-                            .checked_mul(bps)
-                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
-                            .checked_add(9_999)
-                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
-                            / 10_000;
-                        q.checked_mul(bps)
-                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
-                            .checked_add(remainder_share)
-                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow))
-                    };
+                    let member_share = (amount / 10_000) * (member.percentage_bps as i128)
+                        + ((amount % 10_000) * (member.percentage_bps as i128)) / 10_000;
 
                     if member_share > 0 {
-                        distributed = distributed
-                            .checked_add(member_share)
-                            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow));
                         token_client.transfer(
                             &env.current_contract_address(),
                             &member.address,
@@ -2862,32 +2501,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Status history
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_status_history_records_initial_active() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let creator = Address::generate(&env);
-        let token = Address::generate(&env);
-
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
-
-        let history = client.get_status_history(&id);
-        assert_eq!(history.len(), 1);
-        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
-        assert_eq!(history.get(0).unwrap().timestamp, 1_000);
-    }
-
-    #[test]
-    fn test_status_history_records_successful_transition() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
     // Funds-flow transparency events
     // -----------------------------------------------------------------------
 
@@ -2905,77 +2518,6 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        set_time(&env, 1_500);
-        client.contribute(&contributor, &id, &10_000); // Auto-succeed
-
-        let history = client.get_status_history(&id);
-        assert_eq!(history.len(), 2);
-        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
-        assert_eq!(history.get(0).unwrap().timestamp, 1_000);
-        assert_eq!(history.get(1).unwrap().status, CampaignStatus::Successful);
-        assert_eq!(history.get(1).unwrap().timestamp, 1_500);
-    }
-
-    #[test]
-    fn test_status_history_records_failed_transition() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-
-        let token_admin = Address::generate(&env);
-        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
-        let creator = Address::generate(&env);
-        let contributor = Address::generate(&env);
-        token_admin_client.mint(&contributor, &3_000);
-
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        client.contribute(&contributor, &id, &3_000); // Below min_target
-        set_time(&env, 3_000);
-        client.trigger_expiry(&id); // → Failed
-
-        let history = client.get_status_history(&id);
-        assert_eq!(history.len(), 2);
-        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
-        assert_eq!(history.get(0).unwrap().timestamp, 1_000);
-        assert_eq!(history.get(1).unwrap().status, CampaignStatus::Failed);
-        assert_eq!(history.get(1).unwrap().timestamp, 3_000);
-    }
-
-    #[test]
-    fn test_status_history_records_claimed_transition() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-
-        let token_admin = Address::generate(&env);
-        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
-        let creator = Address::generate(&env);
-        let contributor = Address::generate(&env);
-        token_admin_client.mint(&contributor, &10_000);
-
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        client.contribute(&contributor, &id, &10_000); // Auto-succeed
-        set_time(&env, 3_000);
-        client.claim_funds(&id);
-
-        let history = client.get_status_history(&id);
-        assert_eq!(history.len(), 3);
-        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
-        assert_eq!(history.get(1).unwrap().status, CampaignStatus::Successful);
-        assert_eq!(history.get(2).unwrap().status, CampaignStatus::Claimed);
-    }
-
-    #[test]
-    fn test_status_history_empty_for_nonexistent_campaign() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (_, client, _, _) = setup_contract(&env);
-
-        let history = client.get_status_history(&99);
-        assert_eq!(history.len(), 0);
         let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute(&contributor, &id, &8_000);
         set_time(&env, 3_000);
@@ -3243,75 +2785,38 @@ mod tests {
         assert_eq!(ms.get(0).unwrap(), 25);
     }
 
-    // -----------------------------------------------------------------------
-    // pause / resume
-    // -----------------------------------------------------------------------
-
     #[test]
-    fn test_pause_and_resume_campaign_success() {
+    fn test_dynamic_pricing_uses_demand_tiers() {
         let env = Env::default();
         env.mock_all_auths();
         set_time(&env, 1_000);
-
-    #[test]
-    fn test_rainy_season_co2_multiplier() {
-        let env = Env::default();
-        env.mock_all_auths();
-        let (_, client, _, _) = setup_contract(&env);
-        let creator = Address::generate(&env);
-        let token = Address::generate(&env);
-
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
-        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Active);
-
-        // Pause campaign
-        client.pause_campaign(&id);
-        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Paused);
-
-        // Resume campaign
-        client.resume_campaign(&id);
-        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Active);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #18)")]
-    fn test_contribute_while_paused_fails() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-
         let (_, client, _, _) = setup_contract(&env);
         let token_admin = Address::generate(&env);
-        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let (token, _, token_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
         let contributor = Address::generate(&env);
-        token_admin_client.mint(&contributor, &5_000);
-
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        client.pause_campaign(&id);
-
-        // Must panic with CampaignPaused (#18)
-        client.contribute(&contributor, &id, &1_000);
-        // May 15, 2026 (rainy season -> 2x multiplier)
-        set_time(&env, 1_778_800_000);
-        let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000);
-        assert_eq!(client.get_co2_multiplier(&id_rainy), 2);
-
-        // January 15, 2026 (non-rainy season -> 1x multiplier)
-        set_time(&env, 1_768_400_000);
-        let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000);
-        assert_eq!(client.get_co2_multiplier(&id_dry), 1);
+        token_client.mint(&creator, &500);
+        token_client.mint(&contributor, &10_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        assert_eq!(client.get_dynamic_cost_per_tree(&id, &100), 100);
+        client.contribute(&contributor, &id, &9_000);
+        assert_eq!(client.get_dynamic_cost_per_tree(&id, &100), 125);
     }
 
     #[test]
-    fn test_set_and_get_reward_token() {
+    fn test_seasonal_multiplier_is_fixed_at_creation() {
         let env = Env::default();
         env.mock_all_auths();
         let (_, client, _, _) = setup_contract(&env);
-        let reward_token = Address::generate(&env);
-
-        assert_eq!(client.get_reward_token(), None);
-        client.set_reward_token(&reward_token);
-        assert_eq!(client.get_reward_token(), Some(reward_token));
+        let creator = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+        let (token, _, token_client) = create_token(&env, &token_admin);
+        token_client.mint(&creator, &1_000);
+        set_time(&env, 1_777_500_000); // April 2026
+        let earth_month = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_000_000, &500);
+        assert_eq!(client.get_co2_multiplier(&earth_month), 15_000);
+        set_time(&env, 1_780_000_000); // rainy season
+        let rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_780_500_000, &500);
+        assert_eq!(client.get_co2_multiplier(&rainy), 20_000);
     }
 }

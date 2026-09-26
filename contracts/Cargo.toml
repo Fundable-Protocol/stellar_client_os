@@ -2,21 +2,19 @@
 resolver = "2"
 
 members = [
-    "payment-stream",
-    "distributor",
-    "nft-stream",
     "campaign-funding",
-    "soulbound-badge",
-    "verifier-penalty"
-    "planter",
     "dispute-arbiter",
-    "campaign-funding",
-    "soulbound-badge"
+    "distributor",
+    "donor-verification",
+    "nft-stream",
+    "payment-stream",
+    "planter",
     "soulbound-badge",
-    "timelock",
-    "upgrade-proxy",
     "sponsor-crowdfunding",
     "sponsor-insurance",
+    "timelock",
+    "upgrade-proxy",
+    "verifier-penalty",
 ]
 
 [workspace.package]
