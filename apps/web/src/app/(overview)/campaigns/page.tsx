@@ -6,6 +6,7 @@ import { Rocket, Plus, Heart, Users, ShieldCheck, ChevronRight, Trophy, Scale, S
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SuccessStories from "@/components/modules/campaign/success-stories/SuccessStories";
+import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 
 export default function CampaignsDirectoryPage() {
   const campaigns = [
@@ -36,7 +37,7 @@ export default function CampaignsDirectoryPage() {
   ];
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
+    <div className="campaign-accessible container mx-auto px-4 py-8 max-w-6xl space-y-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-zinc-800 pb-6">
         <div>
@@ -49,11 +50,14 @@ export default function CampaignsDirectoryPage() {
           </p>
         </div>
 
-        <Link href="/campaigns/create">
-          <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover-from-purple-700 hover-to-blue-700 shadow-lg shadow-purple-900/30">
-            <Plus className="mr-2 h-4 w-4" /> Create Campaign Wizard (#720)
-          </Button>
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <CampaignAccessibilityControls />
+          <Link href="/campaigns/create">
+            <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover-from-purple-700 hover-to-blue-700 shadow-lg shadow-purple-900/30">
+              <Plus className="mr-2 h-4 w-4" /> Create Campaign Wizard (#720)
+            </Button>
+          </Link>
+        </div>
 <div className="flex flex-wrap items-center gap-2">
           <Link href="/campaigns/compare">
             <Button variant="outline" className="border-purple-800 bg-purple-950/40 text-purple-300 hover:bg-purple-900/60 font-semibold text-xs">

@@ -20,6 +20,7 @@ import {
 import LiveTreeCounter from "./LiveTreeCounter";
 import AnimatedProgressBar from "./AnimatedProgressBar";
 import { CampaignData, CampaignStatus } from "@/types/campaign";
+import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 
 interface CampaignDetailProps {
   campaignId: string;
@@ -70,7 +71,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
   const minTargetNum = Number(campaign.minTarget);
 
   return (
-    <div className="w-full space-y-6">
+    <div className="campaign-accessible w-full space-y-6">
       {/* Top Navigation Bar */}
       <div className="flex items-center justify-between">
         <Link
@@ -81,6 +82,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
         </Link>
 
         <div className="flex items-center gap-3">
+          <CampaignAccessibilityControls />
           <button
             onClick={() => setIsCreatorMode((prev) => !prev)}
             className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 font-medium hover:bg-zinc-700 transition-colors"

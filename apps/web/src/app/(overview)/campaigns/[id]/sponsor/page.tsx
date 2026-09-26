@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 
 const trees = [
   { id: "tree-001", label: "Amazonia restoration", location: "Para, Brazil", impact: "48 kg CO₂e" },
@@ -32,8 +33,9 @@ export default function SponsorCampaignPage() {
   const back = () => { setError(""); setStep((current) => Math.max(1, current - 1)); };
 
   return (
-    <main className="mx-auto min-h-full w-full max-w-4xl px-6 py-12 text-white">
+    <main className="campaign-accessible mx-auto min-h-full w-full max-w-4xl px-6 py-12 text-white">
       <div className="mb-10">
+        <CampaignAccessibilityControls />
         <p className="text-sm font-medium text-emerald-300">Campaign {id}</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Sponsor a living forest</h1>
         <p className="mt-3 max-w-2xl text-sm text-slate-400">Choose the trees you want to support, review the impact of your contribution, and confirm once everything looks right.</p>
