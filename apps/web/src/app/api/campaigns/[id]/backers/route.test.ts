@@ -99,7 +99,7 @@ describe("POST /api/campaigns/:id/backers", () => {
     const body = await json<{
       backers: { displayName: string; backerAddress: string; totalAmount: string | null }[];
     }>(publicBoard);
-    expect(body.backers[0]).toMatchObject({
+    expect(body.backers.find((entry) => entry.backerAddress === "Hidden address")).toMatchObject({
       displayName: "Anonymous backer",
       backerAddress: "Hidden address",
       totalAmount: "750",

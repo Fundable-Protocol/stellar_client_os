@@ -2312,6 +2312,7 @@ mod tests {
 
         let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
         client.contribute_anonymously(&contributor, &id, &3_000);
+        let events = env.events().all();
 
         assert_eq!(client.get_contribution(&id, &contributor), 3_000);
         assert_eq!(client.get_campaign(&id).total_raised, 3_000);
@@ -2329,7 +2330,6 @@ mod tests {
             total_raised: 3_000,
         }
         .to_xdr(&env, &contract_id);
-        let events = env.events().all();
         assert!(events.events().iter().any(|event| *event == anonymous_event));
         assert!(!events.events().iter().any(|event| *event == public_event));
     }
