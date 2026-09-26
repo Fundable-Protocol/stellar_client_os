@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculateCo2Forecast,
   calculateCo2Offset,
   DEFAULT_SPECIES_ID,
+  FORECAST_HORIZON_YEARS,
   getTreeSpecies,
   TREE_SPECIES,
 } from "../co2-impact";
@@ -38,11 +40,45 @@ describe("calculateCo2Offset", () => {
   it("clamps zero and negative quantities to zero", () => {
     expect(calculateCo2Offset("oak", 0).co2PerYearKg).toBe(0);
     expect(calculateCo2Offset("oak", -5).co2PerYearKg).toBe(0);
+    expect(calculateCo2Offset("oak", Number.POSITIVE_INFINITY).co2PerYearKg).toBe(0);
   });
 
   it("provides a car-km equivalence for the annual figure", () => {
     const result = calculateCo2Offset("oak", 10);
     // 210 kg / 0.12 kg per km = 1750 km
     expect(result.carKmEquivalentPerYear).toBe(1750);
+  });
+});
+
+describe("calculateCo2Forecast", () => {
+  it("returns a cumulative estimate and 95% interval for each of 20 years", () => {
+    const forecast = calculateCo2Forecast("oak", 10);
+    const yearTen = forecast[9];
+    const yearTwenty = forecast[19];
+
+    expect(forecast).toHaveLength(FORECAST_HORIZON_YEARS);
+    expect(yearTen.year).toBe(10);
+    expect(yearTwenty.year).toBe(20);
+    expect(yearTwenty.expectedCumulativeKg).toBeGreaterThan(yearTen.expectedCumulativeKg);
+    expect(yearTwenty.lower95Kg).toBeLessThan(yearTwenty.expectedCumulativeKg);
+    expect(yearTwenty.upper95Kg).toBeGreaterThan(yearTwenty.expectedCumulativeKg);
+  });
+
+  it("includes tree growth, mortality, and climate in the estimate", () => {
+    const oak = calculateCo2Forecast("oak", 10)[19];
+    const eucalyptus = calculateCo2Forecast("eucalyptus", 10)[19];
+
+    expect(eucalyptus.expectedCumulativeKg).toBeGreaterThan(oak.expectedCumulativeKg);
+    expect(oak.expectedCumulativeKg).toBeLessThan(21 * 10 * FORECAST_HORIZON_YEARS);
+  });
+
+  it("clamps invalid quantities to zero without a non-zero confidence range", () => {
+    const forecast = calculateCo2Forecast("oak", Number.POSITIVE_INFINITY);
+
+    expect(forecast.every((year) => (
+      year.expectedCumulativeKg === 0 &&
+      year.lower95Kg === 0 &&
+      year.upper95Kg === 0
+    ))).toBe(true);
   });
 });

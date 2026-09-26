@@ -31,6 +31,7 @@ import { TopBackers } from "@/components/modules/campaign/backers/TopBackers";
 import { TOP_BACKERS_LIMIT } from "@/types/campaign-backers";
 import { CampaignFundingVelocityChart } from "@/components/modules/campaign/FundingVelocityChart";
 import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
+import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
 
 const translations = {
   en: {
@@ -509,6 +510,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                 </div>
               </div>
 
+              <CampaignImpactCalculator />
             </div>
 
             <div className="space-y-4">
