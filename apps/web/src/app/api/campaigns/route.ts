@@ -27,6 +27,7 @@ export async function POST(request: Request) {
       name?: string;
       description?: string;
       location?: string;
+      species?: string[];
       durationMs?: number;
       deadline?: number;
       goalAmount?: string;
@@ -44,6 +45,9 @@ export async function POST(request: Request) {
     if (body.location !== undefined && typeof body.location !== "string") {
       return Response.json({ error: "location must be a string" }, { status: 400 });
     }
+    if (body.species !== undefined && (!Array.isArray(body.species) || body.species.some((species) => typeof species !== "string"))) {
+      return Response.json({ error: "species must be an array of strings" }, { status: 400 });
+    }
     if (body.durationMs !== undefined && (!Number.isFinite(body.durationMs) || body.durationMs < 0)) {
       return Response.json({ error: "durationMs must be a non-negative number" }, { status: 400 });
     }
@@ -58,6 +62,7 @@ export async function POST(request: Request) {
       creator: body.creator,
       name: body.name,
       location: body.location,
+      species: body.species,
       durationMs,
     });
     if (duplicates.length > 0) {

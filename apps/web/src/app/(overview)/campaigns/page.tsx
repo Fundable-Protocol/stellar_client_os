@@ -6,6 +6,7 @@ import { Rocket, Plus, Heart, Users, ShieldCheck, ChevronRight, Trophy, Scale, S
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SuccessStories from "@/components/modules/campaign/success-stories/SuccessStories";
+import { CampaignSearchPanel } from "@/components/modules/campaign/CampaignSearchPanel";
 
 export default function CampaignsDirectoryPage() {
   const campaigns = [
@@ -83,6 +84,8 @@ export default function CampaignsDirectoryPage() {
 
       {/* Success Stories Section */}
       <SuccessStories />
+
+      <CampaignSearchPanel />
 
       {/* Campaigns Grid */}
       <div className="grid grid-cols-1 md-grid-cols-2 gap-6">
