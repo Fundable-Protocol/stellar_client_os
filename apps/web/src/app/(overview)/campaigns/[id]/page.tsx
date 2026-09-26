@@ -33,6 +33,12 @@ import { CampaignFundingVelocityChart } from "@/components/modules/campaign/Fund
 import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 
 const translations = {
+  en: {
+    title: "Save the Amazon RainForest Reserve",
+    shortDescription: "Protecting 50,000 hectares of primary rainforest through community-led guardianship and carbon streaming.",
+    fullStory: "The Amazon RainForest Reserve project empowers indigenous communities to monitor, protect, and restore critical wildlife corridors. Funds raised are locked in transparent Stellar payment streams for anti-poaching operations, satellite mapping, and sustainable agriculture.",
+    impactStatement: "Permanently offset 150 metric tons of CO2 while securing habitat for 200+ endangered species.",
+  },
   es: {
     title: "Salvemos la Reserva de la Selva Amazónica",
     shortDescription: "Protegiendo 50,000 hectáreas de bosque primario mediante guardianía comunitaria y streaming de carbono.",
@@ -191,7 +197,7 @@ const translations = {
   },
 } as const;
 
-const languageNames: Record<string, string> = {
+const languageNames: Record<TranslationKey, string> = {
   en: "English",
   es: "Spanish",
   pt: "Portuguese",
@@ -222,6 +228,10 @@ const languageNames: Record<string, string> = {
 };
 
 type TranslationKey = keyof typeof translations;
+
+function isTranslationKey(value: string): value is TranslationKey {
+  return Object.prototype.hasOwnProperty.call(translations, value);
+}
 
 const detectLanguage = (text: string): string => {
   if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(text)) return "zh";
@@ -379,12 +389,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <select
                 className="bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1 text-xs text-zinc-200"
                 value={translationLang}
-                onChange={(e) => setTranslationLang(e.target.value as TranslationKey | "")}
+                onChange={(event) => {
+                  const locale = event.target.value;
+                  setTranslationLang(isTranslationKey(locale) ? locale : "");
+                }}
                 aria-label="Translate campaign description"
               >
                 <option value="">Original ({detectedLanguageName})</option>
-                {(Object.keys(languageNames) as TranslationKey[]).map((locale) => (
-                  <option key={locale} value={locale}>{languageNames[locale]}</option>
+                {Object.entries(languageNames).map(([locale, name]) => (
+                  <option key={locale} value={locale}>{name}</option>
                 ))}
               </select>
             </div>
@@ -495,6 +508,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   <div>Estimated CO2 Offset: <strong className="text-amber-400 font-bold">{campaign.co2OffsetTons} Tons</strong></div>
                 </div>
               </div>
+
             </div>
 
             <div className="space-y-4">
