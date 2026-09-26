@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { safeGetItem, safeSetItem } from "@/utils/safe-storage";
 
 const HIGH_CONTRAST_STORAGE_KEY = "campaign-high-contrast";
 
@@ -8,7 +9,7 @@ export function CampaignAccessibilityControls() {
   const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
-    const storedValue = window.localStorage.getItem(HIGH_CONTRAST_STORAGE_KEY);
+    const storedValue = safeGetItem(HIGH_CONTRAST_STORAGE_KEY);
     const isEnabled = storedValue === "true";
     setEnabled(isEnabled);
     document.documentElement.dataset.campaignHighContrast = String(isEnabled);
@@ -18,7 +19,7 @@ export function CampaignAccessibilityControls() {
     const nextEnabled = !enabled;
     setEnabled(nextEnabled);
     document.documentElement.dataset.campaignHighContrast = String(nextEnabled);
-    window.localStorage.setItem(HIGH_CONTRAST_STORAGE_KEY, String(nextEnabled));
+    safeSetItem(HIGH_CONTRAST_STORAGE_KEY, String(nextEnabled));
   };
 
   return (
