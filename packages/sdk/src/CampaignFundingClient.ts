@@ -191,6 +191,26 @@ export class CampaignFundingClient {
   }
 
   /**
+   * Contribute without including the sponsor address in the contribution event.
+   * The transaction signer and contract ledger storage remain publicly visible.
+   */
+  public async contributeAnonymously(params: {
+    contributor: AddressParam;
+    campaign_id: bigint;
+    amount: bigint;
+  }): Promise<AssembledTransaction<null>> {
+    return executeWithErrorHandling(
+      () =>
+        this.client.contribute_anonymously({
+          contributor: addressToString(params.contributor),
+          campaign_id: params.campaign_id,
+          amount: params.amount,
+        }),
+      "Contribute anonymously to campaign"
+    );
+  }
+
+  /**
    * Evaluate an active campaign after its deadline and mark it `Successful`
    * or `Failed`.
    *

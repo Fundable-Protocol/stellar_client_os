@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { backersService } from "@/services/campaign-backers.service";
-import { TOP_BACKERS_LIMIT, isBackerVisibility } from "@/types/campaign-backers";
+import {
+  BackerVisibility,
+  TOP_BACKERS_LIMIT,
+  isBackerVisibility,
+} from "@/types/campaign-backers";
 
 /**
  * Top backers for a campaign.
@@ -49,6 +53,8 @@ export async function POST(
       avatarUrl?: string;
       message?: string;
       txHash?: string;
+      visibility?: unknown;
+      showAmount?: boolean;
     };
 
     if (!body.backerAddress?.trim()) {
@@ -56,6 +62,12 @@ export async function POST(
     }
     if (!body.amount) {
       return NextResponse.json({ error: "amount is required" }, { status: 400, headers: NO_STORE });
+    }
+    if (body.visibility !== undefined && !isBackerVisibility(body.visibility)) {
+      return NextResponse.json(
+        { error: "visibility must be one of PUBLIC, ANONYMOUS, PRIVATE" },
+        { status: 400, headers: NO_STORE },
+      );
     }
 
     const contribution = backersService.recordContribution({
@@ -68,9 +80,21 @@ export async function POST(
       message: body.message,
       txHash: body.txHash,
     });
+    if (body.visibility !== undefined || body.showAmount !== undefined) {
+      backersService.setPrivacyPreference({
+        campaignId: id,
+        backerAddress: body.backerAddress,
+        visibility: body.visibility as BackerVisibility | undefined,
+        showAmount: body.showAmount,
+      });
+    }
 
     return NextResponse.json(
-      { success: true, contribution, leaderboard: backersService.getTopBackers(id) },
+      {
+        success: true,
+        contribution,
+        leaderboard: backersService.getTopBackers(id),
+      },
       { status: 201, headers: NO_STORE },
     );
   } catch (err) {
@@ -107,7 +131,7 @@ export async function PATCH(
     const { preference, removedFromFeatured } = backersService.setPrivacyPreference({
       campaignId: id,
       backerAddress: body.backerAddress,
-      visibility: body.visibility as never,
+      visibility: body.visibility as BackerVisibility | undefined,
       showAmount: body.showAmount,
       allowFeaturing: body.allowFeaturing,
     });

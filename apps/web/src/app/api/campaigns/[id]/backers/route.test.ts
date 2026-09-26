@@ -76,6 +76,36 @@ describe("POST /api/campaigns/:id/backers", () => {
     expect(body.leaderboard.backers[0].displayName).toBe("Carol Cruz");
   });
 
+  it("records anonymous contributions without exposing sponsor identity publicly", async () => {
+    const contributionResponse = await POST(
+      request(`http://test/api/campaigns/${CAMPAIGN}/backers`, {
+        method: "POST",
+        body: JSON.stringify({
+          backerAddress: "GDANON...DDDD",
+          amount: "750",
+          token: "USDC",
+          displayName: "Private sponsor",
+          visibility: "ANONYMOUS",
+        }),
+      }) as never,
+      params as never,
+    );
+    expect(contributionResponse.status).toBe(201);
+
+    const publicBoard = await GET(
+      request(`http://test/api/campaigns/${CAMPAIGN}/backers?viewer=GPUBLIC...PPPP`) as never,
+      params as never,
+    );
+    const body = await json<{
+      backers: { displayName: string; backerAddress: string; totalAmount: string | null }[];
+    }>(publicBoard);
+    expect(body.backers[0]).toMatchObject({
+      displayName: "Anonymous backer",
+      backerAddress: "Hidden address",
+      totalAmount: "750",
+    });
+  });
+
   it("rejects payloads without an address or amount", async () => {
     const noAddress = await POST(
       request(`http://test/api/campaigns/${CAMPAIGN}/backers`, { method: "POST", body: JSON.stringify({ amount: "10" }) }) as never,
