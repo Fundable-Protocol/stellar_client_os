@@ -1,5 +1,9 @@
 import { createCampaign, findDuplicateCampaigns, queryCampaigns } from "@/services/campaign.service";
-import { autoTranslate, detectLanguage, SUPPORTED_TRANSLATION_LOCALES } from "@/lib/translation";
+import {
+  detectLanguage,
+  hasOnlySupportedTranslationLocales,
+  isSupportedTranslationLocale,
+} from "@/lib/translation";
 
 export const runtime = "nodejs";
 
@@ -47,6 +51,18 @@ export async function POST(request: Request) {
     if (body.durationMs !== undefined && (!Number.isFinite(body.durationMs) || body.durationMs < 0)) {
       return Response.json({ error: "durationMs must be a non-negative number" }, { status: 400 });
     }
+    if (body.language && !isSupportedTranslationLocale(body.language)) {
+      return Response.json({ error: "language is not supported" }, { status: 400 });
+    }
+    if (body.translations && !hasOnlySupportedTranslationLocales(body.translations)) {
+      return Response.json({ error: "translations contain an unsupported language" }, { status: 400 });
+    }
+    if (body.autoTranslate) {
+      return Response.json(
+        { error: "Automatic translation is unavailable. Provide translations for the supported languages." },
+        { status: 501 },
+      );
+    }
     if (body.deadline !== undefined && !Number.isFinite(body.deadline)) {
       return Response.json({ error: "deadline must be a numeric timestamp" }, { status: 400 });
     }
@@ -67,16 +83,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Language detection and auto-translation
     const description = body.description ?? "";
     const language = body.language ?? detectLanguage(description);
-    let translations = body.translations ?? {};
-    if (body.autoTranslate) {
-      translations = {
-        ...autoTranslate(description, SUPPORTED_TRANSLATION_LOCALES),
-        ...translations,
-      };
-    }
+    const translations = body.translations ?? {};
 
     const campaign = await createCampaign({
       creator: body.creator,

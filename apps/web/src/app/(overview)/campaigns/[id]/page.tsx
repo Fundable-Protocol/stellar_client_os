@@ -30,6 +30,7 @@ import { BackerCommunity } from "@/components/modules/campaign/community/BackerC
 import { TopBackers } from "@/components/modules/campaign/backers/TopBackers";
 import { TOP_BACKERS_LIMIT } from "@/types/campaign-backers";
 import { CampaignFundingVelocityChart } from "@/components/modules/campaign/FundingVelocityChart";
+import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 
 const translations = {
   es: {
@@ -50,6 +51,144 @@ const translations = {
     fullStory: "Le projet Réserve de la forêt amazonienne permet aux communautés autochtones de surveiller, protéger et restaurer des corridors fauniques critiques. Les fonds collectés sont verrouillés dans des flux de paiement transparents sur Stellar pour les opérations anti-braconnage, la cartographie par satellite et l'agriculture durable.",
     impactStatement: "Compenser durablement 150 tonnes métriques de CO2 tout en sécurisant l'habitat de plus de 200 espèces menacées.",
   },
+  de: {
+    title: "Rettet das Amazonas-Regenwaldreservat",
+    shortDescription: "Schutz von 50.000 Hektar Primärwald durch gemeinschaftliche Bewachung und transparente CO2-Finanzierung.",
+    fullStory: "Das Amazonas-Regenwaldreservat befähigt indigene Gemeinschaften, wichtige Wildtierkorridore zu überwachen, zu schützen und wiederherzustellen. Die gesammelten Mittel werden in transparente Stellar-Zahlungsströme eingebunden, um Wildereibekämpfung, Satellitenkartierung und nachhaltige Landwirtschaft zu finanzieren.",
+    impactStatement: "Dauerhafte Bindung von 150 Tonnen CO2 bei gleichzeitigem Schutz des Lebensraums von mehr als 200 gefährdeten Arten.",
+  },
+  zh: {
+    title: "守护亚马逊雨林保护区",
+    shortDescription: "通过社区守护和碳资金流，保护五万公顷原始雨林。",
+    fullStory: "亚马逊雨林保护区项目支持当地原住民社区监测、保护并修复重要的野生动物廊道。筹集的资金通过 Stellar 透明支付流用于反盗猎行动、卫星测绘和可持续农业。",
+    impactStatement: "永久抵消150公吨二氧化碳，同时保护200多种濒危物种的栖息地。",
+  },
+  ja: {
+    title: "アマゾン熱帯雨林保護区を守ろう",
+    shortDescription: "地域コミュニティによる保全活動と炭素資金の流れを通じて、5万ヘクタールの原生林を守ります。",
+    fullStory: "アマゾン熱帯雨林保護区プロジェクトは、先住民コミュニティが重要な野生生物回廊を監視、保護、再生できるよう支援します。集められた資金はStellar上の透明な決済フローに預けられ、密猟対策、衛星地図作成、持続可能な農業に活用されます。",
+    impactStatement: "150トンのCO2を恒久的に相殺し、200種以上の絶滅危惧種の生息地を守ります。",
+  },
+  ar: {
+    title: "أنقذوا محمية غابات الأمازون المطيرة",
+    shortDescription: "حماية 50,000 هكتار من الغابات الأصلية عبر حراسة المجتمعات المحلية وتدفقات تمويل الكربون.",
+    fullStory: "يمكّن مشروع محمية الأمازون المجتمعات الأصلية من مراقبة ممرات الحياة البرية المهمة وحمايتها واستعادتها. تُحفظ الأموال المجمعة في تدفقات دفع شفافة على Stellar لتمويل مكافحة الصيد غير المشروع ورسم الخرائط عبر الأقمار الصناعية والزراعة المستدامة.",
+    impactStatement: "تعويض 150 طنًا متريًا من ثاني أكسيد الكربون بشكل دائم مع حماية موائل أكثر من 200 نوع مهدد بالانقراض.",
+  },
+  it: {
+    title: "Salviamo la riserva della foresta amazzonica",
+    shortDescription: "Proteggiamo 50.000 ettari di foresta primaria con la tutela delle comunità locali e flussi di finanziamento del carbonio.",
+    fullStory: "Il progetto della riserva amazzonica consente alle comunità indigene di monitorare, proteggere e ripristinare corridoi essenziali per la fauna selvatica. I fondi raccolti sono custoditi in flussi di pagamento trasparenti su Stellar per finanziare operazioni anti-bracconaggio, mappe satellitari e agricoltura sostenibile.",
+    impactStatement: "Compensare in modo permanente 150 tonnellate di CO2 proteggendo l'habitat di oltre 200 specie a rischio.",
+  },
+  ru: {
+    title: "Сохраним заповедник тропических лесов Амазонии",
+    shortDescription: "Защита 50 000 гектаров первичных лесов силами местных сообществ и за счет прозрачного финансирования углеродных проектов.",
+    fullStory: "Проект заповедника Амазонии помогает коренным общинам наблюдать за важными коридорами дикой природы, защищать и восстанавливать их. Собранные средства поступают в прозрачные платежные потоки Stellar и направляются на борьбу с браконьерством, спутниковое картографирование и устойчивое сельское хозяйство.",
+    impactStatement: "Навсегда компенсировать 150 тонн CO2 и сохранить среду обитания более 200 исчезающих видов.",
+  },
+  ko: {
+    title: "아마존 열대우림 보호구역을 지켜 주세요",
+    shortDescription: "지역 사회의 보호 활동과 탄소 재원 흐름을 통해 원시림 5만 헥타르를 보호합니다.",
+    fullStory: "아마존 열대우림 보호구역 프로젝트는 원주민 공동체가 중요한 야생동물 통로를 감시하고 보호하며 복원하도록 지원합니다. 모금된 자금은 Stellar의 투명한 결제 흐름에 보관되어 밀렵 방지 활동, 위성 지도 제작, 지속 가능한 농업에 사용됩니다.",
+    impactStatement: "이산화탄소 150톤을 영구 상쇄하고 멸종 위기종 200여 종의 서식지를 보호합니다.",
+  },
+  nl: {
+    title: "Red het Amazone-regenwoudreservaat",
+    shortDescription: "Bescherm 50.000 hectare oerbos met gemeenschapsbewaking en transparante financiering van CO2-projecten.",
+    fullStory: "Het Amazone-reservaatproject stelt inheemse gemeenschappen in staat belangrijke corridors voor wilde dieren te bewaken, beschermen en herstellen. Het ingezamelde geld wordt vastgezet in transparante Stellar-betaalstromen voor de bestrijding van stroperij, satellietkaarten en duurzame landbouw.",
+    impactStatement: "Permanent 150 ton CO2 compenseren en tegelijk het leefgebied van meer dan 200 bedreigde soorten beschermen.",
+  },
+  pl: {
+    title: "Ocalmy amazoński rezerwat lasów deszczowych",
+    shortDescription: "Chronimy 50 000 hektarów pierwotnego lasu dzięki opiece lokalnych społeczności i finansowaniu ochrony klimatu.",
+    fullStory: "Projekt rezerwatu Amazonii wspiera rdzenne społeczności w monitorowaniu, ochronie i odtwarzaniu ważnych korytarzy dzikiej przyrody. Zebrane środki trafiają do przejrzystych strumieni płatności Stellar i finansują walkę z kłusownictwem, mapowanie satelitarne oraz zrównoważone rolnictwo.",
+    impactStatement: "Trwale zrównoważyć 150 ton CO2 i chronić siedliska ponad 200 zagrożonych gatunków.",
+  },
+  tr: {
+    title: "Amazon Yağmur Ormanı Koruma Alanı'nı kurtarın",
+    shortDescription: "Toplum gözetimi ve şeffaf karbon finansmanı ile 50.000 hektar birincil ormanı koruyun.",
+    fullStory: "Amazon Koruma Alanı projesi, yerli toplulukların önemli yaban hayatı koridorlarını izlemesine, korumasına ve onarmasına destek olur. Toplanan fonlar, kaçak avcılıkla mücadele, uydu haritalama ve sürdürülebilir tarım için Stellar üzerindeki şeffaf ödeme akışlarında tutulur.",
+    impactStatement: "150 metrik ton CO2'yi kalıcı olarak dengeleyin ve nesli tehlikedeki 200'den fazla türün yaşam alanını koruyun.",
+  },
+  vi: {
+    title: "Cứu lấy khu bảo tồn rừng mưa Amazon",
+    shortDescription: "Bảo vệ 50.000 hecta rừng nguyên sinh thông qua hoạt động gìn giữ của cộng đồng và nguồn tài trợ carbon minh bạch.",
+    fullStory: "Dự án Khu bảo tồn Amazon hỗ trợ cộng đồng bản địa giám sát, bảo vệ và phục hồi các hành lang sinh thái quan trọng. Nguồn quỹ được khóa trong các luồng thanh toán minh bạch trên Stellar để tài trợ chống săn trộm, lập bản đồ vệ tinh và nông nghiệp bền vững.",
+    impactStatement: "Bù đắp vĩnh viễn 150 tấn CO2 đồng thời bảo vệ môi trường sống của hơn 200 loài có nguy cơ tuyệt chủng.",
+  },
+  th: {
+    title: "ร่วมอนุรักษ์เขตป่าฝนอเมซอน",
+    shortDescription: "ปกป้องป่าดั้งเดิม 50,000 เฮกตาร์ด้วยการดูแลของชุมชนและเงินทุนด้านคาร์บอนที่โปร่งใส",
+    fullStory: "โครงการเขตอนุรักษ์อเมซอนสนับสนุนชุมชนพื้นเมืองในการติดตาม ปกป้อง และฟื้นฟูเส้นทางสำคัญของสัตว์ป่า เงินทุนที่ระดมได้จะอยู่ในระบบชำระเงินที่โปร่งใสบน Stellar เพื่อสนับสนุนการต่อต้านการล่าสัตว์ การทำแผนที่ดาวเทียม และเกษตรกรรมที่ยั่งยืน",
+    impactStatement: "ชดเชย CO2 จำนวน 150 เมตริกตันอย่างถาวร พร้อมปกป้องถิ่นที่อยู่อาศัยของสัตว์ใกล้สูญพันธุ์กว่า 200 ชนิด",
+  },
+  id: {
+    title: "Selamatkan Cagar Hutan Hujan Amazon",
+    shortDescription: "Lindungi 50.000 hektare hutan primer melalui penjagaan masyarakat dan pendanaan karbon yang transparan.",
+    fullStory: "Proyek Cagar Amazon memberdayakan masyarakat adat untuk memantau, melindungi, dan memulihkan koridor satwa liar yang penting. Dana yang terkumpul disimpan dalam aliran pembayaran Stellar yang transparan untuk mendukung pemberantasan perburuan liar, pemetaan satelit, dan pertanian berkelanjutan.",
+    impactStatement: "Mengimbangi 150 ton metrik CO2 secara permanen sekaligus melindungi habitat lebih dari 200 spesies terancam.",
+  },
+  hi: {
+    title: "अमेज़न वर्षावन अभयारण्य को बचाएँ",
+    shortDescription: "समुदाय आधारित संरक्षण और पारदर्शी कार्बन वित्तपोषण से 50,000 हेक्टेयर प्राचीन वन की रक्षा करें।",
+    fullStory: "अमेज़न अभयारण्य परियोजना मूल निवासी समुदायों को महत्वपूर्ण वन्यजीव गलियारों की निगरानी, सुरक्षा और बहाली में सक्षम बनाती है। जुटाई गई धनराशि Stellar के पारदर्शी भुगतान प्रवाह में रखी जाती है और अवैध शिकार विरोधी अभियानों, उपग्रह मानचित्रण तथा टिकाऊ कृषि के लिए उपयोग होती है।",
+    impactStatement: "200 से अधिक संकटग्रस्त प्रजातियों के आवास की रक्षा करते हुए 150 मीट्रिक टन CO2 की स्थायी भरपाई करें।",
+  },
+  bn: {
+    title: "আমাজন রেইনফরেস্ট সংরক্ষণাঞ্চল রক্ষা করুন",
+    shortDescription: "স্থানীয় জনগোষ্ঠীর তত্ত্বাবধান ও স্বচ্ছ কার্বন অর্থায়নের মাধ্যমে ৫০,০০০ হেক্টর আদি বন রক্ষা করুন।",
+    fullStory: "আমাজন সংরক্ষণ প্রকল্প আদিবাসী জনগোষ্ঠীকে গুরুত্বপূর্ণ বন্যপ্রাণী চলাচলের পথ পর্যবেক্ষণ, সুরক্ষা ও পুনরুদ্ধারে সহায়তা করে। সংগৃহীত তহবিল Stellar-এর স্বচ্ছ পেমেন্ট প্রবাহে রাখা হয় এবং চোরাশিকার দমন, স্যাটেলাইট মানচিত্র ও টেকসই কৃষিতে ব্যয় করা হয়।",
+    impactStatement: "২০০টিরও বেশি বিপন্ন প্রজাতির আবাসস্থল রক্ষা করে স্থায়ীভাবে ১৫০ মেট্রিক টন CO2 পূরণ করুন।",
+  },
+  fa: {
+    title: "از ذخیره‌گاه جنگل‌های بارانی آمازون محافظت کنیم",
+    shortDescription: "حفاظت از ۵۰٬۰۰۰ هکتار جنگل بکر با نگهبانی جوامع محلی و تأمین مالی شفاف کربن.",
+    fullStory: "پروژه ذخیره‌گاه آمازون به جوامع بومی کمک می‌کند گذرگاه‌های مهم حیات‌وحش را پایش، محافظت و احیا کنند. کمک‌های جمع‌آوری‌شده در جریان‌های پرداخت شفاف Stellar نگهداری می‌شوند تا صرف مبارزه با شکار غیرقانونی، نقشه‌برداری ماهواره‌ای و کشاورزی پایدار شوند.",
+    impactStatement: "جبران دائمی ۱۵۰ تن متریک CO2 و محافظت از زیستگاه بیش از ۲۰۰ گونه در معرض خطر.",
+  },
+  sw: {
+    title: "Okoa Hifadhi ya Msitu wa Mvua wa Amazon",
+    shortDescription: "Linda hekta 50,000 za msitu wa asili kupitia uangalizi wa jamii na ufadhili wa kaboni ulio wazi.",
+    fullStory: "Mradi wa Hifadhi ya Amazon huwezesha jamii za wenyeji kufuatilia, kulinda na kurejesha njia muhimu za wanyamapori. Fedha zilizochangwa huhifadhiwa katika mifumo ya malipo ya Stellar iliyo wazi ili kusaidia kupambana na ujangili, kutengeneza ramani za satelaiti na kilimo endelevu.",
+    impactStatement: "Fidia tani 150 za CO2 kabisa huku ukilinda makazi ya zaidi ya spishi 200 zilizo hatarini.",
+  },
+  uk: {
+    title: "Збережімо заповідник тропічних лісів Амазонії",
+    shortDescription: "Захист 50 000 гектарів первісного лісу завдяки опіці громад і прозорому фінансуванню кліматичних проєктів.",
+    fullStory: "Проєкт заповідника Амазонії допомагає корінним громадам стежити за важливими коридорами дикої природи, захищати й відновлювати їх. Зібрані кошти зберігаються у прозорих платіжних потоках Stellar і спрямовуються на боротьбу з браконьєрством, супутникове картографування та стале сільське господарство.",
+    impactStatement: "Назавжди компенсувати 150 тонн CO2 і зберегти середовище існування понад 200 видів під загрозою зникнення.",
+  },
+  ms: {
+    title: "Selamatkan Hutan Hujan Simpanan Amazon",
+    shortDescription: "Lindungi 50,000 hektar hutan primer melalui penjagaan komuniti dan pembiayaan karbon yang telus.",
+    fullStory: "Projek Simpanan Amazon memperkasa komuniti orang asli untuk memantau, melindungi dan memulihkan koridor hidupan liar yang penting. Dana yang dikumpul disimpan dalam aliran pembayaran Stellar yang telus untuk membiayai usaha membanteras pemburuan haram, pemetaan satelit dan pertanian mampan.",
+    impactStatement: "Mengimbangi 150 tan metrik CO2 secara kekal sambil melindungi habitat lebih 200 spesies terancam.",
+  },
+  ro: {
+    title: "Salvați rezervația pădurii amazoniene",
+    shortDescription: "Protejăm 50.000 de hectare de pădure primară prin îngrijirea comunităților și finanțare transparentă pentru carbon.",
+    fullStory: "Proiectul rezervației Amazonului ajută comunitățile indigene să monitorizeze, să protejeze și să refacă coridoarele esențiale pentru fauna sălbatică. Fondurile strânse sunt păstrate în fluxuri de plată transparente pe Stellar pentru combaterea braconajului, cartografiere prin satelit și agricultură durabilă.",
+    impactStatement: "Compensăm permanent 150 de tone de CO2 și protejăm habitatul a peste 200 de specii pe cale de dispariție.",
+  },
+  el: {
+    title: "Σώστε το καταφύγιο του τροπικού δάσους του Αμαζονίου",
+    shortDescription: "Προστατεύουμε 50.000 εκτάρια πρωτογενούς δάσους με τη φροντίδα των κοινοτήτων και διαφανή χρηματοδότηση άνθρακα.",
+    fullStory: "Το έργο του καταφυγίου του Αμαζονίου ενδυναμώνει τις αυτόχθονες κοινότητες να παρακολουθούν, να προστατεύουν και να αποκαθιστούν κρίσιμους διαδρόμους άγριας ζωής. Τα κεφάλαια διατηρούνται σε διαφανείς ροές πληρωμών στο Stellar για την καταπολέμηση της λαθροθηρίας, τη δορυφορική χαρτογράφηση και τη βιώσιμη γεωργία.",
+    impactStatement: "Μόνιμη αντιστάθμιση 150 μετρικών τόνων CO2 και προστασία του βιότοπου περισσότερων από 200 απειλούμενων ειδών.",
+  },
+  he: {
+    title: "הצילו את שמורת יערות הגשם באמזונס",
+    shortDescription: "הגנה על 50,000 הקטרים של יער ראשוני באמצעות שמירה קהילתית ומימון פחמן שקוף.",
+    fullStory: "פרויקט שמורת האמזונס מאפשר לקהילות ילידיות לנטר, להגן ולשקם מסדרונות חשובים לחיות הבר. הכספים שנאספים מוחזקים בזרמי תשלום שקופים ב-Stellar למימון מאבק בציד בלתי חוקי, מיפוי לווייני וחקלאות בת קיימא.",
+    impactStatement: "קיזוז קבוע של 150 טונות CO2 תוך הגנה על בתי הגידול של יותר מ-200 מינים בסכנת הכחדה.",
+  },
+  ur: {
+    title: "ایمازون کے برساتی جنگلات کے محفوظ علاقے کو بچائیں",
+    shortDescription: "مقامی برادریوں کی نگرانی اور شفاف کاربن مالی معاونت کے ذریعے 50,000 ہیکٹر قدیم جنگل کا تحفظ۔",
+    fullStory: "ایمازون محفوظ علاقے کا منصوبہ مقامی برادریوں کو جنگلی حیات کی اہم گزرگاہوں کی نگرانی، حفاظت اور بحالی کے قابل بناتا ہے۔ جمع شدہ رقوم Stellar کے شفاف ادائیگی کے نظام میں رکھی جاتی ہیں تاکہ غیر قانونی شکار کی روک تھام، سیٹلائٹ نقشہ سازی اور پائیدار زراعت میں مدد ملے۔",
+    impactStatement: "200 سے زیادہ خطرے سے دوچار انواع کے مسکن کی حفاظت کرتے ہوئے 150 میٹرک ٹن CO2 کی مستقل تلافی کریں۔",
+  },
 } as const;
 
 const languageNames: Record<string, string> = {
@@ -63,6 +202,23 @@ const languageNames: Record<string, string> = {
   ko: "Korean",
   ar: "Arabic",
   ru: "Russian",
+  it: "Italiano",
+  nl: "Nederlands",
+  pl: "Polski",
+  tr: "Türkçe",
+  vi: "Tiếng Việt",
+  th: "ไทย",
+  id: "Bahasa Indonesia",
+  hi: "हिन्दी",
+  bn: "বাংলা",
+  fa: "فارسی",
+  sw: "Kiswahili",
+  uk: "Українська",
+  ms: "Bahasa Melayu",
+  ro: "Română",
+  el: "Ελληνικά",
+  he: "עברית",
+  ur: "اردو",
 };
 
 type TranslationKey = keyof typeof translations;
@@ -132,7 +288,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   );
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
+    <div
+      dir={translationLang === "ar" || translationLang === "fa" || translationLang === "he" || translationLang === "ur" ? "rtl" : "ltr"}
+      lang={translationLang || detectedLang}
+      className="campaign-accessible container mx-auto px-4 py-8 max-w-6xl space-y-8"
+    >
       {/* Navigation Top */}
       <div className="flex items-center justify-between">
         <Link
@@ -143,6 +303,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         </Link>
 
         <div className="flex items-center gap-2">
+          <CampaignAccessibilityControls />
           <Link href="/campaigns/create">
             <Button size="sm" variant="outline" className="border-purple-600/40 text-purple-300 hover:bg-purple-950/40 text-xs">
               <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Campaign
@@ -222,9 +383,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                 aria-label="Translate campaign description"
               >
                 <option value="">Original ({detectedLanguageName})</option>
-                <option value="es">Spanish</option>
-                <option value="pt">Portuguese</option>
-                <option value="fr">French</option>
+                {(Object.keys(languageNames) as TranslationKey[]).map((locale) => (
+                  <option key={locale} value={locale}>{languageNames[locale]}</option>
+                ))}
               </select>
             </div>
 
