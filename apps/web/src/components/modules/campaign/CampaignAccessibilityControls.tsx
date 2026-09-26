@@ -1,25 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { safeGetItem, safeSetItem } from "@/utils/safe-storage";
 
 const HIGH_CONTRAST_STORAGE_KEY = "campaign-high-contrast";
+const HIGH_CONTRAST_CHANGE_EVENT = "campaign-high-contrast-change";
+let inMemoryPreference: boolean | null = null;
+
+function subscribeToHighContrast(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(HIGH_CONTRAST_CHANGE_EVENT, onChange);
+
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(HIGH_CONTRAST_CHANGE_EVENT, onChange);
+  };
+}
+
+function getHighContrastSnapshot() {
+  const storedValue = safeGetItem(HIGH_CONTRAST_STORAGE_KEY);
+  return storedValue === null
+    ? (inMemoryPreference ?? false)
+    : storedValue === "true";
+}
 
 export function CampaignAccessibilityControls() {
-  const [enabled, setEnabled] = useState(false);
+  const enabled = useSyncExternalStore(
+    subscribeToHighContrast,
+    getHighContrastSnapshot,
+    () => false,
+  );
 
   useEffect(() => {
-    const storedValue = safeGetItem(HIGH_CONTRAST_STORAGE_KEY);
-    const isEnabled = storedValue === "true";
-    setEnabled(isEnabled);
-    document.documentElement.dataset.campaignHighContrast = String(isEnabled);
-  }, []);
+    document.documentElement.dataset.campaignHighContrast = String(enabled);
+  }, [enabled]);
 
   const toggleHighContrast = () => {
     const nextEnabled = !enabled;
-    setEnabled(nextEnabled);
-    document.documentElement.dataset.campaignHighContrast = String(nextEnabled);
-    safeSetItem(HIGH_CONTRAST_STORAGE_KEY, String(nextEnabled));
+    inMemoryPreference = safeSetItem(
+      HIGH_CONTRAST_STORAGE_KEY,
+      String(nextEnabled),
+    )
+      ? null
+      : nextEnabled;
+    window.dispatchEvent(new Event(HIGH_CONTRAST_CHANGE_EVENT));
   };
 
   return (
