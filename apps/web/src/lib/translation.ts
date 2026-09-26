@@ -32,9 +32,8 @@ export function detectLanguage(text: string): string {
   const normalized = (text ?? "").trim();
   if (!normalized) return "en";
 
-  if (/[\u3040-\u30ff\u4e00-\u9fff\u3400-\u4dbf]/.test(normalized)) {
-    return /[\u4e00-\u9fff]/.test(normalized) ? "zh" : "ja";
-  }
+  if (/[\u3040-\u30ff]/.test(normalized)) return "ja";
+  if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(normalized)) return "zh";
   if (/[\uac00-\ud7af\ud55c]/.test(normalized)) return "ko";
   if (/[\u0600-\u06ff]/.test(normalized)) return "ar";
   if (/[\u0e00-\u0e7f]/.test(normalized)) return "th";

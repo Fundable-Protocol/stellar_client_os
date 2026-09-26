@@ -16,6 +16,10 @@ describe("campaign translation support", () => {
     expect(detectLanguage("حماية غابات الأمازون")).toBe("ar");
   });
 
+  it("detects Japanese text containing both kana and kanji", () => {
+    expect(detectLanguage("アマゾンの熱帯雨林を守ろう")).toBe("ja");
+  });
+
   it("accepts supplied translations only for supported locales", () => {
     expect(hasOnlySupportedTranslationLocales({ ar: "عنوان الحملة", es: "Título" })).toBe(true);
     expect(hasOnlySupportedTranslationLocales({ xx: "Campaign title" })).toBe(false);
