@@ -68,7 +68,26 @@ export const CampaignFundingErrors: Record<number, { message: string }> = {
   17: { message: "StreamContractNotSet" },
   18: { message: "RewardsAlreadyStreamed" },
   19: { message: "CampaignNotClaimed" },
+  24: { message: "BonusAlreadyAwarded" },
+  25: { message: "Co2TargetNotSet" },
+  26: { message: "SurvivalBelowThreshold" },
 };
+
+/** On-chain CO2 target vs realized sequestration (#971). */
+export interface Co2Performance {
+  target_kg: bigint;
+  actual_kg: bigint;
+  bonus_credits: bigint;
+  exceeds_by_20_percent: boolean;
+}
+
+/** Planter survival rate and awarded performance bonus (#971). */
+export interface PlanterPerformance {
+  planter: string;
+  survival_bps: number;
+  bonus_bps: number;
+  exceptional: boolean;
+}
 
 /**
  * High-level client for interacting with the campaign-funding contract.
@@ -460,6 +479,99 @@ export class CampaignFundingClient {
           stream_contract: addressToString(params.stream_contract),
         }),
       "Set stream contract"
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Dynamic performance bonuses (#971)
+  // -------------------------------------------------------------------------
+
+  /** Set the campaign CO2 sequestration target in kilograms. */
+  public async setCo2Target(params: {
+    campaign_id: bigint;
+    target_kg: bigint;
+  }): Promise<AssembledTransaction<null>> {
+    return executeWithErrorHandling(
+      () => this.client.set_co2_target(params),
+      "Set CO2 target"
+    );
+  }
+
+  /** Record realized campaign CO2 sequestration in kilograms. */
+  public async recordCampaignCo2(params: {
+    campaign_id: bigint;
+    actual_kg: bigint;
+  }): Promise<AssembledTransaction<null>> {
+    return executeWithErrorHandling(
+      () => this.client.record_campaign_co2(params),
+      "Record campaign CO2"
+    );
+  }
+
+  /**
+   * Award bonus carbon credits when realized CO2 exceeds the target by 20%.
+   */
+  public async evaluateCo2PerformanceBonus(params: {
+    campaign_id: bigint;
+  }): Promise<AssembledTransaction<bigint>> {
+    return executeWithErrorHandling(
+      () => this.client.evaluate_co2_performance_bonus(params),
+      "Evaluate CO2 performance bonus"
+    );
+  }
+
+  public async getCo2Performance(params: {
+    campaign_id: bigint;
+  }): Promise<AssembledTransaction<Co2Performance>> {
+    return executeWithErrorHandling(
+      () => this.client.get_co2_performance(params),
+      "Get CO2 performance"
+    );
+  }
+
+  /** Record a planter's tree survival rate in basis points (10_000 = 100%). */
+  public async recordPlanterSurvivalRate(params: {
+    campaign_id: bigint;
+    planter: AddressParam;
+    survival_bps: number;
+  }): Promise<AssembledTransaction<null>> {
+    return executeWithErrorHandling(
+      () =>
+        this.client.record_planter_survival_rate({
+          campaign_id: params.campaign_id,
+          planter: addressToString(params.planter),
+          survival_bps: params.survival_bps,
+        }),
+      "Record planter survival rate"
+    );
+  }
+
+  /** Award a 10% bonus when planter survival is at least 90%. */
+  public async awardPlanterPerformanceBonus(params: {
+    campaign_id: bigint;
+    planter: AddressParam;
+  }): Promise<AssembledTransaction<number>> {
+    return executeWithErrorHandling(
+      () =>
+        this.client.award_planter_performance_bonus({
+          campaign_id: params.campaign_id,
+          planter: addressToString(params.planter),
+        }),
+      "Award planter performance bonus"
+    );
+  }
+
+  public async getPlanterPerformance(params: {
+    campaign_id: bigint;
+    planter: AddressParam;
+  }): Promise<AssembledTransaction<PlanterPerformance>> {
+    return executeWithErrorHandling(
+      () =>
+        this.client.get_planter_performance({
+          campaign_id: params.campaign_id,
+          planter: addressToString(params.planter),
+        }),
+      "Get planter performance"
     );
   }
 }

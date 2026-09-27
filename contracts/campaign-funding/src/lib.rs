@@ -63,6 +63,16 @@ pub enum DataKey {
     Reserve(u64),
     /// Team members configuration keyed by campaign ID (persistent storage).
     TeamMembers(u64),
+    /// CO2 sequestration target in kilograms, keyed by campaign ID (#971).
+    Co2Target(u64),
+    /// Realized CO2 sequestration in kilograms, keyed by campaign ID (#971).
+    Co2Actual(u64),
+    /// Bonus carbon credits awarded for exceeding the CO2 target (#971).
+    Co2BonusCredits(u64),
+    /// Planter tree-survival rate in basis points, keyed by campaign + planter (#971).
+    PlanterSurvivalBps(u64, Address),
+    /// Planter performance bonus in basis points, keyed by campaign + planter (#971).
+    PlanterBonusBps(u64, Address),
 }
 
 /// Current lifecycle state of a campaign.
@@ -324,6 +334,46 @@ pub struct ContractFullEvent {
     pub timestamp: u64,
 }
 
+/// On-chain CO2 target vs realized sequestration for a campaign (#971).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Co2Performance {
+    pub target_kg: i128,
+    pub actual_kg: i128,
+    pub bonus_credits: i128,
+    pub exceeds_by_20_percent: bool,
+}
+
+/// Planter survival rate and any awarded performance bonus (#971).
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlanterPerformance {
+    pub planter: Address,
+    pub survival_bps: u32,
+    pub bonus_bps: u32,
+    pub exceptional: bool,
+}
+
+/// Emitted when a campaign earns bonus carbon credits for beating its CO2 target.
+#[contracttype]
+#[derive(Clone)]
+pub struct Co2PerformanceBonusEvent {
+    pub campaign_id: u64,
+    pub actual_kg: i128,
+    pub target_kg: i128,
+    pub bonus_credits: i128,
+}
+
+/// Emitted when a planter earns a performance bonus for exceptional survival.
+#[contracttype]
+#[derive(Clone)]
+pub struct PlanterPerformanceBonusEvent {
+    pub campaign_id: u64,
+    pub planter: Address,
+    pub survival_bps: u32,
+    pub bonus_bps: u32,
+}
+
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
@@ -389,6 +439,12 @@ pub enum Error {
     TeamDuplicateMember = 22,
     /// Campaign ID space exhausted (u64::MAX reached).
     ContractFull = 23,
+    /// A CO2 or planter performance bonus was already awarded for this key.
+    BonusAlreadyAwarded = 24,
+    /// `evaluate_co2_performance_bonus` was called before a CO2 target was set.
+    Co2TargetNotSet = 25,
+    /// Planter survival rate is below the exceptional-performance threshold.
+    SurvivalBelowThreshold = 26,
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +463,14 @@ const LEDGER_BUMP: u32 = 535_680;
 const MAX_CAMPAIGN_DURATION_SECONDS: u64 = 180 * 24 * 60 * 60;
 /// 30-day Tree Verification SLA duration in seconds (30 * 24 * 60 * 60).
 const VERIFICATION_SLA_SECONDS: u64 = 2_592_000;
+/// Campaigns that exceed their CO2 target by 20% (120% of target) earn bonus credits (#971).
+const CO2_EXCEED_THRESHOLD_BPS: u32 = 12_000;
+/// Bonus carbon credits are 20% of realized CO2 kilograms (#971).
+const CO2_BONUS_CREDIT_BPS: u32 = 2_000;
+/// Exceptional planter survival threshold: 90% (#971).
+const EXCEPTIONAL_SURVIVAL_BPS: u32 = 9_000;
+/// Planter performance bonus: 10% in basis points (#971).
+const PLANTER_PERFORMANCE_BONUS_BPS: u32 = 1_000;
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -1644,6 +1708,223 @@ impl CampaignFundingContract {
             .persistent()
             .get(&key)
             .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound))
+    }
+
+    // -----------------------------------------------------------------------
+    // Dynamic performance bonuses (#971)
+    // -----------------------------------------------------------------------
+
+    /// Set the campaign CO2 sequestration target in kilograms.
+    ///
+    /// Only the campaign creator may set the target. `target_kg` must be > 0.
+    pub fn set_co2_target(env: Env, campaign_id: u64, target_kg: i128) {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+        if target_kg <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Co2Target(campaign_id), &target_kg);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Co2Target(campaign_id),
+            LEDGER_THRESHOLD,
+            LEDGER_BUMP,
+        );
+    }
+
+    /// Record realized campaign CO2 sequestration in kilograms.
+    pub fn record_campaign_co2(env: Env, campaign_id: u64, actual_kg: i128) {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+        if actual_kg < 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Co2Actual(campaign_id), &actual_kg);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Co2Actual(campaign_id),
+            LEDGER_THRESHOLD,
+            LEDGER_BUMP,
+        );
+    }
+
+    /// Award bonus carbon credits when realized CO2 exceeds the target by 20%.
+    ///
+    /// Bonus credits = 20% of `actual_kg`. Idempotent after the first award.
+    pub fn evaluate_co2_performance_bonus(env: Env, campaign_id: u64) -> i128 {
+        Self::load_campaign(&env, campaign_id);
+        let target_kg: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Co2Target(campaign_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::Co2TargetNotSet));
+        if target_kg <= 0 {
+            panic_with_error!(&env, Error::Co2TargetNotSet);
+        }
+        let actual_kg: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Co2Actual(campaign_id))
+            .unwrap_or(0);
+        let already: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Co2BonusCredits(campaign_id))
+            .unwrap_or(0);
+        if already > 0 {
+            panic_with_error!(&env, Error::BonusAlreadyAwarded);
+        }
+
+        let lhs = actual_kg
+            .checked_mul(10_000)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        let rhs = target_kg
+            .checked_mul(CO2_EXCEED_THRESHOLD_BPS as i128)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        if lhs < rhs {
+            return 0;
+        }
+
+        let bonus_credits = actual_kg
+            .checked_mul(CO2_BONUS_CREDIT_BPS as i128)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow))
+            / 10_000;
+        env.storage()
+            .persistent()
+            .set(&DataKey::Co2BonusCredits(campaign_id), &bonus_credits);
+        env.storage().persistent().extend_ttl(
+            &DataKey::Co2BonusCredits(campaign_id),
+            LEDGER_THRESHOLD,
+            LEDGER_BUMP,
+        );
+        env.events().publish(
+            ("Co2PerformanceBonus", campaign_id),
+            Co2PerformanceBonusEvent {
+                campaign_id,
+                actual_kg,
+                target_kg,
+                bonus_credits,
+            },
+        );
+        bonus_credits
+    }
+
+    /// Return the campaign's CO2 target, realized kilograms, and bonus credits.
+    pub fn get_co2_performance(env: Env, campaign_id: u64) -> Co2Performance {
+        Self::load_campaign(&env, campaign_id);
+        let target_kg: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Co2Target(campaign_id))
+            .unwrap_or(0);
+        let actual_kg: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Co2Actual(campaign_id))
+            .unwrap_or(0);
+        let bonus_credits: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Co2BonusCredits(campaign_id))
+            .unwrap_or(0);
+        let exceeds_by_20_percent = target_kg > 0
+            && actual_kg
+                .checked_mul(10_000)
+                .unwrap_or(0)
+                >= target_kg
+                    .checked_mul(CO2_EXCEED_THRESHOLD_BPS as i128)
+                    .unwrap_or(i128::MAX);
+        Co2Performance {
+            target_kg,
+            actual_kg,
+            bonus_credits,
+            exceeds_by_20_percent,
+        }
+    }
+
+    /// Record a planter's tree survival rate in basis points (10_000 = 100%).
+    pub fn record_planter_survival_rate(
+        env: Env,
+        campaign_id: u64,
+        planter: Address,
+        survival_bps: u32,
+    ) {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+        if survival_bps > 10_000 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let key = DataKey::PlanterSurvivalBps(campaign_id, planter);
+        env.storage().persistent().set(&key, &survival_bps);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    /// Award a 10% performance bonus when planter survival is at least 90%.
+    pub fn award_planter_performance_bonus(
+        env: Env,
+        campaign_id: u64,
+        planter: Address,
+    ) -> u32 {
+        Self::load_campaign(&env, campaign_id);
+        let survival_key = DataKey::PlanterSurvivalBps(campaign_id, planter.clone());
+        let survival_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&survival_key)
+            .unwrap_or(0);
+        if survival_bps < EXCEPTIONAL_SURVIVAL_BPS {
+            panic_with_error!(&env, Error::SurvivalBelowThreshold);
+        }
+        let bonus_key = DataKey::PlanterBonusBps(campaign_id, planter.clone());
+        let already: u32 = env.storage().persistent().get(&bonus_key).unwrap_or(0);
+        if already > 0 {
+            panic_with_error!(&env, Error::BonusAlreadyAwarded);
+        }
+        env.storage()
+            .persistent()
+            .set(&bonus_key, &PLANTER_PERFORMANCE_BONUS_BPS);
+        env.storage()
+            .persistent()
+            .extend_ttl(&bonus_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.events().publish(
+            ("PlanterPerformanceBonus", campaign_id),
+            PlanterPerformanceBonusEvent {
+                campaign_id,
+                planter: planter.clone(),
+                survival_bps,
+                bonus_bps: PLANTER_PERFORMANCE_BONUS_BPS,
+            },
+        );
+        PLANTER_PERFORMANCE_BONUS_BPS
+    }
+
+    /// Return a planter's recorded survival rate and any awarded bonus.
+    pub fn get_planter_performance(
+        env: Env,
+        campaign_id: u64,
+        planter: Address,
+    ) -> PlanterPerformance {
+        Self::load_campaign(&env, campaign_id);
+        let survival_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlanterSurvivalBps(campaign_id, planter.clone()))
+            .unwrap_or(0);
+        let bonus_bps: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PlanterBonusBps(campaign_id, planter.clone()))
+            .unwrap_or(0);
+        PlanterPerformance {
+            planter,
+            survival_bps,
+            bonus_bps,
+            exceptional: survival_bps >= EXCEPTIONAL_SURVIVAL_BPS,
+        }
     }
 
     // -----------------------------------------------------------------------
