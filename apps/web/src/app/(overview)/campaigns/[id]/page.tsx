@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CampaignSponsorWall } from "@/components/modules/campaign/sponsor-wall/CampaignSponsorWall";
+import { SponsorHallOfFame } from "@/components/modules/campaign/hall-of-fame/SponsorHallOfFame";
 import { CampaignCollaboration } from "@/components/modules/campaign/collaboration/CampaignCollaboration";
 import { CampaignMilestones } from "@/components/modules/campaign/CampaignMilestones";
 import { CampaignQAModeration } from "@/components/modules/campaign/qa/CampaignQAModeration";
@@ -369,8 +370,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           </div>
         </TabsContent>
 
-        {/* Tab 2: Sponsor Wall (#724) */}
-        <TabsContent value="sponsors">
+        {/* Tab 2: Sponsor Wall (#724) + Hall of Fame (#972) */}
+        <TabsContent value="sponsors" className="space-y-6">
+          <SponsorHallOfFame
+            campaignId={campaign.id}
+            campaignTitle={campaign.title}
+            raisedAmount={campaign.raisedAmount}
+            treeCount={Number.parseInt(campaign.treesPlanted.replace(/,/g, ""), 10)}
+          />
           <CampaignSponsorWall campaignId={campaign.id} campaignTitle={campaign.title} />
         </TabsContent>
 
