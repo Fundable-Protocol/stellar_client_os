@@ -1,11 +1,12 @@
 import { recordCampaignContribution } from "@/services/campaign.service";
 import { WebhookService } from "@/services/webhook.service";
+import { withCampaignApiRateLimit } from "@/middlewares/rate-limit.middleware";
 
 export const runtime = "nodejs";
 
 const webhookService = new WebhookService();
 
-export async function POST(
+async function postContribution(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -55,3 +56,5 @@ async function dispatchMilestoneWebhooks(
     }
   }
 }
+
+export const POST = withCampaignApiRateLimit(postContribution);

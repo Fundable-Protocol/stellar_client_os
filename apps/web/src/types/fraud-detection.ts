@@ -7,7 +7,11 @@ export type FraudPatternType =
   | 'DUPLICATE_ACCOUNTS'
   | 'MONEY_LAUNDERING'
   | 'RAPID_CIRCULAR_TRANSACTIONS'
-  | 'IP_CLUSTERING';
+  | 'IP_CLUSTERING'
+  | 'UNREALISTIC_TREE_COUNT'
+  | 'VERIFICATION_ANOMALY'
+  | 'BOT_SPONSOR'
+  | 'LOCATION_MISMATCH';
 
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -52,6 +56,10 @@ export interface AnalyzeCampaignInput {
     amount: number;
     timestamp: number;
   }[];
+  campaignSnapshot?: { treeCount?: number; goalAmount?: number; raisedAmount?: number; location?: string; createdAt?: string; deadline?: string };
+  plantingBatches?: Array<{ treeCount: number; plantedAt: string; verifiedAt?: string; planterAddress?: string; verifierAddress?: string; evidenceHash?: string; latitude?: number; longitude?: number }>;
+  verificationEvents?: Array<{ planterAddress?: string; verifierAddress?: string; submittedAt: string; verifiedAt?: string; evidenceHash?: string }>;
+  submittedLocation?: { latitude: number; longitude: number };
 }
 
 export interface CampaignSecurityStatus {

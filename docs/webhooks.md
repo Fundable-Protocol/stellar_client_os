@@ -112,6 +112,10 @@ If a subscriber's endpoint fails to acknowledge the webhook payload (returns a n
 | `stream.status_updated` | A payment stream changed status | `streamId`, `status` |
 | `milestone.funds_released` | Funds were released at a stream/payout milestone | `campaignId`, `percentage` |
 | `campaign.milestone_reached` | A campaign crossed a funding milestone (25/50/75/100% of goal) | `eventId` (`"{campaignId}:{percentage}"`), `campaignId`, `campaignName`, `percentage`, `raisedAmount`, `goalAmount` |
+| `tree_verified` | An individual tree verification was accepted | `eventId`, `campaignId`, `treeId`, `verifierId`, `verifiedAt`, `latitude`, `longitude` |
+| `batch_verified` | A batch of 10 or more trees was verified | `eventId`, `campaignId`, `treeIds`, `treeCount`, `verifiedAt` |
+| `campaign_milestone_reached` | A campaign impact milestone was reached | `eventId`, `campaignId`, `milestone`, `treeCount`, `co2Sequestration` |
+| `campaign_completed` | All campaign verification requirements completed | `eventId`, `campaignId`, `completedAt`, `treeCount`, `co2Sequestration` |
 
 `campaign.milestone_reached` fires once per milestone crossed by a contribution
 (e.g. a contribution that crosses both 50% and 75% emits two events). The

@@ -208,6 +208,9 @@ export class StellarService {
           {
             type: 'contract',
             contractIds: [this.paymentStreamContractId],
+            topics: [
+              [xdr.ScVal.scvSymbol('stream_created').toXDR('base64'), '*'],
+            ],
           },
         ],
         limit: 1000,

@@ -43,4 +43,29 @@ describe("PersonalizedCampaignRecommendationService", () => {
     await expect(service.getRecommendations(" ")).rejects.toThrow("User address is required");
     await expect(service.getRecommendations("GALICE", { limit: 1 })).resolves.toMatchObject({ data: [{ id: "1" }] });
   });
+
+  it("ranks campaigns using species, geography, and environmental-cause preferences", async () => {
+    const service = new PersonalizedCampaignRecommendationService(source([
+      campaign({ id: "mangrove", species: ["mangrove"], location: "Lagos, Nigeria", environmentalCauses: ["coastal restoration"] }),
+      campaign({ id: "forest", species: ["teak"], location: "Nairobi, Kenya", environmentalCauses: ["reforestation"] }),
+    ]));
+
+    const result = await service.getRecommendations("GNEW", {
+      species: ["mangrove"],
+      geographicInterests: ["lagos"],
+      environmentalCauses: ["coastal restoration"],
+    });
+
+    expect(result.data[0]?.id).toBe("mangrove");
+    expect(result.data[0]?.components).toMatchObject({
+      speciesPreference: 1,
+      geographicInterest: 1,
+      environmentalCause: 1,
+    });
+    expect(result.data[0]?.reasons).toEqual(expect.arrayContaining([
+      "Matches your preferred tree species",
+      "Matches your geographic interests",
+      "Aligns with your environmental causes",
+    ]));
+  });
 });

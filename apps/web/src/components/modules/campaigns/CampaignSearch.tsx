@@ -16,7 +16,7 @@ import {
   ChevronRight,
   Sparkles,
 } from "lucide-react";
-import { CampaignData, CampaignFilterOptions, CampaignStatus, TreeType } from "@/types/campaign";
+import { CampaignData, CampaignFilterOptions, CampaignStatus, TreeType, Region } from "@/types/campaign";
 
 // Sample initial campaign records for demonstration & discovery
 const INITIAL_CAMPAIGNS: CampaignData[] = [
@@ -37,6 +37,7 @@ const INITIAL_CAMPAIGNS: CampaignData[] = [
     createdAt: Date.now() / 1000 - 86400 * 10,
     deadline: Date.now() / 1000 + 86400 * 20,
     location: "Brazil / Peru Basin",
+    region: "South America",
   },
   {
     id: "2",
@@ -55,6 +56,7 @@ const INITIAL_CAMPAIGNS: CampaignData[] = [
     createdAt: Date.now() / 1000 - 86400 * 15,
     deadline: Date.now() / 1000 + 86400 * 15,
     location: "Kenya & Ethiopia border",
+    region: "Africa",
   },
   {
     id: "3",
@@ -73,6 +75,7 @@ const INITIAL_CAMPAIGNS: CampaignData[] = [
     createdAt: Date.now() / 1000 - 86400 * 30,
     deadline: Date.now() / 1000 - 86400 * 2,
     location: "Southeast Asia Coastal Region",
+    region: "Asia",
   },
   {
     id: "4",
@@ -91,6 +94,7 @@ const INITIAL_CAMPAIGNS: CampaignData[] = [
     createdAt: Date.now() / 1000 - 86400 * 45,
     deadline: Date.now() / 1000 - 86400 * 5,
     location: "European Alpine Ridge",
+    region: "Europe",
   },
   {
     id: "5",
@@ -109,6 +113,7 @@ const INITIAL_CAMPAIGNS: CampaignData[] = [
     createdAt: Date.now() / 1000 - 86400 * 60,
     deadline: Date.now() / 1000 - 86400 * 12,
     location: "Central America",
+    region: "North America",
   },
   {
     id: "6",
@@ -127,6 +132,7 @@ const INITIAL_CAMPAIGNS: CampaignData[] = [
     createdAt: Date.now() / 1000 - 86400 * 5,
     deadline: Date.now() / 1000 + 86400 * 25,
     location: "Madagascar",
+    region: "Africa",
   },
 ];
 
@@ -140,6 +146,17 @@ const TREE_TYPES: TreeType[] = [
   "Baobab",
   "Redwood",
   "Birch",
+  "General Fund",
+];
+
+const REGIONS: Region[] = [
+  "North America",
+  "South America",
+  "Europe",
+  "Africa",
+  "Asia",
+  "Oceania",
+  "Global",
 ];
 
 const STATUS_LIST: (CampaignStatus | "All")[] = [
@@ -156,6 +173,7 @@ export const CampaignSearch: React.FC = () => {
     searchQuery: "",
     status: "All",
     treeType: "All",
+    region: "All",
     progressRange: "All",
     sortBy: "trending",
   });
@@ -169,7 +187,8 @@ export const CampaignSearch: React.FC = () => {
         const matchesDesc = campaign.description.toLowerCase().includes(query);
         const matchesCreator = campaign.creator.toLowerCase().includes(query);
         const matchesTree = campaign.treeType.toLowerCase().includes(query);
-        if (!matchesTitle && !matchesDesc && !matchesCreator && !matchesTree) {
+        const matchesRegion = campaign.region?.toLowerCase().includes(query) ?? false;
+        if (!matchesTitle && !matchesDesc && !matchesCreator && !matchesTree && !matchesRegion) {
           return false;
         }
       }
@@ -181,6 +200,11 @@ export const CampaignSearch: React.FC = () => {
 
       // 3. Tree type filter
       if (filters.treeType !== "All" && campaign.treeType !== filters.treeType) {
+        return false;
+      }
+
+      // Region filter
+      if (filters.region !== "All" && campaign.region !== filters.region) {
         return false;
       }
 
@@ -229,6 +253,7 @@ export const CampaignSearch: React.FC = () => {
       searchQuery: "",
       status: "All",
       treeType: "All",
+      region: "All",
       progressRange: "All",
       sortBy: "trending",
     });
@@ -294,11 +319,11 @@ export const CampaignSearch: React.FC = () => {
       <div className="rounded-2xl bg-slate-900/80 border border-zinc-800 p-4 sm:p-6 backdrop-blur-md space-y-4 shadow-lg">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
           {/* Search Input */}
-          <div className="relative md:col-span-6">
+          <div className="relative md:col-span-12 lg:col-span-3">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-zinc-400" />
             <input
               type="text"
-              placeholder="Search by campaign title, creator, or keyword..."
+              placeholder="Search campaigns..."
               value={filters.searchQuery}
               onChange={(e) =>
                 setFilters((prev) => ({ ...prev, searchQuery: e.target.value }))
@@ -316,7 +341,7 @@ export const CampaignSearch: React.FC = () => {
           </div>
 
           {/* Tree Type Select Filter */}
-          <div className="md:col-span-3">
+          <div className="md:col-span-4 lg:col-span-3">
             <select
               value={filters.treeType}
               onChange={(e) =>
@@ -336,8 +361,29 @@ export const CampaignSearch: React.FC = () => {
             </select>
           </div>
 
+          {/* Region Select Filter */}
+          <div className="md:col-span-4 lg:col-span-3">
+            <select
+              value={filters.region}
+              onChange={(e) =>
+                setFilters((prev) => ({
+                  ...prev,
+                  region: e.target.value as Region | "All",
+                }))
+              }
+              className="w-full px-3 py-2.5 rounded-xl bg-zinc-950/80 border border-zinc-700/60 text-zinc-200 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+            >
+              <option value="All">🌍 All Regions</option>
+              {REGIONS.map((region) => (
+                <option key={region} value={region}>
+                  {region}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Progress Range Filter */}
-          <div className="md:col-span-3">
+          <div className="md:col-span-4 lg:col-span-3">
             <select
               value={filters.progressRange}
               onChange={(e) =>
@@ -402,6 +448,7 @@ export const CampaignSearch: React.FC = () => {
             {(filters.searchQuery ||
               filters.status !== "All" ||
               filters.treeType !== "All" ||
+              filters.region !== "All" ||
               filters.progressRange !== "All") && (
               <button
                 onClick={resetFilters}
@@ -454,7 +501,7 @@ export const CampaignSearch: React.FC = () => {
                   <div className="flex items-center justify-between">
                     {getStatusBadge(campaign.status)}
                     <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20">
-                      🌲 {campaign.treeType}
+                      {campaign.treeType === "General Fund" ? "💼 General Fund" : `🌲 ${campaign.treeType}`}
                     </span>
                   </div>
 
@@ -469,12 +516,14 @@ export const CampaignSearch: React.FC = () => {
                   </div>
 
                   {/* Trees Planted Badge */}
-                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-xs">
-                    <span className="text-zinc-400">Trees Impact:</span>
-                    <span className="font-bold text-zinc-200">
-                      {campaign.treesPlanted.toLocaleString()} / {campaign.targetTrees.toLocaleString()} Trees
-                    </span>
-                  </div>
+                  {campaign.treeType !== "General Fund" && (
+                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-950/60 border border-zinc-800/80 text-xs">
+                      <span className="text-zinc-400">Trees Impact:</span>
+                      <span className="font-bold text-zinc-200">
+                        {campaign.treesPlanted.toLocaleString()} / {campaign.targetTrees.toLocaleString()} Trees
+                      </span>
+                    </div>
+                  )}
 
                   {/* Progress Bar */}
                   <div className="space-y-1.5">

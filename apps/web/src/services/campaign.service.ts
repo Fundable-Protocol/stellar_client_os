@@ -1,10 +1,12 @@
 import { MILESTONE_PERCENTAGES } from "../lib/campaign-milestones";
+import type { VerificationAuditEntry, VerificationEvidence } from "@/types/campaign-verification";
 import { EmailService, type SendEmailOptions } from "./email.service";
 import {
   buildCampaignNotificationDispatch,
   type CampaignNotificationPreference,
   type CampaignPushNotifier,
 } from "./campaign-notification.service";
+import { pushNotificationService } from "./push-notification.service";
 
 export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
 
@@ -27,6 +29,15 @@ export interface SponsorRecord {
   amount: string;
   token: string;
   sponsoredAt: number;
+}
+
+export interface CampaignNonprofitPartner {
+  legalName: string;
+  registrationNumber: string;
+  country: string;
+  verificationStatus: "PENDING" | "VERIFIED" | "REJECTED";
+  verifiedAt?: number;
+  verifiedBy?: string;
 }
 
 export type CarbonCertificateStatus = "issued" | "listed" | "transferred" | "retired";
@@ -140,6 +151,11 @@ export interface CampaignRecord {
   raisedAmount: string;
   sponsorCount: number;
   treeCount: number;
+  treeSpecies?: string;
+  gpsLocations?: Array<{ latitude: number; longitude: number; capturedAt?: number }>;
+  co2Sequestration?: string;
+  verificationEvidence?: VerificationEvidence[];
+  verificationAuditTrail?: VerificationAuditEntry[];
   /** Tradeable CO2 offset certificates issued to sponsors. */
   carbonCertificates?: CampaignCarbonCertificate[];
   createdAt: number;
@@ -147,6 +163,8 @@ export interface CampaignRecord {
   statusChangedAt: number;
   network?: "testnet" | "mainnet";
   sponsors: SponsorRecord[];
+  /** Partner details are eligible for certificates only after independent verification. */
+  nonprofitPartner?: CampaignNonprofitPartner;
   statusHistory: StatusHistoryEntry[];
   creatorVerification?: CampaignVerificationSummary;
   verification?: CampaignVerificationSummary;
@@ -178,6 +196,7 @@ export interface CampaignRecord {
   milestonesNotified?: number[];
   /** Per-campaign sponsor/creator notification preferences (issue #1018). */
   notificationPreferences?: CampaignNotificationPreference[];
+  impactAchieved?: boolean;
 }
 
 export interface CampaignCreatorBadge {
@@ -232,6 +251,15 @@ export class InMemoryCampaignDataSource implements CampaignDataSource {
   }
 
   async saveCampaign(campaign: CampaignRecord): Promise<CampaignRecord> {
+    const existing = this.campaigns.get(campaign.id);
+    if (existing && campaign.sponsorCount > 0) {
+      if ((existing.treeCount ?? 0) < (campaign.treeCount ?? 0)) {
+        pushNotificationService.notifyMilestone(campaign.id, campaign.name, "trees planted", campaign.creator).catch(() => {});
+      }
+      if (!existing.impactAchieved && campaign.impactAchieved) {
+        pushNotificationService.notifyMilestone(campaign.id, campaign.name, "impact achieved", campaign.creator).catch(() => {});
+      }
+    }
     this.campaigns.set(campaign.id, campaign);
     return campaign;
   }
@@ -452,16 +480,67 @@ function parseContributionAmount(amount: string): bigint {
   return BigInt(amount.trim());
 }
 
-function milestoneEmailHtml(campaignName: string, percentage: number): string {
+export interface MilestoneEmailImpactMetrics {
+  treeCount: number;
+  co2OffsetKg: number;
+  sponsorCount: number;
+  raisedAmount: string;
+  goalAmount: string;
+  location?: string;
+}
+
+/**
+ * Builds the HTML body for a milestone notification email.
+ * When `metrics` is supplied the email includes an impact summary card showing
+ * trees planted, estimated CO2 sequestered, number of sponsors, and the
+ * current raised/goal amounts. (#983)
+ */
+export function milestoneEmailHtml(
+  campaignName: string,
+  percentage: number,
+  metrics?: MilestoneEmailImpactMetrics,
+): string {
   const headline =
     percentage === 100
       ? `Your campaign is fully funded!`
       : `Your campaign has reached ${percentage}% of its funding goal.`;
+
+  const impactBlock = metrics
+    ? [
+        `<table style="width:100%;border-collapse:collapse;margin:16px 0;background:#f6f4fb;border-radius:8px;">`,
+        `  <tr>`,
+        `    <td style="padding:12px 16px;border-right:1px solid #d9d4ee;">`,
+        `      <div style="font-size:11px;color:#6b6b80;text-transform:uppercase;letter-spacing:.05em;">Trees planted</div>`,
+        `      <div style="font-size:22px;font-weight:700;color:#4f2d99;">${metrics.treeCount.toLocaleString()}</div>`,
+        `    </td>`,
+        `    <td style="padding:12px 16px;border-right:1px solid #d9d4ee;">`,
+        `      <div style="font-size:11px;color:#6b6b80;text-transform:uppercase;letter-spacing:.05em;">CO&#8322; sequestered / yr</div>`,
+        `      <div style="font-size:22px;font-weight:700;color:#1a7248;">${metrics.co2OffsetKg.toFixed(1)} kg</div>`,
+        `    </td>`,
+        `    <td style="padding:12px 16px;border-right:1px solid #d9d4ee;">`,
+        `      <div style="font-size:11px;color:#6b6b80;text-transform:uppercase;letter-spacing:.05em;">Sponsors</div>`,
+        `      <div style="font-size:22px;font-weight:700;color:#4f2d99;">${metrics.sponsorCount.toLocaleString()}</div>`,
+        `    </td>`,
+        `    <td style="padding:12px 16px;">`,
+        `      <div style="font-size:11px;color:#6b6b80;text-transform:uppercase;letter-spacing:.05em;">Raised / Goal</div>`,
+        `      <div style="font-size:14px;font-weight:700;color:#1a1a28;">${metrics.raisedAmount} / ${metrics.goalAmount}</div>`,
+        `    </td>`,
+        `  </tr>`,
+        `</table>`,
+        metrics.location
+          ? `<p style="font-size:12px;color:#6b6b80;">&#128205; ${metrics.location}</p>`
+          : "",
+      ].join("\n")
+    : "";
+
   return [
-    `<h2>${campaignName}</h2>`,
-    `<p>${headline}</p>`,
-    `<p><a href="/campaigns">View your campaign</a></p>`,
-    `<p>— Fundable Protocol</p>`,
+    `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;">`,
+    `  <h2 style="color:#4f2d99;">${campaignName}</h2>`,
+    `  <p style="font-size:16px;">${headline}</p>`,
+    impactBlock,
+    `  <p><a href="/campaigns" style="color:#4f2d99;">View your campaign</a></p>`,
+    `  <p style="color:#6b6b80;font-size:12px;">— Fundable Protocol</p>`,
+    `</div>`,
   ].join("\n");
 }
 
@@ -501,11 +580,23 @@ export async function recordCampaignContribution(
   const newlyReached = reached.filter((percentage) => !notified.includes(percentage));
 
   if (newlyReached.length > 0 && campaign.creatorEmail && !campaign.notificationPreferences?.length) {
+  if (newlyReached.length > 0 && campaign.creatorEmail) {
+    // Build impact metrics to include in every milestone email (#983).
+    // CO2 estimate: use a conservative average of 20 kg CO2/tree/year.
+    const CO2_KG_PER_TREE_PER_YEAR = 20;
+    const impactMetrics: MilestoneEmailImpactMetrics = {
+      treeCount: campaign.treeCount,
+      co2OffsetKg: campaign.treeCount * CO2_KG_PER_TREE_PER_YEAR,
+      sponsorCount: campaign.sponsorCount,
+      raisedAmount: newRaised.toString(),
+      goalAmount: campaign.goalAmount,
+      location: campaign.location,
+    };
     for (const percentage of newlyReached) {
       await emailService.sendEmail({
         to: campaign.creatorEmail,
         subject: `${campaign.name} reached ${percentage}% of its goal`,
-        html: milestoneEmailHtml(campaign.name, percentage),
+        html: milestoneEmailHtml(campaign.name, percentage, impactMetrics),
       });
     }
   }
@@ -538,11 +629,14 @@ export async function createCampaign(input: {
   creatorEmail?: string;
   name: string;
   description?: string;
+  language?: string;
+  translations?: Record<string, string>;
   location?: string;
   durationMs?: number;
   deadline?: number;
   goalAmount: string;
   network?: "testnet" | "mainnet";
+  nonprofitPartner?: Omit<CampaignNonprofitPartner, "verificationStatus" | "verifiedAt" | "verifiedBy">;
 }, dataSource = getCampaignDataSource(), now = Date.now()): Promise<CampaignRecord> {
   const campaign: CampaignRecord = {
     id: input.id ?? crypto.randomUUID(),
@@ -550,8 +644,8 @@ export async function createCampaign(input: {
     creatorEmail: input.creatorEmail,
     name: input.name,
     description: input.description,
-    language: detectCampaignLanguage(input.description),
-    translations: {},
+    language: input.language ?? detectCampaignLanguage(input.description),
+    translations: input.translations ?? {},
     location: input.location,
     durationMs: input.deadline !== undefined ? input.deadline - now : input.durationMs,
     status: "DRAFT",
@@ -564,6 +658,9 @@ export async function createCampaign(input: {
     statusChangedAt: now,
     network: input.network,
     sponsors: [],
+    nonprofitPartner: input.nonprofitPartner
+      ? { ...input.nonprofitPartner, verificationStatus: "PENDING" }
+      : undefined,
     milestonesNotified: [],
     statusHistory: [{
       id: `${input.id ?? "campaign"}:${now}:0`,
@@ -578,6 +675,27 @@ export async function createCampaign(input: {
   campaign.statusHistory[0].campaignId = campaign.id;
   campaign.statusHistory[0].id = `${campaign.id}:${now}:0`;
   return dataSource.saveCampaign(campaign);
+}
+
+export async function reviewCampaignNonprofitPartner(
+  campaignId: string,
+  verificationStatus: "VERIFIED" | "REJECTED",
+  reviewer: string,
+  dataSource: CampaignDataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignRecord | null> {
+  if (!reviewer.trim()) throw new Error("reviewer is required");
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) return null;
+  if (!campaign.nonprofitPartner) throw new Error("Campaign has no nonprofit partner");
+
+  const partner = {
+    ...campaign.nonprofitPartner,
+    verificationStatus,
+    verifiedAt: verificationStatus === "VERIFIED" ? now : undefined,
+    verifiedBy: verificationStatus === "VERIFIED" ? reviewer.trim() : undefined,
+  };
+  return dataSource.saveCampaign({ ...campaign, nonprofitPartner: partner, updatedAt: now });
 }
 
 /**
@@ -727,6 +845,15 @@ export async function transitionCampaignStatus(
       reason,
     }],
   };
+
+  if (campaign.sponsorCount > 0) {
+    if (campaign.status === "PENDING_VERIFICATION" && toStatus === "ACTIVE") {
+      pushNotificationService.notifyMilestone(campaign.id, campaign.name, "verification complete", campaign.creator).catch(() => {});
+    } else if (toStatus === "COMPLETED") {
+      pushNotificationService.notifyMilestone(campaign.id, campaign.name, "campaign finished", campaign.creator).catch(() => {});
+    }
+  }
+
   return dataSource.saveCampaign(next);
 }
 
@@ -778,18 +905,37 @@ export function sponsorsToCsv(campaign: CampaignRecord): string {
 
 export function impactReportToCsv(campaign: CampaignRecord): string {
   const rows = [
-    ["campaign_id", "campaign_name", "status", "goal_amount", "raised_amount", "sponsor_count", "tree_count", "created_at", "updated_at"],
-    [campaign.id, campaign.name, campaign.status, campaign.goalAmount, campaign.raisedAmount, campaign.sponsorCount, campaign.treeCount, new Date(campaign.createdAt).toISOString(), new Date(campaign.updatedAt).toISOString()],
+    ["campaign_id", "campaign_name", "status", "goal_amount", "raised_amount", "sponsor_count", "tree_count", "tree_species", "co2_sequestration", "gps_locations", "created_at", "updated_at"],
+    [campaign.id, campaign.name, campaign.status, campaign.goalAmount, campaign.raisedAmount, campaign.sponsorCount, campaign.treeCount, campaign.treeSpecies ?? "", campaign.co2Sequestration ?? "", JSON.stringify(campaign.gpsLocations ?? []), new Date(campaign.createdAt).toISOString(), new Date(campaign.updatedAt).toISOString()],
   ];
   return rows.map((row) => row.map(csvEscape).join(",")).join("\n") + "\n";
 }
-
-export async function exportCampaignCsv(campaignId: string, report: "sponsors" | "impact", dataSource = getCampaignDataSource()): Promise<string | null> {
+export function timelineToCsv(campaign: CampaignRecord): string {
+  const rows = [["event_id", "from_status", "to_status", "changed_by", "changed_at", "reason"], ...(campaign.statusHistory ?? []).map((entry) => [entry.id, entry.fromStatus ?? "", entry.toStatus, entry.changedBy, new Date(entry.changedAt).toISOString(), entry.reason ?? ""])];
+  return rows.map((row) => row.map(csvEscape).join(",")).join("\n") + "\n";
+}
+export function campaignExportJson(campaign: CampaignRecord): Record<string, unknown> {
+  return {
+    campaign: { id: campaign.id, name: campaign.name, creator: campaign.creator, status: campaign.status, goalAmount: campaign.goalAmount, raisedAmount: campaign.raisedAmount, treeCount: campaign.treeCount, treeSpecies: campaign.treeSpecies ?? null, co2Sequestration: campaign.co2Sequestration ?? null, gpsLocations: campaign.gpsLocations ?? [] },
+    sponsors: campaign.sponsors ?? [],
+    timeline: campaign.statusHistory ?? [],
+    verificationAuditTrail: campaign.verificationAuditTrail ?? [],
+    verificationEvidence: campaign.verificationEvidence ?? [],
+    exportedAt: new Date().toISOString(),
+  };
+}
+export async function exportCampaignCsv(campaignId: string, report: "sponsors" | "impact" | "timeline" | "full", dataSource = getCampaignDataSource()): Promise<string | null> {
   const campaign = await getCampaign(campaignId, dataSource);
   if (!campaign) return null;
-  return report === "sponsors" ? sponsorsToCsv(campaign) : impactReportToCsv(campaign);
+  if (report === "sponsors") return sponsorsToCsv(campaign);
+  if (report === "timeline") return timelineToCsv(campaign);
+  if (report === "full") return [impactReportToCsv(campaign), sponsorsToCsv(campaign), timelineToCsv(campaign)].join("\n");
+  return impactReportToCsv(campaign);
 }
-
+export async function exportCampaignJson(campaignId: string, dataSource = getCampaignDataSource()): Promise<Record<string, unknown> | null> {
+  const campaign = await getCampaign(campaignId, dataSource);
+  return campaign ? campaignExportJson(campaign) : null;
+}
 export function calculateCampaignCarbonCredits(campaign: Partial<CampaignRecord> = {}): bigint {
   return BigInt(campaign.treeCount ?? 0);
 }

@@ -16,6 +16,17 @@ export interface CreatorInterview {
   avatarUrl?: string;
 }
 
+export interface ImpactMetric {
+  label: string;
+  value: string;
+}
+
+export interface BeforeAfterPhotos {
+  beforeUrl: string;
+  afterUrl: string;
+  caption?: string;
+}
+
 export interface SuccessStory {
   id: string;
   campaignId: string;
@@ -31,6 +42,8 @@ export interface SuccessStory {
   coverImageUrl?: string;
   creatorInterview: CreatorInterview;
   backerTestimonials: BackerTestimonial[];
+  impactMetrics: ImpactMetric[];
+  beforeAfterPhotos?: BeforeAfterPhotos;
 }
 
 const API_BASE = '/api/campaigns';

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { WebhookService } from "@/services/webhook.service";
 
-const VALID_EVENTS = ["stream.status_updated", "milestone.funds_released", "campaign.milestone_reached", "*"];
+const VALID_EVENTS = ["stream.status_updated", "milestone.funds_released", "campaign.milestone_reached", "tree_verified", "batch_verified", "campaign_milestone_reached", "campaign_completed", "*"];
 
 const CreateSubscriptionSchema = z.object({
   url: z.string().url("Invalid URL format"),

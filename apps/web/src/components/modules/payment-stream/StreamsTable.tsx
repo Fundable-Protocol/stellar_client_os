@@ -48,7 +48,7 @@ function StreamsTable({
 }: StreamsTableProps) {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const pageCount = Math.ceil(totalCount / limit);
+    const pageCount = Math.max(1, Math.ceil(totalCount / limit));
     const [sorting, setSorting] = useState<SortingState>([]);
     const [globalFilter, setGlobalFilter] = useState<string>("");
 

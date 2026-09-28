@@ -16,10 +16,13 @@ import {
   Globe,
   AlertTriangle,
   Crown,
+  Eye,
+  TreePine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { CampaignARVisualizer } from "@/components/modules/campaign/ar/CampaignARVisualizer";
 import { CampaignSponsorWall } from "@/components/modules/campaign/sponsor-wall/CampaignSponsorWall";
 import { CampaignCollaboration } from "@/components/modules/campaign/collaboration/CampaignCollaboration";
 import { CampaignMilestones } from "@/components/modules/campaign/CampaignMilestones";
@@ -30,6 +33,7 @@ import { BackerCommunity } from "@/components/modules/campaign/community/BackerC
 import { TopBackers } from "@/components/modules/campaign/backers/TopBackers";
 import { TOP_BACKERS_LIMIT } from "@/types/campaign-backers";
 import { CampaignFundingVelocityChart } from "@/components/modules/campaign/FundingVelocityChart";
+import { VerificationMediaGallery, type VerificationMediaItem } from "@/components/modules/campaign/VerificationMediaGallery";
 
 const translations = {
   es: {
@@ -67,6 +71,40 @@ const languageNames: Record<string, string> = {
 
 type TranslationKey = keyof typeof translations;
 
+const verificationMedia: VerificationMediaItem[] = [
+  {
+    id: "field-photo-north-canopy",
+    type: "photo",
+    src: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1280&q=80",
+    alt: "Dense rainforest canopy at the restoration site",
+    caption: "North canopy boundary",
+    capturedAt: "2026-09-14T09:42:00Z",
+    coordinates: { latitude: -3.4653, longitude: -62.2159 },
+    verifier: { name: "Rafael Nascimento", credential: "Field verifier · VF-208" },
+  },
+  {
+    id: "field-video-restoration-walk",
+    type: "video",
+    src: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    poster: "https://images.unsplash.com/photo-1511497584788-876760111969?auto=format&fit=crop&w=1280&q=80",
+    alt: "Flower documented during a native plant survey",
+    caption: "Native species survey",
+    capturedAt: "2026-09-14T10:18:00Z",
+    coordinates: { latitude: -3.4718, longitude: -62.2084 },
+    verifier: { name: "Luzia Mendes", credential: "Field verifier · VF-317" },
+  },
+  {
+    id: "field-photo-river-corridor",
+    type: "photo",
+    src: "https://images.unsplash.com/photo-1511497584788-876760111969?auto=format&fit=crop&w=1280&q=80",
+    alt: "Aerial view of protected forest along the river corridor",
+    caption: "River corridor survey",
+    capturedAt: "2026-09-12T15:06:00Z",
+    coordinates: { latitude: -3.4821, longitude: -62.1976 },
+    verifier: { name: "Rafael Nascimento", credential: "Field verifier · VF-208" },
+  },
+];
+
 const detectLanguage = (text: string): string => {
   if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(text)) return "zh";
   if (/[\u3040-\u30ff]/.test(text)) return "ja";
@@ -81,6 +119,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const [activeTab, setActiveTab] = useState("overview");
   const [showInsuranceModal, setShowInsuranceModal] = useState(false);
   const [claimSubmitted, setClaimSubmitted] = useState(false);
+  const [showARModal, setShowARModal] = useState(false);
 
   // Mock campaign record data
   const campaign = {
@@ -99,6 +138,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     impactStatement: "Permanently offset 150 metric tons of CO2 while securing habitat for 200+ endangered species.",
     beneficiaries: "5,000 local indigenous community members",
     co2OffsetTons: "150",
+    treeType: "Oak",
+    location: "Amazon Basin, Brazil",
     successStory: {
       headline: "From Rainforest Pledge to On-the-Ground Impact",
       creatorInterview: "Every XLM stream is tied to verifiable patrol hours and backers receive monthly GPS updates. The team shipped on every promise.",
@@ -143,6 +184,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         </Link>
 
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-emerald-600/40 text-emerald-300 hover:bg-emerald-950/40 text-xs"
+            onClick={() => setShowARModal(true)}
+          >
+            <Eye className="mr-1.5 h-3.5 w-3.5" /> Visualize in AR
+          </Button>
           <Link href="/campaigns/create">
             <Button size="sm" variant="outline" className="border-purple-600/40 text-purple-300 hover:bg-purple-950/40 text-xs">
               <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Campaign
@@ -333,7 +382,20 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   <div>Beneficiaries: <strong className="text-zinc-100">{campaign.beneficiaries}</strong></div>
                   <div>Estimated CO2 Offset: <strong className="text-amber-400 font-bold">{campaign.co2OffsetTons} Tons</strong></div>
                 </div>
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowARModal(true)}
+                    className="w-full border-emerald-600/40 bg-emerald-950/20 text-emerald-300 hover:bg-emerald-950/40 text-xs font-semibold"
+                  >
+                    <TreePine className="mr-1.5 h-3.5 w-3.5 text-emerald-400" /> Visualize {campaign.treesPlanted} Planted Trees in AR (5-20yr)
+                  </Button>
+                </div>
               </div>
+
+              <VerificationMediaGallery items={verificationMedia} />
             </div>
 
             <div className="space-y-4">
@@ -436,6 +498,18 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           <CampaignAnalyticsDashboard campaignId={campaign.id} campaignTitle={campaign.title} />
         </TabsContent>
       </Tabs>
+
+      {/* AR Tree Visualizer Modal */}
+      {showARModal && (
+        <CampaignARVisualizer
+          campaignId={campaign.id}
+          campaignTitle={campaign.title}
+          treeType={campaign.treeType}
+          treesPlanted={campaign.treesPlanted}
+          location={campaign.location}
+          onClose={() => setShowARModal(false)}
+        />
+      )}
     </div>
   );
 }

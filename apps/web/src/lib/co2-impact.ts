@@ -63,6 +63,7 @@ export function calculateCo2Offset(
   speciesId: string,
   quantity: number,
   dateOrTimestamp?: Date | number,
+  growthRateMultiplier: number = 1.0,
 ): Co2ImpactResult {
   const species = getTreeSpecies(speciesId);
   const qty = Math.max(0, Math.floor(quantity) || 0);
@@ -70,6 +71,8 @@ export function calculateCo2Offset(
   const date = dateOrTimestamp === undefined ? new Date() : dateOrTimestamp;
   const multiplierBps = getCampaignCreditMultiplierBps(date);
   const co2Multiplier = multiplierBps / 10_000;
+  const rainySeason = isRainySeason(dateOrTimestamp);
+  const co2Multiplier = (rainySeason ? 2 : 1) * growthRateMultiplier;
 
   const baseCo2PerYearKg = qty * species.co2PerTreePerYearKg;
   const co2PerYearKg = baseCo2PerYearKg * co2Multiplier;

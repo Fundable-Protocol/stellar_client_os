@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import CampaignShareButtons from "@/components/campaign/CampaignShareButtons";
 import { getCampaign } from "@/services/campaign.service";
+import { VerificationEvidenceGallery } from "@/components/campaign/VerificationEvidenceGallery";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,10 @@ export default async function CampaignPage({
             style={{ width: `${progressPercent}%` }}
           />
         </div>
+        <div className="mt-6 flex flex-wrap gap-2 border-t border-zinc-200 pt-5 dark:border-zinc-800">
+          <a href={`/api/campaigns/${campaign.id}/export?format=csv&report=full`} className="rounded-md bg-fundable-purple-2 px-3 py-2 text-sm font-medium text-white">Export CSV</a>
+          <a href={`/api/campaigns/${campaign.id}/export?format=json&report=full`} className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium dark:border-zinc-700">Export JSON</a>
+        </div>
         <div className="mt-6 border-t border-zinc-200 pt-5 dark:border-zinc-800">
           <p className="mb-3 text-sm font-medium text-zinc-700 dark:text-zinc-200">Share this campaign</p>
           <CampaignShareButtons
@@ -42,6 +47,7 @@ export default async function CampaignPage({
           />
         </div>
       </section>
+      <VerificationEvidenceGallery evidence={campaign.verificationEvidence ?? []} />
     </main>
   );
 }
