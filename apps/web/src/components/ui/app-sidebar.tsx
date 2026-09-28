@@ -64,6 +64,11 @@ const items = [
     icon: <BookIcon aria-hidden="true" />,
   },
   {
+    title: "Teams",
+    url: "/team",
+    icon: <User2 aria-hidden="true" className="text-white size-5" />,
+  },
+  {
     title: "Referrals",
     url: "/social",
     icon: <User2 aria-hidden="true" className="text-white size-5" />,

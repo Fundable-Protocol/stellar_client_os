@@ -90,6 +90,25 @@ compile their own reports:
 - `TaxReportingSDK.getAnnualEarnings(params, transactions)` — 1099-ready record
   (reports zeros when no transactions are supplied, instead of fabricating data)
 
+## Campaign nonprofit contribution acknowledgments
+
+Campaign creation may include a `nonprofitPartner` object with `legalName`,
+`registrationNumber`, and `country`. New partner records start with
+`verificationStatus: "PENDING"`; a trusted partner-verification workflow must
+mark the campaign partner `VERIFIED` before certificates can be issued. The
+verification status must not be accepted from public campaign-creation input.
+
+`GET /api/campaigns/{campaignId}/tax-certificate?sponsorAddress=G...&taxYear=2025`
+streams a PDF acknowledgment for the sponsor's campaign ledger contributions
+recorded during that UTC tax year. Amounts are grouped by token rather than
+combined across different tokens. The request returns `403` for campaigns
+without a verified nonprofit partner and `404` when the sponsor has no matching
+contributions.
+
+The acknowledgment reports platform-recorded contribution amounts. Tax
+deductibility depends on applicable law and any goods or services received;
+issuance does not guarantee that an amount is deductible.
+
 ## Notes
 
 - VAT obligations depend both on the supplier's and the customer's member

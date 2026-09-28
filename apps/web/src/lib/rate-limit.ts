@@ -38,6 +38,21 @@ export interface TierConfig {
   monthlyPriceUsd: number;
   burstLimitPerMin: number;
   description: string;
+  hourlyLimit?: number;
+  windowMs?: number;
+}
+
+export type CampaignApiTier = "basic" | "pro" | "enterprise";
+export interface CampaignApiTierConfig { id: CampaignApiTier; hourlyLimit: number; windowMs: number; description: string; }
+export const CAMPAIGN_API_RATE_LIMIT_TIERS: Record<CampaignApiTier, CampaignApiTierConfig> = {
+  basic: { id: "basic", hourlyLimit: 100, windowMs: 3_600_000, description: "Basic campaign API access" },
+  pro: { id: "pro", hourlyLimit: 1_000, windowMs: 3_600_000, description: "Pro campaign API access" },
+  enterprise: { id: "enterprise", hourlyLimit: 10_000, windowMs: 3_600_000, description: "Enterprise campaign API access" },
+};
+export function resolveCampaignApiTier(apiKey?: string | null): CampaignApiTierConfig {
+  if (apiKey?.startsWith("pk_live_enterprise_") || apiKey?.startsWith("enterprise_")) return CAMPAIGN_API_RATE_LIMIT_TIERS.enterprise;
+  if (apiKey?.startsWith("pk_live_pro_") || apiKey?.startsWith("pro_")) return CAMPAIGN_API_RATE_LIMIT_TIERS.pro;
+  return CAMPAIGN_API_RATE_LIMIT_TIERS.basic;
 }
 
 export const RATE_LIMIT_TIERS: Record<RateLimitTier, TierConfig> = {

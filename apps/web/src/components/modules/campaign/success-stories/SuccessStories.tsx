@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Trophy, Star, Quote, Users } from "lucide-react";
+import { Trophy, Star, Quote, Users, BarChart, ImageIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { getSuccessStories, SuccessStory } from "@/services/campaign-success.service";
 
@@ -107,9 +107,48 @@ export default function SuccessStories() {
                   “{story.creatorInterview.quote}”
                 </blockquote>
                 <figcaption className="text-xs text-zinc-500">
-                  -¬ {story.creatorInterview.author}, {story.creatorInterview.role}
+                  - {story.creatorInterview.author}, {story.creatorInterview.role}
                 </figcaption>
               </div>
+
+              {story.impactMetrics && story.impactMetrics.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center gap-2 text-sky-400 text-xs font-semibold uppercase tracking-wide">
+                    <BarChart className="h-3.5 w-3.5" /> Impact Metrics
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {story.impactMetrics.map((metric, idx) => (
+                      <div key={idx} className="rounded-lg bg-zinc-800/40 p-3 border border-zinc-700/50">
+                        <p className="text-zinc-400 text-xs">{metric.label}</p>
+                        <p className="font-bold text-sky-300 text-sm mt-1">{metric.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {story.beforeAfterPhotos && (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center gap-2 text-rose-400 text-xs font-semibold uppercase tracking-wide">
+                    <ImageIcon className="h-3.5 w-3.5" /> Before & After
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="relative aspect-video rounded overflow-hidden border border-zinc-800">
+                      <img src={story.beforeAfterPhotos.beforeUrl} alt="Before" className="object-cover w-full h-full" />
+                      <div className="absolute top-2 left-2 bg-black/60 px-2 py-0.5 rounded text-[10px] font-bold text-white uppercase tracking-wider">Before</div>
+                    </div>
+                    <div className="relative aspect-video rounded overflow-hidden border border-zinc-800">
+                      <img src={story.beforeAfterPhotos.afterUrl} alt="After" className="object-cover w-full h-full" />
+                      <div className="absolute top-2 left-2 bg-emerald-500/80 px-2 py-0.5 rounded text-[10px] font-bold text-white uppercase tracking-wider">After</div>
+                    </div>
+                  </div>
+                  {story.beforeAfterPhotos.caption && (
+                    <p className="text-[11px] text-zinc-500 italic text-center mt-1">
+                      {story.beforeAfterPhotos.caption}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="mt-4 space-y-3">
                 <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold uppercase tracking-wide">

@@ -26,11 +26,11 @@ export class FraudDetectionService {
     const flags: SuspiciousActivityFlag[] = [];
     const backers = input.backers || [];
     const transactions = input.transactions || [];
+    let rapidPledgeCount = 0;
 
     // 1. Detect Fake Backers & Bot Clusters (e.g. many pledges created within same minute)
     if (backers.length > 5) {
       const timestamps = backers.map((b) => new Date(b.pledgedAt).getTime()).sort();
-      let rapidPledgeCount = 0;
       for (let i = 1; i < timestamps.length; i++) {
         if (timestamps[i] - timestamps[i - 1] < 10_000) {
           // pledges within 10 seconds
@@ -86,6 +86,54 @@ export class FraudDetectionService {
           evidenceDetails: { circularCount: circularTxs.length },
           detectedAt: new Date().toISOString(),
         });
+      }
+    }
+
+    const batches = input.plantingBatches ?? [];
+    const reportedTrees = input.campaignSnapshot?.treeCount;
+    const batchTrees = batches.reduce((sum, batch) => sum + Math.max(0, batch.treeCount), 0);
+    const createdAt = input.campaignSnapshot?.createdAt ? new Date(input.campaignSnapshot.createdAt).getTime() : undefined;
+    const deadline = input.campaignSnapshot?.deadline ? new Date(input.campaignSnapshot.deadline).getTime() : undefined;
+    const durationDays = createdAt && deadline && deadline > createdAt ? (deadline - createdAt) / 86_400_000 : undefined;
+    const maxTreesPerDay = Number(process.env.FRAUD_MAX_TREES_PER_DAY ?? 2_000);
+    if ((reportedTrees !== undefined && batchTrees > 0 && Math.abs(reportedTrees - batchTrees) > Math.max(10, reportedTrees * 0.2)) || (durationDays !== undefined && batchTrees > durationDays * maxTreesPerDay)) {
+      flags.push({ id: `flag-trees-${Date.now()}`, patternType: 'UNREALISTIC_TREE_COUNT', description: 'Reported planting volume is inconsistent with evidence or the campaign time window.', severityScore: 65, evidenceDetails: { reportedTrees, batchTrees, durationDays, maxTreesPerDay }, detectedAt: new Date().toISOString() });
+    }
+
+    const verificationEvents = input.verificationEvents ?? [];
+    const invalidOrder = batches.some((batch) => batch.verifiedAt && new Date(batch.verifiedAt).getTime() < new Date(batch.plantedAt).getTime());
+    const pairCounts = new Map<string, number>();
+    for (const event of verificationEvents) {
+      if (event.planterAddress && event.verifierAddress) {
+        const key = `${event.planterAddress.toLowerCase()}:${event.verifierAddress.toLowerCase()}`;
+        pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1);
+      }
+    }
+    const evidenceHashes = verificationEvents.map((event) => event.evidenceHash).filter((hash): hash is string => Boolean(hash));
+    const duplicateEvidence = new Set(evidenceHashes).size < evidenceHashes.length;
+    const repeatedPair = Array.from(pairCounts.values()).some((count) => count >= 3);
+    if (invalidOrder || duplicateEvidence || repeatedPair || batches.some((batch) => !batch.verifiedAt && batch.treeCount > 0)) {
+      flags.push({ id: `flag-verification-${Date.now()}`, patternType: 'VERIFICATION_ANOMALY', description: 'Planting verification history contains ordering, reuse, or incomplete-verification anomalies.', severityScore: 70, evidenceDetails: { invalidOrder, duplicateEvidence, repeatedPair, unverifiedBatches: batches.filter((batch) => !batch.verifiedAt).length }, detectedAt: new Date().toISOString() });
+    }
+
+    const youngRapidBackers = backers.filter((backer) => (backer.accountAgeDays ?? 999) < 1);
+    if (youngRapidBackers.length >= 3 && rapidPledgeCount >= 3) {
+      flags.push({ id: `flag-bot-${Date.now()}`, patternType: 'BOT_SPONSOR', description: 'Several newly created sponsor profiles pledged in a short burst.', severityScore: 55, evidenceDetails: { youngBackers: youngRapidBackers.length, rapidPledgeCount }, detectedAt: new Date().toISOString() });
+    }
+
+    const submitted = input.submittedLocation;
+    const plantingWithGps = batches.filter((batch) => Number.isFinite(batch.latitude) && Number.isFinite(batch.longitude));
+    if (submitted && plantingWithGps.length > 0) {
+      const radians = (value: number) => value * Math.PI / 180;
+      const distances = plantingWithGps.map((batch) => {
+        const dLat = radians((batch.latitude as number) - submitted.latitude);
+        const dLon = radians((batch.longitude as number) - submitted.longitude);
+        const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(submitted.latitude)) * Math.cos(radians(batch.latitude as number)) * Math.sin(dLon / 2) ** 2;
+        return 6_371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      });
+      const maxDistanceKm = Math.max(...distances);
+      if (maxDistanceKm > Number(process.env.FRAUD_LOCATION_TOLERANCE_KM ?? 50)) {
+        flags.push({ id: `flag-location-${Date.now()}`, patternType: 'LOCATION_MISMATCH', description: 'Submitted campaign location differs materially from planting evidence coordinates.', severityScore: 60, evidenceDetails: { maxDistanceKm, plantingSamples: distances.length }, detectedAt: new Date().toISOString() });
       }
     }
 

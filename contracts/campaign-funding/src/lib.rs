@@ -58,6 +58,10 @@ pub enum DataKey {
     /// Bitmask of campaign goal milestones (25 %, 50 %, 75 %, 100 %) that
     /// have been reached so far, keyed by campaign ID (persistent storage).
     MilestonesReached(u64),
+    /// Verified tree count aggregate for campaign reward eligibility.
+    VerifiedTreeCount(u64),
+    /// Bitmask of one-time tree reward unlocks (1k, 5k, 10k).
+    RewardsUnlocked(u64),
     /// Reserve pool balance for tree replacement, keyed by campaign ID
     /// (persistent storage). Holds 10% of raised funds for dead tree replacement.
     Reserve(u64),
@@ -73,6 +77,8 @@ pub enum CampaignStatus {
     Active,
     /// Minimum target met; creator may claim the raised funds.
     Successful,
+    /// Verifier has approved trees are planted.
+    Verified,
     /// Deadline passed without reaching the minimum target; contributors may
     /// claim full refunds.
     Failed,
@@ -259,6 +265,28 @@ pub struct TreePlantingVerifiedEvent {
     pub verified_at: u64,
 }
 
+/// Entitlement unlocked by a campaign's verified tree count.
+#[contracttype]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RewardTier {
+    /// Unlocked at 1,000 verified trees.
+    CustomBranding,
+    /// Unlocked at 5,000 verified trees.
+    WhiteLabel,
+    /// Unlocked at 10,000 verified trees.
+    ApiAccess,
+}
+
+/// Emitted once when a campaign crosses a verified-tree reward threshold.
+#[contractevent(topics = ["RewardUnlocked"])]
+#[derive(Clone)]
+pub struct RewardUnlockedEvent {
+    pub campaign_id: u64,
+    pub tier: RewardTier,
+    pub threshold: u64,
+    pub verified_tree_count: u64,
+}
+
 /// Emitted when SLA verification refund is issued for unverified tree planting.
 #[contracttype]
 #[derive(Clone)]
@@ -375,20 +403,21 @@ pub enum Error {
     PlantingNotFound = 19,
     /// Tree planting is already verified.
     AlreadyVerified = 20,
-    DeadlineTooFar = 23,
     /// The campaign is not in the `VerificationFailed` state.
-    CampaignNotVerificationFailed = 18,
+    CampaignNotVerificationFailed = 21,
     /// The insurance pool fee rate exceeds the protocol maximum.
-    InsuranceFeeTooHigh = 19,
+    InsuranceFeeTooHigh = 22,
     /// `set_team_rewards` was called with an empty team.
-    TeamEmpty = 20,
+    TeamEmpty = 23,
     /// The team's `percentage_bps` values do not sum to exactly 100 %
     /// (`10_000`), or a member has a zero / out-of-range percentage.
-    TeamInvalidSplit = 21,
+    TeamInvalidSplit = 24,
     /// The team contains two members with the same payout address.
-    TeamDuplicateMember = 22,
+    TeamDuplicateMember = 25,
     /// Campaign ID space exhausted (u64::MAX reached).
-    ContractFull = 23,
+    ContractFull = 26,
+    /// Campaign is not verified.
+    CampaignNotVerified = 27,
 }
 
 // ---------------------------------------------------------------------------
@@ -630,6 +659,50 @@ impl CampaignFundingContract {
         );
 
         count
+    }
+
+    /// Verify a campaign after trees are planted.
+    ///
+    /// Only the contract admin can call this. Transitions campaign from Successful to Verified.
+    ///
+    /// # Arguments
+    /// * `campaign_id` — ID of the campaign to verify.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`]        — contract not initialised.
+    /// * [`Error::Unauthorized`]          — caller is not the admin.
+    /// * [`Error::CampaignNotFound`]      — campaign does not exist.
+    /// * [`Error::CampaignNotSuccessful`] — campaign is not in `Successful` state.
+    pub fn verify_campaign(env: Env, campaign_id: u64) {
+        Self::assert_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        let mut campaign: Campaign = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Campaign(campaign_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::CampaignNotFound));
+
+        if campaign.status != CampaignStatus::Successful {
+            panic_with_error!(&env, Error::CampaignNotSuccessful);
+        }
+
+        campaign.status = CampaignStatus::Verified;
+        Self::save_campaign(&env, campaign_id, &campaign);
+        Self::record_status_change(&env, campaign_id, CampaignStatus::Verified);
+
+        env.events().publish(
+            ("CampaignStatusChanged", campaign_id),
+            CampaignStatusChangedEvent {
+                campaign_id,
+                new_status: CampaignStatus::Verified,
+            },
+        );
     }
 
     /// Mark a campaign as having lost its trees during verification.
@@ -921,8 +994,8 @@ impl CampaignFundingContract {
         if campaign.status == CampaignStatus::Claimed {
             panic_with_error!(&env, Error::AlreadyClaimed);
         }
-        if campaign.status != CampaignStatus::Successful {
-            panic_with_error!(&env, Error::CampaignNotSuccessful);
+        if campaign.status != CampaignStatus::Verified {
+            panic_with_error!(&env, Error::CampaignNotVerified);
         }
 
         let gross = campaign.total_raised;
@@ -1081,7 +1154,29 @@ impl CampaignFundingContract {
 
         let campaign = Self::load_campaign(&env, campaign_id);
 
-        if campaign.status != CampaignStatus::Failed {
+        let now = env.ledger().timestamp();
+        let sixty_days = 60 * 24 * 60 * 60;
+        let ninety_days = 90 * 24 * 60 * 60;
+
+        let mut refund_percent = 0;
+
+        if campaign.status == CampaignStatus::Failed {
+            refund_percent = 100;
+        } else if campaign.planter == OptionalAddress::None && now > campaign.created_at + sixty_days {
+            refund_percent = 100;
+        } else {
+            let count_key = DataKey::PlantingCount(campaign_id);
+            let planting_count: u64 = env.storage().instance().get(&count_key).unwrap_or(0);
+            if planting_count == 0 && now > campaign.created_at + ninety_days {
+                refund_percent = 50;
+            }
+        }
+
+        if campaign.status == CampaignStatus::Claimed || campaign.status == CampaignStatus::VerificationFailed {
+            refund_percent = 0;
+        }
+
+        if refund_percent == 0 {
             panic_with_error!(&env, Error::CampaignNotFailed);
         }
 
@@ -1098,19 +1193,23 @@ impl CampaignFundingContract {
             panic_with_error!(&env, Error::NoContributionFound);
         }
 
+        let refund_amount = (amount * refund_percent as i128) / 100;
+
         // Clear before transferring (check-effects-interactions).
         env.storage().persistent().remove(&contrib_key);
         env.storage().persistent().remove(&original_key);
 
         let token_client = token::Client::new(&env, &campaign.token);
-        token_client.transfer(&env.current_contract_address(), &contributor, &amount);
+        if refund_amount > 0 {
+            token_client.transfer(&env.current_contract_address(), &contributor, &refund_amount);
+        }
 
         env.events().publish(
             ("RefundIssued", campaign_id),
             RefundIssuedEvent {
                 campaign_id,
                 contributor,
-                amount,
+                amount: refund_amount,
             },
         );
     }
@@ -1580,6 +1679,7 @@ impl CampaignFundingContract {
         record.verified_at = env.ledger().timestamp();
 
         env.storage().persistent().set(&key, &record);
+        Self::update_tree_rewards(&env, campaign_id, record.tree_count);
 
         env.events().publish(
             ("TreePlantingVerified", campaign_id),
@@ -1646,6 +1746,23 @@ impl CampaignFundingContract {
             .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound))
     }
 
+    /// Return the number of trees in verified planting batches for a campaign.
+    pub fn get_verified_tree_count(env: Env, campaign_id: u64) -> u64 {
+        let _ = Self::load_campaign(&env, campaign_id);
+        env.storage().persistent().get(&DataKey::VerifiedTreeCount(campaign_id)).unwrap_or(0)
+    }
+
+    /// Return the service reward tiers unlocked by verified trees.
+    pub fn get_rewards_unlocked(env: Env, campaign_id: u64) -> Vec<RewardTier> {
+        let _ = Self::load_campaign(&env, campaign_id);
+        let mask: u32 = env.storage().persistent().get(&DataKey::RewardsUnlocked(campaign_id)).unwrap_or(0);
+        let mut tiers = Vec::new(&env);
+        if mask & 1 != 0 { tiers.push_back(RewardTier::CustomBranding); }
+        if mask & 2 != 0 { tiers.push_back(RewardTier::WhiteLabel); }
+        if mask & 4 != 0 { tiers.push_back(RewardTier::ApiAccess); }
+        tiers
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
@@ -1706,6 +1823,34 @@ impl CampaignFundingContract {
         env.storage()
             .instance()
             .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    fn update_tree_rewards(env: &Env, campaign_id: u64, batch_count: u32) {
+        let count_key = DataKey::VerifiedTreeCount(campaign_id);
+        let previous: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        let count = previous.checked_add(batch_count as u64)
+            .unwrap_or_else(|| panic_with_error!(env, Error::ArithmeticOverflow));
+        env.storage().persistent().set(&count_key, &count);
+        env.storage().persistent().extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        let reward_key = DataKey::RewardsUnlocked(campaign_id);
+        let mut mask: u32 = env.storage().persistent().get(&reward_key).unwrap_or(0);
+        let rewards = [
+            (1u32, 1_000u64, RewardTier::CustomBranding),
+            (2u32, 5_000u64, RewardTier::WhiteLabel),
+            (4u32, 10_000u64, RewardTier::ApiAccess),
+        ];
+        for (bit, threshold, tier) in rewards.iter() {
+            if mask & bit == 0 && count >= *threshold {
+                mask |= *bit;
+                env.events().publish(
+                    ("RewardUnlocked", campaign_id),
+                    RewardUnlockedEvent { campaign_id, tier: *tier, threshold: *threshold, verified_tree_count: count },
+                );
+            }
+        }
+        env.storage().persistent().set(&reward_key, &mask);
+        env.storage().persistent().extend_ttl(&reward_key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     /// Emit [`MilestoneReachedEvent`]s for every goal threshold newly crossed
@@ -2546,6 +2691,7 @@ mod tests {
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
 
+        client.verify_campaign(&id);
         client.claim_funds(&id);
 
         // 2.5 % fee on 8_000 = 200; net = 7_800.
@@ -2576,6 +2722,7 @@ mod tests {
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
+        client.verify_campaign(&id);
         client.claim_funds(&id);
 
         assert_eq!(token_client.balance(&creator), 6_000);
@@ -2583,7 +2730,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #11)")]
+    #[should_panic(expected = "Error(Contract, #27)")]
     fn test_claim_funds_on_active_campaign() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2599,7 +2746,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #11)")]
+    #[should_panic(expected = "Error(Contract, #27)")]
     fn test_claim_funds_on_failed_campaign() {
         let env = Env::default();
         env.mock_all_auths();
@@ -2635,6 +2782,7 @@ mod tests {
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
+        client.verify_campaign(&id);
         client.claim_funds(&id);
         client.claim_funds(&id); // Must panic.
     }
@@ -2854,6 +3002,7 @@ mod tests {
         client.contribute(&contributor, &id, &9_999);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
+        client.verify_campaign(&id);
         client.claim_funds(&id);
 
         // fee = ceil(9_999 * 100 / 10_000) = ceil(99.99) = 100; net = 9_899.
@@ -2959,6 +3108,7 @@ mod tests {
         let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
         client.contribute(&contributor, &id, &10_000); // Auto-succeed
         set_time(&env, 3_000);
+        client.verify_campaign(&id);
         client.claim_funds(&id);
 
         let history = client.get_status_history(&id);
@@ -2980,6 +3130,7 @@ mod tests {
         client.contribute(&contributor, &id, &8_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
+        client.verify_campaign(&id);
         client.claim_funds(&id);
 
         // 2.5 % fee on 8_000 = 200; net to creator = 7_800.
@@ -3019,6 +3170,7 @@ mod tests {
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
+        client.verify_campaign(&id);
         client.claim_funds(&id);
 
         // With a 0 % fee no protocol fee flows, so no fee event may be emitted.
