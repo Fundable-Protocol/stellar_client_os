@@ -212,6 +212,15 @@ pub struct ContributionMadeEvent {
     pub total_raised: i128,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InsurancePoolFundedEvent {
+    pub campaign_id: u64,
+    pub token: Address,
+    pub amount: i128,
+    pub pool_balance: i128,
+}
+
 /// Emitted when a campaign transitions lifecycle states.
 #[contracttype]
 #[derive(Clone)]
@@ -477,6 +486,8 @@ pub enum Error {
     CarbonTokenNotSet = 33,
     /// Carbon credit tokens have already been minted for this campaign.
     CarbonCreditsAlreadyMinted = 34,
+    /// Tree mortality occurred outside the 2-year insurance coverage window.
+    InsuranceWindowExpired = 35,
 }
 
 // ---------------------------------------------------------------------------
@@ -812,6 +823,13 @@ impl CampaignFundingContract {
             panic_with_error!(&env, Error::CampaignNotSuccessful);
         }
 
+        // Tree loss must occur within the 2-year insurance coverage window (2 * 365 * 86,400s)
+        const TWO_YEARS_SECS: u64 = 63_072_000;
+        let now = env.ledger().timestamp();
+        if now > campaign.created_at.saturating_add(TWO_YEARS_SECS) {
+            panic_with_error!(&env, Error::InsuranceWindowExpired);
+        }
+
         campaign.status = CampaignStatus::VerificationFailed;
         Self::save_campaign(&env, campaign_id, &campaign);
 
@@ -1085,6 +1103,30 @@ impl CampaignFundingContract {
         Self::save_campaign(&env, campaign_id, &campaign);
 
         let token_client = token::Client::new(&env, &campaign.token);
+
+        // Deduct and fund insurance pool (1% of campaign funds)
+        let insurance_fee_rate = Self::get_insurance_fee_rate(env.clone());
+        let insurance_amount = if insurance_fee_rate > 0 {
+            (gross * (insurance_fee_rate as i128)) / 10_000
+        } else {
+            0
+        };
+        if insurance_amount > 0 {
+            let pool_key = DataKey::InsurancePool(campaign.token.clone());
+            let current_pool: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
+            let new_pool = current_pool.saturating_add(insurance_amount);
+            env.storage().instance().set(&pool_key, &new_pool);
+
+            env.events().publish(
+                ("InsurancePoolFunded", campaign_id),
+                InsurancePoolFundedEvent {
+                    campaign_id,
+                    token: campaign.token.clone(),
+                    amount: insurance_amount,
+                    pool_balance: new_pool,
+                },
+            );
+        }
 
         // Transfer protocol fee
         if fee > 0 {
@@ -2101,6 +2143,34 @@ impl CampaignFundingContract {
         };
 
         (current_trees, next_threshold, progress_bps)
+    }
+
+    // -----------------------------------------------------------------------
+    // Campaign Insurance Pool Protection (Issue #851)
+    // -----------------------------------------------------------------------
+
+    /// Retrieve the configured insurance fee rate in basis points (default 100 bps = 1%).
+    pub fn get_insurance_fee_rate(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InsuranceFeeRate)
+            .unwrap_or(100)
+    }
+
+    /// Retrieve the current insurance pool balance for a token.
+    pub fn get_insurance_pool_balance(env: Env, token: Address) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InsurancePool(token))
+            .unwrap_or(0)
+    }
+
+    /// Check if a campaign is within its 2-year tree loss insurance coverage window.
+    pub fn is_within_insurance_coverage(env: Env, campaign_id: u64) -> bool {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        const TWO_YEARS_SECS: u64 = 63_072_000;
+        let now = env.ledger().timestamp();
+        now <= campaign.created_at.saturating_add(TWO_YEARS_SECS)
     }
 
     // -----------------------------------------------------------------------
@@ -3873,5 +3943,64 @@ mod tests {
         assert_eq!(trees3, 10_000);
         assert_eq!(next3, 10_000);
         assert_eq!(prog3, 10_000); // 100% achieved
+    }
+
+    // -----------------------------------------------------------------------
+    // Campaign Insurance Pool Tests (Issue #851)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_insurance_pool_funded_and_two_year_claim() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &20_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+
+        client.contribute(&sponsor, &id, &10_000);
+        client.verify_campaign(&id);
+        client.claim_funds(&id);
+
+        // Insurance pool should now be funded with 1% of 10,000 = 100 tokens
+        let pool = client.get_insurance_pool_balance(&token_addr);
+        assert_eq!(pool, 100);
+
+        // Tree loss occurs within 2 years (e.g. at 1 year = 1_000 + 31_536_000)
+        set_time(&env, 1_000 + 31_536_000);
+        assert_eq!(client.is_within_insurance_coverage(&id), true);
+        client.mark_trees_died(&id);
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::VerificationFailed);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #35)")]
+    fn test_tree_loss_after_two_years_rejected_by_insurance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &20_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.contribute(&sponsor, &id, &10_000);
+        client.verify_campaign(&id);
+        client.claim_funds(&id);
+
+        // Advance beyond 2 years (63_072_000s)
+        set_time(&env, 1_000 + 63_072_001);
+        assert_eq!(client.is_within_insurance_coverage(&id), false);
+
+        // Must panic with InsuranceWindowExpired (#35)
+        client.mark_trees_died(&id);
     }
 }
