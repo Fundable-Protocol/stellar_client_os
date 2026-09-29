@@ -1,0 +1,150 @@
+import { createCampaign, findDuplicateCampaigns, queryCampaigns } from @services/campaign.service";
+import { autoTranslate, detectLanguage, SUPPORTED_TRANSLATION_LOCALES } from @/lib/translation";
+import { withCampaignApiRateLimit } from @/middlewares/rate-limit.middleware";
+
+export const runtime = "nodejs";
+
+async function getCampaigns(request: Request) {
+  const url = new URL(request.url);
+  const status = url.searchParams.get("status") as never;
+  const creator = url.searchParams.get("creator") ?? undefined;
+  const search = url.searchParams.get("search") ?? undefined;
+  const limit = Number(url.searchParams.get("limit") ?? 20);
+  const offset = Number(url.searchParams.get("offset") ?? 0);
+  const campaigns = await queryCampaigns({
+    filter: { status: status || undefined, creator, search },
+    sort: { field: (url.searchParams.get("sort") as never) || "createdAt", direction: url.searchParams.get("direction") === "asc" ? "ASC" : "DESC" },
+    limit: Number.isFinite(limit) ? limit : 20,
+    offset: Number.isFinite(offset) ? offset : 0,
+    network: (url.searchParams.get("network") as "testnet" | "mainnet" | null) ?? undefined,
+  });
+  return Response.json({ data: campaigns, pagination: { limit, offset, count: campaigns.length } });
+}
+
+async function postCampaign(request: Request) {
+  try {
+    const body = await request.json() as {
+      creator?: string;
+      creatorEmail?: string;
+      name?: string;
+      description?: string;
+      location?: string;
+      region?: string;
+      treeSpecies?: string;
+      durationMs?: number;
+      deadline?: number;
+      goalAmount?: string;
+      network?: "testnet" | "mainnet";
+      language?: string;
+      translations?: Record<string, string>;
+      autoTranslate?: boolean;
+      nonprofitPartner?: {
+        legalName?: unknown;
+        registrationNumber?: unknown;
+        country?: unknown;
+      };
+    };
+    if (!body.creator || !body.name || !body.goalAmount) {
+      return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
+    }
+    if (!/^\d+$/.test(body.goalAmount)) {
+      return Response.json({ error: "goalAmount must be a non-negative integer string" }, { status: 400 });
+    }
+    if (body.location !== undefined && typeof body.location !== "string") {
+      return Response.json({ error: "location must be a string" }, { status: 400 });
+    }
+    if (body.region !== undefined && typeof body.region !== "string") {
+      return Response.json({ error: "region must be a string" }, { status: 400 });
+    }
+    if (body.treeSpecies !== undefined && typeof body.treeSpecies !== "string") {
+      return Response.json({ error: "treeSpecies must be a string" }, { status: 400 });
+    }
+    if (body.durationMs !== undefined && (!Number.isFinite(body.durationMs) || body.durationMs < 0)) {
+      return Response.json({ error: "durationMs must be a non-negative number" }, { status: 400 });
+    }
+    let nonprofitPartner: { legalName: string; registrationNumber: string; country: string } | undefined;
+    if (body.nonprofitPartner !== undefined) {
+      const partner = body.nonprofitPartner;
+      if (
+        !partner ||
+        typeof partner.legalName !== "string" || !partner.legalName.trim() ||
+        typeof partner.registrationNumber !== "string" || !partner.registrationNumber.trim() ||
+        typeof partner.country !== "string" || !partner.country.trim()
+      ) {
+        return Response.json(
+          { error: "nonprofitPartner must include legalName, registrationNumber, and country" },
+          { status: 400 },
+        );
+      }
+      nonprofitPartner = {
+        legalName: partner.legalName.trim(),
+        registrationNumber: partner.registrationNumber.trim(),
+        country: partner.country.trim(),
+      };
+    }
+    if (body.deadline !== undefined && !Number.isFinite(body.deadline)) {
+      return Response.json({ error: "deadline must be a numeric timestamp" }, { status: 400 });
+    }
+    const durationMs = body.durationMs ?? (body.deadline !== undefined ? body.deadline - Date.now() : undefined);
+    if (durationMs !== undefined && durationMs < 0) {
+      return Response.json({ error: "deadline must be in the future" }, { status: 400 });
+    }
+    const duplicates = await findDuplicateCampaigns({
+      creator: body.creator,
+      name: body.name,
+      location: body.location,
+      durationMs,
+    });
+    if (duplicates.length > 0) {
+      return Response.json(
+        { error: "A campaign with the same name, location, and duration already exists", duplicates },
+        { status: 409 },
+      );
+    }
+
+    // Language detection and auto-translation
+    const description = body.description ?? "";
+    const language = body.language ?? detectLanguage(description);
+    let translations = body.translations ?? {};
+    if (body.autoTranslate) {
+      translations = {
+        ...autoTranslate(description, SUPPORTED_TRANSLATION_LOCALES),
+        ...translations,
+      };
+    }
+
+    // Campaign insurance pool: 1% of goal funds allocated to protect against tree loss within 2 years.
+    const goalAmountBigInt = BigInt(body.goalAmount);
+    const insurancePoolAmount = (goalAmountBigInt / 100n).toString();
+    const insurancePool = {
+      amount: insurancePoolAmount,
+      contributionRate: 0.01,
+      coverageWindowMs: 2 * 365 * 24 * 60 * 60 * 1000,
+      claimedAmount: "0",
+      status: "active" as const,
+    };
+
+    const campaign = await createCampaign({
+      creator: body.creator,
+      creatorEmail: body.creatorEmail,
+      name: body.name,
+      description,
+      location: body.location,
+      region: body.region,
+      treeSpecies: body.treeSpecies,
+      durationMs,
+      goalAmount: body.goalAmount,
+      network: body.network,
+      nonprofitPartner,
+      language,
+      translations,
+      insurancePool,
+    });
+    return Response.json(campaign, { status: 201 });
+  } catch {
+    return Response.json({ error: "Invalid JSON request body" }, { status: 400 });
+  }
+}
+
+export const GET = withCampaignApiRateLimit(getCampaigns);
+export const POST = withCampaignApiRateLimit(postCampaign);
