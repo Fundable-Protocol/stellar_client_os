@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
-    Address, Env, Vec,
+    Address, Env, IntoVal, Symbol, Vec,
 };
 
 /// Optional `Address` wrapper suitable for use inside `#[contracttype]` structs.
@@ -85,6 +85,12 @@ pub enum DataKey {
     CarbonCreditsMinted(u64),
     /// Stored CO₂ multiplier for a campaign (1 = dry season, 2 = rainy season).
     Co2Multiplier(u64),
+    /// Campaign environmental impact NFT record keyed by campaign ID.
+    CampaignImpactNft(u64),
+    /// Sponsor personal impact NFT record keyed by (campaign_id, sponsor).
+    SponsorImpactNft(u64, Address),
+    /// Count of unique sponsors for a campaign.
+    SponsorCount(u64),
 }
 
 /// Current lifecycle state of a campaign.
@@ -173,6 +179,48 @@ pub struct TeamMember {
     pub address: Address,
     /// Share of the net proceeds, in basis points (1 bp = 0.01 %).
     pub percentage_bps: u32,
+}
+
+/// Environmental impact NFT data for a completed campaign.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignImpactNft {
+    /// Campaign ID the NFT represents.
+    pub campaign_id: u64,
+    /// Campaign creator address.
+    pub creator: Address,
+    /// Funding token address.
+    pub token: Address,
+    /// Total funds raised.
+    pub total_raised: i128,
+    /// Total trees planted/verified.
+    pub total_trees: u64,
+    /// Total CO₂ sequestered.
+    pub total_co2: i128,
+    /// Total number of unique sponsors who contributed.
+    pub sponsor_count: u32,
+    /// Unix timestamp when this impact NFT was minted.
+    pub minted_at: u64,
+}
+
+/// Personal environmental impact NFT data for a campaign sponsor.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SponsorPersonalImpactNft {
+    /// Campaign ID the NFT represents.
+    pub campaign_id: u64,
+    /// Sponsor address who holds this personal impact NFT.
+    pub sponsor: Address,
+    /// Sponsor's gross contribution amount.
+    pub contribution: i128,
+    /// Pro-rata trees attributed to this sponsor.
+    pub personal_trees: u64,
+    /// Pro-rata CO₂ attributed to this sponsor.
+    pub personal_co2: i128,
+    /// Sponsor's contribution share in basis points (1 bp = 0.01%).
+    pub share_bps: u32,
+    /// Unix timestamp when this personal impact NFT was minted.
+    pub minted_at: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +350,7 @@ pub enum RewardTier {
 }
 
 /// Emitted once when a campaign crosses a verified-tree reward threshold.
-#[contractevent(topics = ["RewardUnlocked"])]
+#[contracttype]
 #[derive(Clone)]
 pub struct RewardUnlockedEvent {
     pub campaign_id: u64,
@@ -396,6 +444,43 @@ pub struct CarbonCreditsMintedEvent {
     pub verified_tree_count: u64,
 }
 
+/// Emitted when a campaign environmental impact NFT is minted.
+#[contracttype]
+#[derive(Clone)]
+pub struct CampaignImpactNftMintedEvent {
+    pub campaign_id: u64,
+    pub creator: Address,
+    pub total_trees: u64,
+    pub total_co2: i128,
+    pub sponsor_count: u32,
+    pub minted_at: u64,
+}
+
+/// Emitted when a sponsor personal environmental impact NFT is minted.
+#[contracttype]
+#[derive(Clone)]
+pub struct SponsorImpactNftMintedEvent {
+    pub campaign_id: u64,
+    pub sponsor: Address,
+    pub contribution: i128,
+    pub personal_trees: u64,
+    pub personal_co2: i128,
+    pub share_bps: u32,
+    pub minted_at: u64,
+}
+
+/// Emitted when a sponsor reward stream is created.
+#[contracttype]
+#[derive(Clone)]
+pub struct SponsorRewardStreamedEvent {
+    pub campaign_id: u64,
+    pub contributor: Address,
+    pub amount: i128,
+    pub stream_id: u64,
+    pub start_time: u64,
+    pub end_time: u64,
+}
+
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
@@ -477,12 +562,24 @@ pub enum Error {
     CarbonTokenNotSet = 33,
     /// Carbon credit tokens have already been minted for this campaign.
     CarbonCreditsAlreadyMinted = 34,
+    /// The campaign is not completed (must be Successful, Verified, or Claimed).
+    CampaignNotComplete = 35,
+    /// Campaign environmental impact NFT has already been minted.
+    ImpactNftAlreadyMinted = 36,
+    /// Sponsor personal impact NFT has already been minted.
+    SponsorImpactNftAlreadyMinted = 37,
+    /// Sponsor has no recorded contribution on this campaign.
+    NoSponsorContribution = 38,
+    /// Creator already exists in campaign creators list.
+    CreatorAlreadyExists = 39,
 }
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
+/// 12 months in seconds for sponsor reward streams.
+const TWELVE_MONTHS_SECS: u64 = 365 * 24 * 60 * 60;
 /// Maximum protocol fee: 500 basis points = 5 %.
 const MAX_FEE: u32 = 500;
 /// Maximum insurance pool fee: 500 basis points = 5 %.
@@ -951,6 +1048,17 @@ impl CampaignFundingContract {
         env.storage().persistent().set(&original_key, &original);
         env.storage().persistent().extend_ttl(&contrib_key, LEDGER_THRESHOLD, LEDGER_BUMP);
         env.storage().persistent().extend_ttl(&original_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        // Track unique sponsor count for this campaign
+        if prev == 0 {
+            let count_key = DataKey::SponsorCount(campaign_id);
+            let sponsor_count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+            let updated_count = sponsor_count
+                .checked_add(1)
+                .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+            env.storage().persistent().set(&count_key, &updated_count);
+            env.storage().persistent().extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        }
 
         // Apply available admin-funded matching dollar-for-dollar. Matching
         // is bounded by both the remaining campaign target and its budget.
@@ -1791,6 +1899,262 @@ impl CampaignFundingContract {
                 verified_tree_count: verified_trees,
             },
         );
+    }
+
+    /// Mint an environmental impact NFT for a completed campaign.
+    ///
+    /// Requires the campaign to be in a completed state (`Successful`, `Verified`, or `Claimed`).
+    /// The NFT captures campaign details, total trees, total CO₂, and total sponsor count.
+    /// Can be minted once per completed campaign.
+    pub fn mint_campaign_impact_nft(env: Env, campaign_id: u64) -> CampaignImpactNft {
+        let campaign = Self::load_campaign(&env, campaign_id);
+
+        if campaign.status != CampaignStatus::Successful
+            && campaign.status != CampaignStatus::Verified
+            && campaign.status != CampaignStatus::Claimed
+        {
+            panic_with_error!(&env, Error::CampaignNotComplete);
+        }
+
+        let nft_key = DataKey::CampaignImpactNft(campaign_id);
+        if env.storage().persistent().has(&nft_key) {
+            panic_with_error!(&env, Error::ImpactNftAlreadyMinted);
+        }
+
+        // Total trees: verified trees first, fallback to planting SLA sum.
+        let mut total_trees: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VerifiedTreeCount(campaign_id))
+            .unwrap_or(0);
+
+        if total_trees == 0 {
+            let planting_count: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::PlantingCount(campaign_id))
+                .unwrap_or(0);
+            let mut sum: u64 = 0;
+            for pid in 1..=planting_count {
+                if let Some(record) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, PlantingSlaRecord>(&DataKey::PlantingSla(campaign_id, pid))
+                {
+                    sum = sum.saturating_add(record.tree_count as u64);
+                }
+            }
+            if sum > 0 {
+                total_trees = sum;
+            }
+        }
+
+        let multiplier = campaign.co2_multiplier.max(1) as i128;
+        let total_co2: i128 = (total_trees as i128)
+            .checked_mul(multiplier)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+
+        let sponsor_count: u32 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::SponsorCount(campaign_id))
+            .unwrap_or(0);
+
+        let minted_at = env.ledger().timestamp();
+
+        let nft = CampaignImpactNft {
+            campaign_id,
+            creator: campaign.creator.clone(),
+            token: campaign.token.clone(),
+            total_raised: campaign.total_raised,
+            total_trees,
+            total_co2,
+            sponsor_count,
+            minted_at,
+        };
+
+        env.storage().persistent().set(&nft_key, &nft);
+        env.storage()
+            .persistent()
+            .extend_ttl(&nft_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.events().publish(
+            ("CampaignImpactNftMinted", campaign_id),
+            CampaignImpactNftMintedEvent {
+                campaign_id,
+                creator: campaign.creator,
+                total_trees,
+                total_co2,
+                sponsor_count,
+                minted_at,
+            },
+        );
+
+        nft
+    }
+
+    /// Mint a personal environmental impact NFT for a sponsor of a completed campaign.
+    ///
+    /// The sponsor must authorize this call and must have contributed to the campaign.
+    /// Calculates personal pro-rata trees and CO₂ based on sponsor's contribution share.
+    pub fn mint_sponsor_impact_nft(
+        env: Env,
+        campaign_id: u64,
+        sponsor: Address,
+    ) -> SponsorPersonalImpactNft {
+        sponsor.require_auth();
+
+        let campaign = Self::load_campaign(&env, campaign_id);
+
+        if campaign.status != CampaignStatus::Successful
+            && campaign.status != CampaignStatus::Verified
+            && campaign.status != CampaignStatus::Claimed
+        {
+            panic_with_error!(&env, Error::CampaignNotComplete);
+        }
+
+        let nft_key = DataKey::SponsorImpactNft(campaign_id, sponsor.clone());
+        if env.storage().persistent().has(&nft_key) {
+            panic_with_error!(&env, Error::SponsorImpactNftAlreadyMinted);
+        }
+
+        // Retrieve sponsor's contribution
+        let original_key = DataKey::OriginalContribution(campaign_id, sponsor.clone());
+        let contribution: i128 = env
+            .storage()
+            .persistent()
+            .get(&original_key)
+            .unwrap_or_else(|| {
+                env.storage()
+                    .persistent()
+                    .get(&DataKey::Contribution(campaign_id, sponsor.clone()))
+                    .unwrap_or(0)
+            });
+
+        if contribution <= 0 {
+            panic_with_error!(&env, Error::NoSponsorContribution);
+        }
+
+        // Total trees for the campaign
+        let mut total_trees: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::VerifiedTreeCount(campaign_id))
+            .unwrap_or(0);
+
+        if total_trees == 0 {
+            let planting_count: u64 = env
+                .storage()
+                .instance()
+                .get(&DataKey::PlantingCount(campaign_id))
+                .unwrap_or(0);
+            let mut sum: u64 = 0;
+            for pid in 1..=planting_count {
+                if let Some(record) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, PlantingSlaRecord>(&DataKey::PlantingSla(campaign_id, pid))
+                {
+                    sum = sum.saturating_add(record.tree_count as u64);
+                }
+            }
+            if sum > 0 {
+                total_trees = sum;
+            }
+        }
+
+        let multiplier = campaign.co2_multiplier.max(1) as i128;
+        let total_co2: i128 = (total_trees as i128)
+            .checked_mul(multiplier)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+
+        // Calculate pro-rata personal share in basis points (1 bp = 0.01%)
+        let share_bps: u32 = if campaign.total_raised > 0 {
+            let bps = (contribution as i128)
+                .checked_mul(10_000)
+                .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow))
+                / campaign.total_raised;
+            bps.min(10_000) as u32
+        } else {
+            0
+        };
+
+        // Calculate personal trees and personal CO₂
+        let personal_trees: u64 = if campaign.total_raised > 0 && total_trees > 0 {
+            ((total_trees as i128)
+                .checked_mul(contribution)
+                .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow))
+                / campaign.total_raised) as u64
+        } else {
+            0
+        };
+
+        let personal_co2: i128 = if campaign.total_raised > 0 && total_co2 > 0 {
+            total_co2
+                .checked_mul(contribution)
+                .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow))
+                / campaign.total_raised
+        } else {
+            0
+        };
+
+        let minted_at = env.ledger().timestamp();
+
+        let nft = SponsorPersonalImpactNft {
+            campaign_id,
+            sponsor: sponsor.clone(),
+            contribution,
+            personal_trees,
+            personal_co2,
+            share_bps,
+            minted_at,
+        };
+
+        env.storage().persistent().set(&nft_key, &nft);
+        env.storage()
+            .persistent()
+            .extend_ttl(&nft_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.events().publish(
+            ("SponsorImpactNftMinted", campaign_id),
+            SponsorImpactNftMintedEvent {
+                campaign_id,
+                sponsor,
+                contribution,
+                personal_trees,
+                personal_co2,
+                share_bps,
+                minted_at,
+            },
+        );
+
+        nft
+    }
+
+    /// Retrieve the campaign environmental impact NFT if minted.
+    pub fn get_campaign_impact_nft(env: Env, campaign_id: u64) -> Option<CampaignImpactNft> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CampaignImpactNft(campaign_id))
+    }
+
+    /// Retrieve a sponsor's personal environmental impact NFT if minted.
+    pub fn get_sponsor_impact_nft(
+        env: Env,
+        campaign_id: u64,
+        sponsor: Address,
+    ) -> Option<SponsorPersonalImpactNft> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::SponsorImpactNft(campaign_id, sponsor))
+    }
+
+    /// Retrieve the unique sponsor count for a campaign.
+    pub fn get_sponsor_count(env: Env, campaign_id: u64) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::SponsorCount(campaign_id))
+            .unwrap_or(0)
     }
 
     // -----------------------------------------------------------------------
