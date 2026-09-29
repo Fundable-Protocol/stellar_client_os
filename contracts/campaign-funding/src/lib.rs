@@ -295,6 +295,8 @@ pub struct SlaRefundIssuedEvent {
     pub planting_id: u64,
     pub contributor: Address,
     pub amount: i128,
+}
+
 /// Emitted when cumulative contributions cross one of a campaign's funding
 /// milestones (25 %, 50 %, 75 % or 100 % of `target_amount`).
 ///
@@ -644,6 +646,19 @@ impl CampaignFundingContract {
 
         Self::save_campaign(&env, count, &campaign);
         Self::record_status_change(&env, count, CampaignStatus::Active);
+
+        let co2_multiplier = Self::calculate_co2_multiplier(now);
+        let co2_multiplier_bps = if Self::get_month_from_timestamp(now) >= 5 && Self::get_month_from_timestamp(now) <= 10 {
+            20_000
+        } else if Self::get_month_from_timestamp(now) == 4 {
+            15_000
+        } else {
+            10_000
+        };
+        env.storage().persistent().set(&DataKey::Co2Multiplier(count), &co2_multiplier);
+        env.storage().persistent().set(&DataKey::Co2MultiplierBps(count), &co2_multiplier_bps);
+        env.storage().persistent().extend_ttl(&DataKey::Co2Multiplier(count), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&DataKey::Co2MultiplierBps(count), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         env.events().publish(
             ("CampaignCreated", count),
@@ -1495,6 +1510,8 @@ impl CampaignFundingContract {
             }
         }
         history
+    }
+
     /// Return the configured payment-stream contract address, if any.
     pub fn get_stream_contract(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::StreamContract)
@@ -1761,6 +1778,71 @@ impl CampaignFundingContract {
         if mask & 2 != 0 { tiers.push_back(RewardTier::WhiteLabel); }
         if mask & 4 != 0 { tiers.push_back(RewardTier::ApiAccess); }
         tiers
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Seasonal Bonus Multiplier (Issue #875)
+    // -----------------------------------------------------------------------
+
+    /// Convert a Unix timestamp to month (1-12) using civil calendar algorithm.
+    fn get_month_from_timestamp(timestamp: u64) -> u32 {
+        let days = (timestamp / 86_400) as i64;
+        let z = days + 719_468;
+        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+        let doe = (z - era * 146_097) as u32;
+        let yoe = (doe - doe / 1020 + doe / 1460 - doe / 36524) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        if mp < 10 {
+            mp + 3
+        } else {
+            mp - 9
+        }
+    }
+
+    /// Calculate seasonal carbon credit bonus multiplier for a given creation timestamp.
+    /// - Rainy season (May to October / months 5-10): 2x
+    /// - Earth Month & Arbor Day (April / month 4): 1.5x (15,000 bps)
+    /// - Standard baseline: 1x (10,000 bps)
+    pub fn calculate_co2_multiplier(timestamp: u64) -> u32 {
+        let month = Self::get_month_from_timestamp(timestamp);
+        if month >= 5 && month <= 10 {
+            2
+        } else {
+            1
+        }
+    }
+
+    /// Retrieve the integer CO2 multiplier for a campaign (1x, 2x).
+    pub fn get_co2_multiplier(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        env.storage()
+            .persistent()
+            .get(&DataKey::Co2Multiplier(campaign_id))
+            .unwrap_or_else(|| Self::calculate_co2_multiplier(campaign.created_at))
+    }
+
+    /// Retrieve the precision basis point multiplier for a campaign.
+    /// - April (Earth Month / Arbor Day): 15,000 bps (1.5x)
+    /// - May-October (Rainy season): 20,000 bps (2.0x)
+    /// - Otherwise: 10,000 bps (1.0x baseline)
+    pub fn get_co2_multiplier_bps(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        let month = Self::get_month_from_timestamp(campaign.created_at);
+        if month >= 5 && month <= 10 {
+            20_000
+        } else if month == 4 {
+            15_000
+        } else {
+            10_000
+        }
+    }
+
+    /// Calculate carbon credits awarded for verified trees with seasonal multiplier applied.
+    pub fn calculate_carbon_credits(env: Env, campaign_id: u64, verified_trees: u64) -> u64 {
+        let multiplier_bps = Self::get_co2_multiplier_bps(env, campaign_id);
+        ((verified_trees as u128) * (multiplier_bps as u128) / 10_000) as u64
     }
 
     // -----------------------------------------------------------------------
@@ -3037,6 +3119,14 @@ mod tests {
         env.mock_all_auths();
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+    }
+
     // Funds-flow transparency events
     // -----------------------------------------------------------------------
 
@@ -3403,12 +3493,6 @@ mod tests {
     fn test_pause_and_resume_campaign_success() {
         let env = Env::default();
         env.mock_all_auths();
-        set_time(&env, 1_000);
-
-    #[test]
-    fn test_rainy_season_co2_multiplier() {
-        let env = Env::default();
-        env.mock_all_auths();
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
@@ -3465,5 +3549,48 @@ mod tests {
         assert_eq!(client.get_reward_token(), None);
         client.set_reward_token(&reward_token);
         assert_eq!(client.get_reward_token(), Some(reward_token));
+    }
+
+    // -----------------------------------------------------------------------
+    // Seasonal Bonus Multiplier Tests (Issue #875)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_rainy_season_co2_multiplier() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        // May 15, 2026 (rainy season -> 2x multiplier)
+        set_time(&env, 1_778_800_000);
+        let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000);
+        assert_eq!(client.get_co2_multiplier(&id_rainy), 2);
+        assert_eq!(client.get_co2_multiplier_bps(&id_rainy), 20_000);
+        assert_eq!(client.calculate_carbon_credits(&id_rainy, &1_000), 2_000);
+
+        // January 15, 2026 (non-rainy season -> 1x multiplier)
+        set_time(&env, 1_768_400_000);
+        let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000);
+        assert_eq!(client.get_co2_multiplier(&id_dry), 1);
+        assert_eq!(client.get_co2_multiplier_bps(&id_dry), 10_000);
+        assert_eq!(client.calculate_carbon_credits(&id_dry, &1_000), 1_000);
+    }
+
+    #[test]
+    fn test_earth_month_arbor_day_bonus_multiplier() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        // April 15, 2026 (Earth Month / Arbor Day -> 1.5x / 15,000 bps)
+        set_time(&env, 1_776_200_000);
+        let id_earth_month = client.create_campaign(&creator, &token, &10_000, &5_000, &1_776_300_000);
+        assert_eq!(client.get_co2_multiplier_bps(&id_earth_month), 15_000);
+        // 1,000 trees * 1.5 = 1,500 carbon credits
+        assert_eq!(client.calculate_carbon_credits(&id_earth_month, &1_000), 1_500);
     }
 }
