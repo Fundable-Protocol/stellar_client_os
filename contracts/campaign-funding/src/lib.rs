@@ -295,6 +295,19 @@ pub struct SlaRefundIssuedEvent {
     pub planting_id: u64,
     pub contributor: Address,
     pub amount: i128,
+}
+
+/// Emitted when dynamic supply/demand pricing is evaluated for a campaign.
+#[contractevent(topics = ["DynamicPricingEvaluated"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DynamicPricingEvaluatedEvent {
+    pub campaign_id: u64,
+    pub base_cost: i128,
+    pub dynamic_cost: i128,
+    pub demand_multiplier_bps: u32,
+    pub funding_percentage: u32,
+}
+
 /// Emitted when cumulative contributions cross one of a campaign's funding
 /// milestones (25 %, 50 %, 75 % or 100 % of `target_amount`).
 ///
@@ -645,6 +658,7 @@ impl CampaignFundingContract {
         Self::save_campaign(&env, count, &campaign);
         Self::record_status_change(&env, count, CampaignStatus::Active);
 
+        let co2_multiplier: u32 = 1;
         env.events().publish(
             ("CampaignCreated", count),
             CampaignCreatedEvent {
@@ -1495,6 +1509,8 @@ impl CampaignFundingContract {
             }
         }
         history
+    }
+
     /// Return the configured payment-stream contract address, if any.
     pub fn get_stream_contract(env: Env) -> Option<Address> {
         env.storage().instance().get(&DataKey::StreamContract)
@@ -1761,6 +1777,83 @@ impl CampaignFundingContract {
         if mask & 2 != 0 { tiers.push_back(RewardTier::WhiteLabel); }
         if mask & 4 != 0 { tiers.push_back(RewardTier::ApiAccess); }
         tiers
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Dynamic Pricing (Issue #884)
+    // -----------------------------------------------------------------------
+
+    /// Calculate dynamic cost per tree based on campaign sponsorship demand.
+    /// Popular campaigns reaching or exceeding 90% funding become more expensive
+    /// (1.5x / 15,000 bps) to balance load across less-funded campaigns.
+    pub fn get_campaign_cost_per_tree(env: Env, campaign_id: u64, base_cost: i128) -> i128 {
+        if base_cost <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        let campaign = Self::load_campaign(&env, campaign_id);
+        let multiplier_bps = Self::get_campaign_demand_multiplier_bps(env.clone(), campaign_id);
+        let dynamic_cost = base_cost
+            .checked_mul(multiplier_bps as i128)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow))
+            / 10_000;
+
+        let funding_percentage = if campaign.target_amount > 0 {
+            ((campaign.total_raised * 100) / campaign.target_amount) as u32
+        } else {
+            0
+        };
+
+        DynamicPricingEvaluatedEvent {
+            campaign_id,
+            base_cost,
+            dynamic_cost,
+            demand_multiplier_bps: multiplier_bps,
+            funding_percentage,
+        }
+        .publish(&env);
+
+        dynamic_cost
+    }
+
+    /// Retrieve the demand multiplier in basis points for a campaign.
+    /// - >= 90% funded: 15,000 bps (1.5x surge pricing to balance load)
+    /// - < 90% funded: 10,000 bps (1.0x baseline cost)
+    pub fn get_campaign_demand_multiplier_bps(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if campaign.target_amount <= 0 {
+            return 10_000;
+        }
+
+        let is_popular = campaign
+            .total_raised
+            .checked_mul(100)
+            .map(|r| r >= campaign.target_amount.saturating_mul(90))
+            .unwrap_or(false);
+
+        if is_popular {
+            15_000 // 1.5x multiplier for popular campaigns (>= 90% funded)
+        } else {
+            10_000 // 1.0x standard baseline
+        }
+    }
+
+    /// Calculate how many trees a given contribution amount can sponsor
+    /// under current dynamic supply/demand pricing.
+    pub fn calculate_trees_for_contribution(
+        env: Env,
+        campaign_id: u64,
+        contribution_amount: i128,
+        base_cost: i128,
+    ) -> u32 {
+        if contribution_amount <= 0 || base_cost <= 0 {
+            return 0;
+        }
+        let dynamic_cost = Self::get_campaign_cost_per_tree(env, campaign_id, base_cost);
+        if dynamic_cost <= 0 {
+            return 0;
+        }
+        (contribution_amount / dynamic_cost) as u32
     }
 
     // -----------------------------------------------------------------------
@@ -3037,6 +3130,14 @@ mod tests {
         env.mock_all_auths();
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let history = client.get_status_history(&id);
+        assert_eq!(history.len(), 1);
+        assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
+    }
+
     // Funds-flow transparency events
     // -----------------------------------------------------------------------
 
@@ -3403,12 +3504,6 @@ mod tests {
     fn test_pause_and_resume_campaign_success() {
         let env = Env::default();
         env.mock_all_auths();
-        set_time(&env, 1_000);
-
-    #[test]
-    fn test_rainy_season_co2_multiplier() {
-        let env = Env::default();
-        env.mock_all_auths();
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
@@ -3465,5 +3560,83 @@ mod tests {
         assert_eq!(client.get_reward_token(), None);
         client.set_reward_token(&reward_token);
         assert_eq!(client.get_reward_token(), Some(reward_token));
+    }
+
+    // -----------------------------------------------------------------------
+    // Dynamic Pricing Tests (Issue #884)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_dynamic_pricing_below_90_percent_uses_base_cost() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&contributor, &10_000);
+
+        // Target: 10,000 stroops
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        
+        // 50% funded (5,000 / 10,000)
+        client.contribute(&contributor, &id, &5_000);
+
+        let base_cost = 100i128;
+        let cost = client.get_campaign_cost_per_tree(&id, &base_cost);
+        let multiplier = client.get_campaign_demand_multiplier_bps(&id);
+
+        assert_eq!(cost, 100);
+        assert_eq!(multiplier, 10_000); // 1.0x baseline
+
+        let trees = client.calculate_trees_for_contribution(&id, &500, &base_cost);
+        assert_eq!(trees, 5); // 500 / 100 = 5 trees
+    }
+
+    #[test]
+    fn test_dynamic_pricing_at_or_above_90_percent_applies_surge_multiplier() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&contributor, &10_000);
+
+        // Target: 10,000 stroops
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+
+        // 90% funded (9,000 / 10,000) -> Popular campaign!
+        client.contribute(&contributor, &id, &9_000);
+
+        let base_cost = 100i128;
+        let cost = client.get_campaign_cost_per_tree(&id, &base_cost);
+        let multiplier = client.get_campaign_demand_multiplier_bps(&id);
+
+        // 1.5x surge pricing to balance load
+        assert_eq!(cost, 150);
+        assert_eq!(multiplier, 15_000); // 1.5x multiplier
+
+        // At 150 per tree, 600 tokens yields 4 trees instead of 6
+        let trees = client.calculate_trees_for_contribution(&id, &600, &base_cost);
+        assert_eq!(trees, 4); // 600 / 150 = 4 trees
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #4)")]
+    fn test_dynamic_pricing_zero_base_cost_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+
+        client.get_campaign_cost_per_tree(&id, &0);
     }
 }
