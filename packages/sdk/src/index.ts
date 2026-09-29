@@ -32,6 +32,7 @@ export {
 export * from "./PaymentStreamClient";
 export * from "./DistributorClient";
 export * from "./PlanterClient";
+export * from "./utils/checked-math";
 
 // Export deployment module
 export * from "./deployer";
