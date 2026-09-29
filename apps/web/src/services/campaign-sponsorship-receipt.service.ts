@@ -20,11 +20,14 @@ import { Horizon } from "@stellar/stellar-sdk";
 import {
   assertTransactionHash,
   buildSponsorshipReceipt,
+  encodeSponsorshipReceiptToken,
+  summarizeSponsorshipReceipt,
   verifySponsorshipReceipt,
   type ChainTransactionRecord,
   type ReceiptVerification,
   type SponsorshipReceipt,
   type SponsorshipReceiptInput,
+  type SponsorshipReceiptSummary,
 } from "@/lib/sponsorship-receipt";
 import { getStellarServerOptions } from "@/utils/rpc-connection-options";
 
@@ -44,12 +47,18 @@ export interface SponsorshipReceiptVerificationHints {
   method: "PUT";
   endpoint: string;
   body: string[];
+  /** A token can stand in for `receipt` in the body, or be looked up with `GET ?token=`. */
+  tokenLookup: string;
   /** A `hash` memo is the canonical commitment; a `text` memo carries the receipt id. */
   acceptedMemoTypes: string[];
 }
 
 export interface SponsorshipReceiptIssuance {
   receipt: SponsorshipReceipt;
+  /** The receipt packed into one URL/QR-safe string the sponsor can keep or share (issue #926). */
+  token: string;
+  /** Display fields: tree count, species, planting location, expected CO2. */
+  summary: SponsorshipReceiptSummary;
   memo: TransactionMemo;
   verification: SponsorshipReceiptVerificationHints;
 }
@@ -121,8 +130,11 @@ export function issueCampaignSponsorshipReceipt(
   input: SponsorshipReceiptInput,
 ): SponsorshipReceiptIssuance {
   const receipt = buildSponsorshipReceipt(input);
+  const endpoint = `/api/campaigns/${receipt.campaignId}/sponsorship-receipt`;
   return {
     receipt,
+    token: encodeSponsorshipReceiptToken(receipt),
+    summary: summarizeSponsorshipReceipt(receipt),
     memo: {
       type: "hash",
       memoHex: receipt.receiptHash,
@@ -130,8 +142,9 @@ export function issueCampaignSponsorshipReceipt(
     },
     verification: {
       method: "PUT",
-      endpoint: `/api/campaigns/${receipt.campaignId}/sponsorship-receipt`,
+      endpoint,
       body: ["receipt", "transactionHash"],
+      tokenLookup: `${endpoint}?token=<token>`,
       acceptedMemoTypes: ["hash", "text"],
     },
   };

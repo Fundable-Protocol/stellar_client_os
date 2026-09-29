@@ -2,6 +2,8 @@
 
 The Fundable Webhook Delivery System enables real-time notification of events on the platform (e.g., when a stream status is updated, milestone funds are released, or a campaign reaches a funding milestone) directly to external HTTP endpoints.
 
+Campaign integrations can subscribe to `tree_verified`, `batch_verified`, `campaign_milestone_reached`, and `campaign_completed`. Individual verification payloads use `verificationId` as their stable event identity; batch payloads use `batchId`, and completion payloads use `completionId`. A `batch_verified` event is emitted only for batches containing at least 10 trees.
+
 ## 🚀 Subscription Management API
 
 ### 1. Register a Subscription
@@ -11,7 +13,7 @@ The Fundable Webhook Delivery System enables real-time notification of events on
 ```json
 {
   "url": "https://your-service.com/webhook",
-  "events": ["stream.status_updated", "milestone.funds_released", "campaign.milestone_reached"],
+  "events": ["tree_verified", "batch_verified", "campaign_milestone_reached", "campaign_completed"],
   "secret": "your_custom_secret_key" // Optional: auto-generated if omitted (min 8 chars)
 }
 ```
@@ -114,10 +116,21 @@ If a subscriber's endpoint fails to acknowledge the webhook payload (returns a n
 | `campaign.milestone_reached` | A campaign crossed a funding milestone (25/50/75/100% of goal) | `eventId` (`"{campaignId}:{percentage}"`), `campaignId`, `campaignName`, `percentage`, `raisedAmount`, `goalAmount` |
 | `tree_verified` | An individual tree verification was accepted | `eventId`, `campaignId`, `treeId`, `verifierId`, `verifiedAt`, `latitude`, `longitude` |
 | `batch_verified` | A batch of 10 or more trees was verified | `eventId`, `campaignId`, `treeIds`, `treeCount`, `verifiedAt` |
-| `campaign_milestone_reached` | A campaign impact milestone was reached | `eventId`, `campaignId`, `milestone`, `treeCount`, `co2Sequestration` |
+| `campaign_milestone_reached` | A campaign reached 1,000 trees, 5,000 trees, or 10 tonnes of CO2 sequestration | `eventId`, `campaignId`, `milestone`, `treeCount`, `co2Sequestration` |
 | `campaign_completed` | All campaign verification requirements completed | `eventId`, `campaignId`, `completedAt`, `treeCount`, `co2Sequestration` |
 
 `campaign.milestone_reached` fires once per milestone crossed by a contribution
 (e.g. a contribution that crosses both 50% and 75% emits two events). The
 `eventId` is stable per (campaign, milestone), so idempotent delivery never
 re-sends a milestone that was already delivered.
+
+`campaign_milestone_reached` fires when a campaign record is saved with a newly
+reached impact threshold. Impact totals can be submitted through
+`PATCH /api/campaigns/{id}` with `treeCount` (non-negative whole number) and/or
+`co2Sequestration` (non-negative decimal string in metric tonnes). Subscribe to
+this event (or `*`) through `POST /api/webhooks/subscriptions`. The `milestone`
+value is `1000_trees`, `5000_trees`, or `10_tons_co2`; `co2Sequestration` is a
+decimal string in metric tonnes (or `null` when unavailable). A single update
+can emit multiple events.
+Each event ID is `{campaignId}:impact:{milestone}`. Repeated saves and later
+decreases and increases do not emit a threshold again for the same campaign.

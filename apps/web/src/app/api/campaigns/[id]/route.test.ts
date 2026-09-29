@@ -1,11 +1,12 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import { createCampaign, InMemoryCampaignDataSource, setCampaignDataSource } from "../../../../services/campaign.service";
-import { GET } from "./route";
+import { GET, PATCH } from "./route";
 
 describe("GET /api/campaigns/:id freshness (#704)", () => {
-  const dataSource = new InMemoryCampaignDataSource();
+  let dataSource: InMemoryCampaignDataSource;
 
   beforeEach(async () => {
+    dataSource = new InMemoryCampaignDataSource();
     setCampaignDataSource(dataSource);
     await createCampaign({ id: "fresh-campaign", creator: "creator", name: "Fresh", goalAmount: "1000" }, dataSource);
   });
@@ -17,5 +18,44 @@ describe("GET /api/campaigns/:id freshness (#704)", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store, max-age=0");
     expect(await response.json()).toMatchObject({ id: "fresh-campaign", sponsorCount: 0 });
+  });
+});
+
+describe("PATCH /api/campaigns/:id impact milestones", () => {
+  const dispatch = vi.fn<(event: string, payload: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined);
+  let dataSource: InMemoryCampaignDataSource;
+  const context = { params: Promise.resolve({ id: "impact-campaign" }) };
+  const request = (body: unknown) => new Request("http://localhost/api/campaigns/impact-campaign", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  beforeEach(async () => {
+    dispatch.mockClear();
+    dataSource = new InMemoryCampaignDataSource(dispatch);
+    setCampaignDataSource(dataSource);
+    await createCampaign({ id: "impact-campaign", creator: "creator", name: "Forest", goalAmount: "1000" }, dataSource);
+  });
+
+  it("updates impact totals and emits each reached event once", async () => {
+    const first = await PATCH(request({ treeCount: 1000, co2Sequestration: "9.5" }), context);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ treeCount: 1000, co2Sequestration: "9.5" });
+
+    const second = await PATCH(request({ treeCount: 5000, co2Sequestration: "10" }), context);
+    expect(second.status).toBe(200);
+    await PATCH(request({ treeCount: 5000, co2Sequestration: "10" }), context);
+    expect(dispatch.mock.calls.map(([, payload]) => payload.milestone)).toEqual([
+      "1000_trees", "5000_trees", "10_tons_co2",
+    ]);
+  });
+
+  it("rejects invalid impact totals without saving or dispatching", async () => {
+    expect((await PATCH(request({ treeCount: -1 }), context)).status).toBe(400);
+    expect((await PATCH(request({ treeCount: 1.5 }), context)).status).toBe(400);
+    expect((await PATCH(request({ co2Sequestration: "Infinity" }), context)).status).toBe(400);
+    expect((await dataSource.getCampaigns())[0].treeCount).toBe(0);
+    expect(dispatch).not.toHaveBeenCalled();
   });
 });

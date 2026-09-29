@@ -30,6 +30,7 @@ import { CampaignQAModeration } from "@/components/modules/campaign/qa/CampaignQ
 import { CampaignSeries } from "@/components/modules/campaign/series/CampaignSeries";
 import { CampaignAnalyticsDashboard } from "@/components/modules/campaign/analytics/CampaignAnalyticsDashboard";
 import { BackerCommunity } from "@/components/modules/campaign/community/BackerCommunity";
+import { CampaignFollowButton } from "@/components/modules/campaign/follow/CampaignFollowButton";
 import { TopBackers } from "@/components/modules/campaign/backers/TopBackers";
 import { TOP_BACKERS_LIMIT } from "@/types/campaign-backers";
 import { CampaignFundingVelocityChart } from "@/components/modules/campaign/FundingVelocityChart";
@@ -184,14 +185,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         </Link>
 
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-emerald-600/40 text-emerald-300 hover:bg-emerald-950/40 text-xs"
-            onClick={() => setShowARModal(true)}
-          >
-            <Eye className="mr-1.5 h-3.5 w-3.5" /> Visualize in AR
-          </Button>
+          <Link href={`/campaigns/${id}/donate`}>
+            <Button size="sm" variant="outline" className="border-rose-600/40 text-rose-300 hover:bg-rose-950/40 text-xs">
+              <Heart className="mr-1.5 h-3.5 w-3.5" /> Donate
+            </Button>
+          </Link>
           <Link href="/campaigns/create">
             <Button size="sm" variant="outline" className="border-purple-600/40 text-purple-300 hover:bg-purple-950/40 text-xs">
               <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Campaign
@@ -314,6 +312,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             <Button className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 font-bold text-white hover:from-emerald-700 hover:to-teal-700 shadow-md">
               <Heart className="mr-2 h-4 w-4 fill-white" /> Sponsor This Campaign
             </Button>
+
+            {/* Follow for updates without sponsoring (#942 v1) */}
+            <CampaignFollowButton campaignId={campaign.id} />
           </div>
         </div>
       </div>

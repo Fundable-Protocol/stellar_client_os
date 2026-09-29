@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import {
+  MAX_SPONSORSHIP_RECEIPT_TOKEN_LENGTH,
+  SPONSORSHIP_RECEIPT_TOKEN_PREFIX,
   SPONSORSHIP_RECEIPT_VERSION,
   SponsorshipReceiptError,
   assertTransactionHash,
   buildSponsorshipReceipt,
   canonicalizeReceiptBody,
   computeReceiptHash,
+  decodeSponsorshipReceiptToken,
+  encodeSponsorshipReceiptToken,
   memoHashToHex,
   parseSponsorshipReceipt,
   parseSponsorshipReceiptInput,
   receiptBody,
+  summarizeSponsorshipReceipt,
   verifySponsorshipReceipt,
   type ChainTransactionRecord,
   type SponsorshipReceipt,
@@ -414,5 +419,93 @@ describe("verifySponsorshipReceipt", () => {
     expect(result.status).toBe("receipt_mismatch");
     expect(result.checks.receiptHashMatchesContent).toBe(false);
     expect(result.checks.memoMatchesReceipt).toBe(true);
+  });
+});
+
+describe("sponsorship receipt tokens (issue #926)", () => {
+  it("round-trips a receipt through its token", () => {
+    const receipt = buildSponsorshipReceipt(baseInput());
+    const token = encodeSponsorshipReceiptToken(receipt);
+
+    expect(token.startsWith(`${SPONSORSHIP_RECEIPT_TOKEN_PREFIX}.`)).toBe(true);
+    expect(token).toMatch(/^fsr1\.[A-Za-z0-9_-]+$/);
+    expect(decodeSponsorshipReceiptToken(token)).toEqual(receipt);
+  });
+
+  it("encodes the same receipt to the same token", () => {
+    const first = encodeSponsorshipReceiptToken(buildSponsorshipReceipt(baseInput()));
+    const second = encodeSponsorshipReceiptToken(buildSponsorshipReceipt(baseInput()));
+
+    expect(first).toBe(second);
+  });
+
+  it("keeps a token small enough for a QR code", () => {
+    const token = encodeSponsorshipReceiptToken(buildSponsorshipReceipt(baseInput()));
+
+    expect(token.length).toBeLessThan(1024);
+  });
+
+  it("carries the claimed commitment so an edited token fails verification", () => {
+    const receipt = buildSponsorshipReceipt(baseInput());
+    const payload = JSON.parse(
+      Buffer.from(encodeSponsorshipReceiptToken(receipt).slice(5), "base64url").toString("utf8"),
+    );
+    const forged = `fsr1.${Buffer.from(
+      JSON.stringify({ ...payload, treeCount: 1000 }),
+      "utf8",
+    ).toString("base64url")}`;
+
+    const decoded = decodeSponsorshipReceiptToken(forged);
+    const result = verifySponsorshipReceipt(decoded, transactionFor(receipt), TRANSACTION_HASH);
+
+    expect(decoded.treeCount).toBe(1000);
+    expect(decoded.receiptHash).toBe(receipt.receiptHash);
+    expect(result.status).toBe("receipt_mismatch");
+  });
+
+  it.each([
+    ["a missing token", undefined, "token is required"],
+    ["an empty token", "   ", "token is required"],
+    ["the wrong prefix", "abc.eyJ9", 'token must start with "fsr1."'],
+    ["no separator", "fsr1", 'token must start with "fsr1."'],
+    ["a non-base64url payload", "fsr1.not/base64+", "token payload must be base64url encoded"],
+    ["a payload that is not JSON", `fsr1.${Buffer.from("nope").toString("base64url")}`, "token payload is not a receipt"],
+    ["an oversized token", `fsr1.${"a".repeat(MAX_SPONSORSHIP_RECEIPT_TOKEN_LENGTH)}`, "token must be at most"],
+  ])("rejects %s", (_label, token, message) => {
+    expect(() => decodeSponsorshipReceiptToken(token)).toThrow(SponsorshipReceiptError);
+    expect(() => decodeSponsorshipReceiptToken(token)).toThrow(message);
+  });
+
+  it("rejects a token whose payload is not a valid receipt", () => {
+    const token = `fsr1.${Buffer.from(JSON.stringify({ version: 1 })).toString("base64url")}`;
+
+    expect(() => decodeSponsorshipReceiptToken(token)).toThrow(SponsorshipReceiptError);
+  });
+});
+
+describe("summarizeSponsorshipReceipt", () => {
+  it("shows tree count, species, location, and expected CO2", () => {
+    const receipt = buildSponsorshipReceipt(baseInput());
+    const summary = summarizeSponsorshipReceipt(receipt);
+
+    expect(summary).toMatchObject({
+      receiptId: receipt.receiptId,
+      treeCount: 100,
+      species: "Oak",
+      plantingLocation: "Nyeri, Kenya",
+      coordinates: "-0.4200, 36.9500",
+      plantedAt: "2026-06-15",
+      expectedCo2PerYearKg: receipt.co2.perYearKg,
+      expectedCo2Over10YearsTonnes: receipt.co2.over10YearsTonnes,
+    });
+    expect(summary.headline).toBe(
+      `100 Oak trees planted in Nyeri, Kenya on 2026-06-15, expected to sequester ${receipt.co2.over10YearsTonnes} t CO2 over 10 years`,
+    );
+  });
+
+  it("uses the singular for a single tree", () => {
+    const summary = summarizeSponsorshipReceipt(buildSponsorshipReceipt(baseInput({ treeCount: 1 })));
+
+    expect(summary.headline.startsWith("1 Oak tree planted")).toBe(true);
   });
 });

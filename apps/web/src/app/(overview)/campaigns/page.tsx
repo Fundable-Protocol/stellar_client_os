@@ -1,17 +1,30 @@
 "use client";
 
-import React from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
-import { Rocket, Plus, Heart, Users, ShieldCheck, ChevronRight, Trophy, Scale, ShoppingBag } from "lucide-react";
+import { Rocket, Plus, Heart, Users, ShieldCheck, ChevronRight, Trophy, Scale, ShoppingBag, Trees, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SuccessStories from "@/components/modules/campaign/success-stories/SuccessStories";
 import { useCampaigns } from "@/hooks/use-campaigns";
 import { useCampaignWishlist } from "@/hooks/use-campaign-wishlist";
+import {
+  DISCOVERY_REGIONS,
+  DISCOVERY_TREE_SPECIES,
+  filterCampaignsByDiscoveryOptions,
+  type DiscoveryRegion,
+  type DiscoveryTreeSpecies,
+} from "@/lib/campaign-discovery-filters";
 
 export default function CampaignsDirectoryPage() {
   const { campaigns } = useCampaigns();
   const { toggleWishlist, isInWishlist } = useCampaignWishlist();
+  const [treeSpecies, setTreeSpecies] = useState<DiscoveryTreeSpecies | "All">("All");
+  const [region, setRegion] = useState<DiscoveryRegion | "All">("All");
+  const filteredCampaigns = useMemo(
+    () => filterCampaignsByDiscoveryOptions(campaigns, { treeSpecies, region }),
+    [campaigns, treeSpecies, region],
+  );
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
@@ -63,8 +76,45 @@ export default function CampaignsDirectoryPage() {
       <SuccessStories />
 
       {/* Campaigns Grid */}
-      <div className="grid grid-cols-1 md-grid-cols-2 gap-6">
-        {campaigns.map((c) => {
+      <section aria-label="Filter campaigns" className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-zinc-100">Find campaigns by impact</h2>
+          <p className="mt-1 text-xs text-zinc-400">Choose a tree species, region, or both.</p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="flex w-full flex-col gap-1.5 text-xs font-medium text-zinc-300 sm:max-w-xs">
+            <span className="flex items-center gap-2"><Trees className="h-4 w-4 text-emerald-400" /> Tree species</span>
+            <select
+              aria-label="Filter by tree species"
+              value={treeSpecies}
+              onChange={(event) => setTreeSpecies(event.target.value as DiscoveryTreeSpecies | "All")}
+              className="h-10 rounded-md border border-zinc-700 bg-zinc-800 px-3 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="All">All species</option>
+              {DISCOVERY_TREE_SPECIES.map((species) => <option key={species} value={species}>{species}</option>)}
+            </select>
+          </label>
+          <label className="flex w-full flex-col gap-1.5 text-xs font-medium text-zinc-300 sm:max-w-xs">
+            <span className="flex items-center gap-2"><MapPin className="h-4 w-4 text-sky-400" /> Geographic region</span>
+            <select
+              aria-label="Filter by geographic region"
+              value={region}
+              onChange={(event) => setRegion(event.target.value as DiscoveryRegion | "All")}
+              className="h-10 rounded-md border border-zinc-700 bg-zinc-800 px-3 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="All">All regions</option>
+              {DISCOVERY_REGIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <p className="text-xs text-zinc-400 sm:ml-auto" aria-live="polite">
+            Showing {filteredCampaigns.length} of {campaigns.length} campaigns
+          </p>
+        </div>
+      </section>
+
+      {filteredCampaigns.length > 0 ? (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {filteredCampaigns.map((c) => {
           const progress = Math.round((parseFloat(String(c.raisedAmount).replace(/,/g, "")) / parseFloat(String(c.goalAmount).replace(/,/g, ""))) * 100) || 0;
           const wished = isInWishlist(c.id);
           
@@ -137,6 +187,20 @@ export default function CampaignsDirectoryPage() {
           );
         })}
       </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-zinc-700 px-6 py-12 text-center">
+          <Trees className="mx-auto h-8 w-8 text-zinc-500" />
+          <h2 className="mt-3 text-lg font-semibold text-zinc-100">No campaigns match these filters</h2>
+          <p className="mt-1 text-sm text-zinc-400">Try another species or region, or show all campaigns.</p>
+          <Button
+            variant="outline"
+            className="mt-4 border-zinc-700 text-zinc-200"
+            onClick={() => { setTreeSpecies("All"); setRegion("All"); }}
+          >
+            Clear filters
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

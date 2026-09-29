@@ -74,6 +74,10 @@ export function useCampaigns() {
             collaboratorCount: 0,
             status: c.status,
             description: c.description || "",
+            treeSpecies: c.treeSpecies,
+            region: c.region,
+            location: c.location,
+            gpsLocations: c.gpsLocations,
             endDate: c.endDate || c.deadline ? new Date(c.deadline || c.endDate).toISOString() : undefined,
           }));
           

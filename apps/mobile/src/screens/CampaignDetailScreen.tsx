@@ -245,38 +245,53 @@ export default function CampaignDetailScreen({
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
+    let disposed = false;
 
     ws.onopen = () => {
+      if (disposed) return;
       dispatch({ type: "WS_CONNECTED" });
       ws.send(JSON.stringify({ type: "subscribe", campaignId }));
     };
 
     ws.onmessage = (event) => {
-      let msg: WsMessage;
-      try { msg = JSON.parse(event.data as string) as WsMessage; }
+      let msg: unknown;
+      try { msg = JSON.parse(event.data as string); }
       catch { return; }
+      if (!msg || typeof msg !== "object" || !("type" in msg)) return;
+      const message = msg as Partial<WsMessage>;
 
-      switch (msg.type) {
+      switch (message.type) {
         case "campaign_update":
-          dispatch({ type: "CAMPAIGN_UPDATE", patch: msg.payload });
+          if (message.payload && typeof message.payload === "object") {
+            dispatch({ type: "CAMPAIGN_UPDATE", patch: message.payload });
+          }
           break;
         case "tree_planted":
-          dispatch({ type: "TREE_PLANTED", treeCount: msg.payload.treeCount });
-          pulsTree();
+          if (message.payload && "treeCount" in message.payload && Number.isFinite(message.payload.treeCount)) {
+            dispatch({ type: "TREE_PLANTED", treeCount: message.payload.treeCount });
+            pulsTree();
+          }
           break;
         case "new_sponsor":
-          dispatch({ type: "NEW_SPONSOR", sponsor: msg.payload });
+          if (message.payload && "id" in message.payload && typeof message.payload.id === "string") {
+            dispatch({ type: "NEW_SPONSOR", sponsor: message.payload as Sponsor });
+          }
           break;
         case "ping":
-          ws.send(JSON.stringify({ type: "pong" }));
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "pong" }));
           break;
       }
     };
 
-    ws.onclose  = () => dispatch({ type: "WS_DISCONNECTED" });
-    ws.onerror  = () => dispatch({ type: "WS_DISCONNECTED" });
+    ws.onclose  = () => { if (!disposed) dispatch({ type: "WS_DISCONNECTED" }); };
+    ws.onerror  = () => { if (!disposed) dispatch({ type: "WS_DISCONNECTED" }); };
 
     return () => {
+      disposed = true;
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onclose = null;
+      ws.onerror = null;
       ws.close();
       wsRef.current = null;
     };

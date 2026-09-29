@@ -360,8 +360,8 @@ export function buildSponsorshipReceipt(input: SponsorshipReceiptInput): Sponsor
     },
     plantingLocation: normalized.plantingLocation,
     plantedAt: normalized.plantedAt,
-    currency: normalized.currency,
-    amount: normalized.amount,
+    currency: normalized.currency ?? null,
+    amount: normalized.amount ?? null,
     co2: {
       perYearKg: impact.co2PerYearKg,
       over10YearsKg: impact.co2Over10YearsKg,
@@ -421,6 +421,108 @@ export function parseSponsorshipReceipt(value: unknown): SponsorshipReceipt {
       typeof candidate.receiptId === "string" && candidate.receiptId.length > 0
         ? candidate.receiptId
         : rebuilt.receiptId,
+  };
+}
+
+/**
+ * Receipt tokens (issue #926).
+ *
+ * A token is the whole receipt packed into one URL- and QR-safe string:
+ * `fsr1.<base64url(canonical JSON)>`. It carries the hashed body plus the
+ * claimed commitment, so it is self-contained — whoever holds the token can
+ * reproduce the receipt and check it against the ledger without asking the
+ * issuer for anything. The prefix names the token format; the receipt version
+ * inside the body names the receipt format, so the two can evolve separately.
+ */
+export const SPONSORSHIP_RECEIPT_TOKEN_PREFIX = "fsr1";
+
+/** Base64url alphabet, no padding — what `Buffer#toString("base64url")` emits. */
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Upper bound on an encoded token. A real receipt is well under 1 KB; the cap
+ * keeps an oversized query string or body from being decoded and parsed.
+ */
+export const MAX_SPONSORSHIP_RECEIPT_TOKEN_LENGTH = 4096;
+
+/** Pack a receipt into its portable token. */
+export function encodeSponsorshipReceiptToken(receipt: SponsorshipReceipt): string {
+  const payload = canonicalizeReceiptBody({
+    ...receiptBody(receipt),
+    receiptHash: receipt.receiptHash,
+    receiptId: receipt.receiptId,
+  });
+  return `${SPONSORSHIP_RECEIPT_TOKEN_PREFIX}.${Buffer.from(payload, "utf8").toString("base64url")}`;
+}
+
+/**
+ * Unpack a token into a validated receipt.
+ *
+ * Like {@link parseSponsorshipReceipt}, this does not trust the commitment the
+ * token carries — it only guarantees a well-formed receipt. Whether the fields
+ * still hash to `receiptHash` is decided by {@link verifySponsorshipReceipt}.
+ */
+export function decodeSponsorshipReceiptToken(token: unknown): SponsorshipReceipt {
+  if (typeof token !== "string" || token.trim().length === 0) {
+    throw new SponsorshipReceiptError("token is required");
+  }
+  const trimmed = token.trim();
+  if (trimmed.length > MAX_SPONSORSHIP_RECEIPT_TOKEN_LENGTH) {
+    throw new SponsorshipReceiptError(
+      `token must be at most ${MAX_SPONSORSHIP_RECEIPT_TOKEN_LENGTH} characters`,
+    );
+  }
+
+  const separator = trimmed.indexOf(".");
+  const prefix = separator === -1 ? "" : trimmed.slice(0, separator);
+  const encoded = separator === -1 ? "" : trimmed.slice(separator + 1);
+  if (prefix !== SPONSORSHIP_RECEIPT_TOKEN_PREFIX) {
+    throw new SponsorshipReceiptError(
+      `token must start with "${SPONSORSHIP_RECEIPT_TOKEN_PREFIX}."`,
+    );
+  }
+  if (!BASE64URL_PATTERN.test(encoded)) {
+    throw new SponsorshipReceiptError("token payload must be base64url encoded");
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+  } catch {
+    throw new SponsorshipReceiptError("token payload is not a receipt");
+  }
+  return parseSponsorshipReceipt(payload);
+}
+
+/** The fields a sponsor-facing receipt shows, already formatted for display. */
+export interface SponsorshipReceiptSummary {
+  receiptId: string;
+  treeCount: number;
+  species: string;
+  plantingLocation: string;
+  coordinates: string;
+  plantedAt: string;
+  expectedCo2PerYearKg: number;
+  expectedCo2Over10YearsTonnes: number;
+  /** One line suitable for a receipt header or a share message. */
+  headline: string;
+}
+
+/** Summarize a receipt for display: tree count, species, location, expected CO2. */
+export function summarizeSponsorshipReceipt(receipt: SponsorshipReceipt): SponsorshipReceiptSummary {
+  const { plantingLocation: location } = receipt;
+  const trees = `${receipt.treeCount} ${receipt.species.label} ${receipt.treeCount === 1 ? "tree" : "trees"}`;
+  const place = `${location.region}, ${location.country}`;
+  return {
+    receiptId: receipt.receiptId,
+    treeCount: receipt.treeCount,
+    species: receipt.species.label,
+    plantingLocation: place,
+    coordinates: `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`,
+    plantedAt: receipt.plantedAt,
+    expectedCo2PerYearKg: receipt.co2.perYearKg,
+    expectedCo2Over10YearsTonnes: receipt.co2.over10YearsTonnes,
+    headline: `${trees} planted in ${place} on ${receipt.plantedAt}, expected to sequester ${receipt.co2.over10YearsTonnes} t CO2 over 10 years`,
   };
 }
 

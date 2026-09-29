@@ -3,8 +3,9 @@
  *
  * `POST` issues a receipt for a sponsorship of trees in a campaign. `PUT`
  * verifies a receipt the caller presents against the Stellar transaction that
- * should carry its commitment. Both are stateless: the receipt is its own
- * proof, so there is nothing to persist.
+ * should carry its commitment. `GET ?token=` opens the portable receipt token
+ * the sponsor was issued (issue #926). All are stateless: the receipt is its
+ * own proof, so there is nothing to persist.
  *
  * @see {@link @/lib/sponsorship-receipt}
  * @see {@link @/services/campaign-sponsorship-receipt.service}
@@ -13,8 +14,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   SponsorshipReceiptError,
+  computeReceiptHash,
+  decodeSponsorshipReceiptToken,
   parseSponsorshipReceipt,
   parseSponsorshipReceiptInput,
+  summarizeSponsorshipReceipt,
 } from "@/lib/sponsorship-receipt";
 import { sanitizeError } from "@/lib/sanitize-error";
 import {
@@ -91,7 +95,53 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
 }
 
 /**
+ * Open a receipt token (issue #926): `GET ?token=<token>` returns the receipt
+ * and its display summary (tree count, species, location, expected CO2), plus
+ * whether its fields still match its commitment. Adding
+ * `&transactionHash=<hash>` also checks the commitment against the ledger,
+ * exactly as `PUT` does, so a token link alone is enough to verify a receipt.
+ */
+export async function GET(request: NextRequest, { params }: RouteContext) {
+  const { id: campaignId } = await params;
+  const searchParams = new URL(request.url).searchParams;
+  const token = searchParams.get("token");
+  if (token === null) {
+    return errorResponse("token is required", 400);
+  }
+  const transactionHash = searchParams.get("transactionHash");
+
+  try {
+    const receipt = decodeSponsorshipReceiptToken(token);
+    if (receipt.campaignId !== campaignId) {
+      return errorResponse("receipt does not belong to this campaign", 400);
+    }
+
+    const verification =
+      transactionHash === null
+        ? null
+        : await verifyCampaignSponsorshipReceipt(receipt, transactionHash);
+    return NextResponse.json({
+      success: true,
+      campaignId,
+      receipt,
+      summary: summarizeSponsorshipReceipt(receipt),
+      receiptHashMatchesContent: computeReceiptHash(receipt) === receipt.receiptHash,
+      verification,
+    });
+  } catch (error) {
+    if (error instanceof SponsorshipReceiptError) {
+      return errorResponse(error.message, 400);
+    }
+    logFailure("Failed to open sponsorship receipt token", error);
+    return errorResponse("Failed to verify the sponsorship receipt", 502);
+  }
+}
+
+/**
  * Verify a receipt against its Stellar transaction.
+ *
+ * The receipt may be sent as `receipt` (object or JSON string) or as the
+ * `token` it was issued with.
  *
  * Verification outcomes are reported, not thrown: a receipt that fails a check
  * is a successful answer to the question "is this receipt valid?", so this
@@ -111,8 +161,8 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
     return errorResponse("A JSON body is required", 400);
   }
 
-  if (body.receipt === undefined) {
-    return errorResponse("receipt is required", 400);
+  if (body.receipt === undefined && body.token === undefined) {
+    return errorResponse("receipt or token is required", 400);
   }
   const transactionHash = body.transactionHash;
   if (typeof transactionHash !== "string") {
@@ -120,7 +170,10 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
   }
 
   try {
-    const receipt = parseSponsorshipReceipt(readReceiptField(body.receipt));
+    const receipt =
+      body.receipt !== undefined
+        ? parseSponsorshipReceipt(readReceiptField(body.receipt))
+        : decodeSponsorshipReceiptToken(body.token);
     if (receipt.campaignId !== campaignId) {
       return errorResponse("receipt does not belong to this campaign", 400);
     }

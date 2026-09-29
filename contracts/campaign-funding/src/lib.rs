@@ -1084,7 +1084,29 @@ impl CampaignFundingContract {
 
         let campaign = Self::load_campaign(&env, campaign_id);
 
-        if campaign.status != CampaignStatus::Failed {
+        let now = env.ledger().timestamp();
+        let sixty_days = 60 * 24 * 60 * 60;
+        let ninety_days = 90 * 24 * 60 * 60;
+
+        let mut refund_percent = 0;
+
+        if campaign.status == CampaignStatus::Failed {
+            refund_percent = 100;
+        } else if campaign.planter == OptionalAddress::None && now > campaign.created_at + sixty_days {
+            refund_percent = 100;
+        } else {
+            let count_key = DataKey::PlantingCount(campaign_id);
+            let planting_count: u64 = env.storage().instance().get(&count_key).unwrap_or(0);
+            if planting_count == 0 && now > campaign.created_at + ninety_days {
+                refund_percent = 50;
+            }
+        }
+
+        if campaign.status == CampaignStatus::Claimed || campaign.status == CampaignStatus::VerificationFailed {
+            refund_percent = 0;
+        }
+
+        if refund_percent == 0 {
             panic_with_error!(&env, Error::CampaignNotFailed);
         }
 
@@ -1095,18 +1117,22 @@ impl CampaignFundingContract {
             panic_with_error!(&env, Error::NoContributionFound);
         }
 
+        let refund_amount = (amount * refund_percent as i128) / 100;
+
         // Clear before transferring (check-effects-interactions).
         env.storage().persistent().remove(&contrib_key);
 
         let token_client = token::Client::new(&env, &campaign.token);
-        token_client.transfer(&env.current_contract_address(), &contributor, &amount);
+        if refund_amount > 0 {
+            token_client.transfer(&env.current_contract_address(), &contributor, &refund_amount);
+        }
 
         env.events().publish(
             ("RefundIssued", campaign_id),
             RefundIssuedEvent {
                 campaign_id,
                 contributor,
-                amount,
+                amount: refund_amount,
             },
         );
     }

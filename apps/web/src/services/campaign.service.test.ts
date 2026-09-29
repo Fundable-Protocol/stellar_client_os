@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   InMemoryCampaignDataSource,
   createCampaign,
@@ -8,6 +8,7 @@ import {
   getCampaignCreatorBadge,
   getCampaignCreatorBadges,
   transitionCampaignStatus,
+  reachedImpactMilestones,
   type CampaignRecord,
 } from "./campaign.service";
 
@@ -27,6 +28,45 @@ const fixture = (overrides: Partial<CampaignRecord> = {}): CampaignRecord => ({
   sponsors: [{ id: "sponsor-1", campaignId: "campaign-1", address: "GABC", amount: "250", token: "USDC", sponsoredAt: 1_000 }],
   statusHistory: [],
   ...overrides,
+});
+
+describe("campaign impact milestone webhooks", () => {
+  it("recognizes the three thresholds and ignores invalid totals", () => {
+    expect(reachedImpactMilestones(fixture({ treeCount: 999, co2Sequestration: "9.99" }))).toEqual([]);
+    expect(reachedImpactMilestones(fixture({ treeCount: 5000, co2Sequestration: "10" }))).toEqual([
+      "1000_trees", "5000_trees", "10_tons_co2",
+    ]);
+    expect(reachedImpactMilestones(fixture({ treeCount: Number.NaN, co2Sequestration: "Infinity" }))).toEqual([]);
+  });
+
+  it("dispatches each crossed threshold once with distinct stable event IDs", async () => {
+    const dispatch = vi.fn<(event: string, payload: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined);
+    const source = new InMemoryCampaignDataSource(dispatch);
+    await source.saveCampaign(fixture({ treeCount: 999, co2Sequestration: "9.9" }));
+    const updated = await source.saveCampaign(fixture({ treeCount: 5100, co2Sequestration: "10.5" }));
+
+    expect(updated.impactMilestonesReached).toEqual(["1000_trees", "5000_trees", "10_tons_co2"]);
+    expect(dispatch.mock.calls).toEqual([
+      ["campaign_milestone_reached", { eventId: "campaign-1:impact:1000_trees", campaignId: "campaign-1", milestone: "1000_trees", treeCount: 5100, co2Sequestration: "10.5" }],
+      ["campaign_milestone_reached", { eventId: "campaign-1:impact:5000_trees", campaignId: "campaign-1", milestone: "5000_trees", treeCount: 5100, co2Sequestration: "10.5" }],
+      ["campaign_milestone_reached", { eventId: "campaign-1:impact:10_tons_co2", campaignId: "campaign-1", milestone: "10_tons_co2", treeCount: 5100, co2Sequestration: "10.5" }],
+    ]);
+
+    await source.saveCampaign(fixture({ treeCount: 100, co2Sequestration: "1" }));
+    await source.saveCampaign(fixture({ treeCount: 6000, co2Sequestration: "12" }));
+    expect(dispatch).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps milestones separate by campaign and preserves reached markers on stale saves", async () => {
+    const dispatch = vi.fn<(event: string, payload: Record<string, unknown>) => Promise<void>>().mockResolvedValue(undefined);
+    const source = new InMemoryCampaignDataSource(dispatch);
+    await source.saveCampaign(fixture({ treeCount: 1000 }));
+    await source.saveCampaign(fixture({ id: "campaign-2", treeCount: 1000 }));
+    await source.saveCampaign(fixture({ treeCount: 1100, impactMilestonesReached: [] }));
+    expect(dispatch.mock.calls.map(([, payload]) => payload.eventId)).toEqual([
+      "campaign-1:impact:1000_trees", "campaign-2:impact:1000_trees",
+    ]);
+  });
 });
 
 describe("campaign service", () => {
@@ -79,6 +119,17 @@ describe("campaign service", () => {
     );
     expect(campaign.location).toBe("Kenya");
     expect(campaign.durationMs).toBe(100_000);
+  });
+
+  it("persists tree species and region metadata for campaign discovery", async () => {
+    const source = new InMemoryCampaignDataSource();
+    const campaign = await createCampaign(
+      { creator: "creator-1", name: "Oak restoration", goalAmount: "100", treeSpecies: "Oak", region: "North America" },
+      source,
+      10_000,
+    );
+    expect(campaign).toMatchObject({ treeSpecies: "Oak", region: "North America" });
+    expect(await source.getCampaigns()).toContainEqual(campaign);
   });
 });
 

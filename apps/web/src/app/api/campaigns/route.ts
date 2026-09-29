@@ -29,6 +29,8 @@ async function postCampaign(request: Request) {
       name?: string;
       description?: string;
       location?: string;
+      region?: string;
+      treeSpecies?: string;
       durationMs?: number;
       deadline?: number;
       goalAmount?: string;
@@ -50,6 +52,12 @@ async function postCampaign(request: Request) {
     }
     if (body.location !== undefined && typeof body.location !== "string") {
       return Response.json({ error: "location must be a string" }, { status: 400 });
+    }
+    if (body.region !== undefined && typeof body.region !== "string") {
+      return Response.json({ error: "region must be a string" }, { status: 400 });
+    }
+    if (body.treeSpecies !== undefined && typeof body.treeSpecies !== "string") {
+      return Response.json({ error: "treeSpecies must be a string" }, { status: 400 });
     }
     if (body.durationMs !== undefined && (!Number.isFinite(body.durationMs) || body.durationMs < 0)) {
       return Response.json({ error: "durationMs must be a non-negative number" }, { status: 400 });
@@ -111,6 +119,8 @@ async function postCampaign(request: Request) {
       name: body.name,
       description,
       location: body.location,
+      region: body.region,
+      treeSpecies: body.treeSpecies,
       durationMs,
       goalAmount: body.goalAmount,
       network: body.network,
