@@ -1,190 +1,66 @@
-/**
- * Campaign sponsorship receipt — issue and verify (issue #994).
- *
- * `POST` issues a receipt for a sponsorship of trees in a campaign. `PUT`
- * verifies a receipt the caller presents against the Stellar transaction that
- * should carry its commitment. `GET ?token=` opens the portable receipt token
- * the sponsor was issued (issue #926). All are stateless: the receipt is its
- * own proof, so there is nothing to persist.
- *
- * @see {@link @/lib/sponsorship-receipt}
- * @see {@link @/services/campaign-sponsorship-receipt.service}
- */
-
-import { NextRequest, NextResponse } from "next/server";
-import {
-  SponsorshipReceiptError,
-  computeReceiptHash,
-  decodeSponsorshipReceiptToken,
-  parseSponsorshipReceipt,
-  parseSponsorshipReceiptInput,
-  summarizeSponsorshipReceipt,
-} from "@/lib/sponsorship-receipt";
-import { sanitizeError } from "@/lib/sanitize-error";
+import { NextRequest, NextResponse } from 'next/server';
 import {
   issueCampaignSponsorshipReceipt,
   verifyCampaignSponsorshipReceipt,
-} from "@/services/campaign-sponsorship-receipt.service";
+} from '@/services/campaign-sponsorship-receipt.service';
 
-type RouteContext = { params: Promise<{ id: string }> };
-
-function errorResponse(message: string, status: number) {
-  return NextResponse.json({ success: false, error: message }, { status });
-}
-
-/** A rejected lookup or a failed parse does not have to be an `Error`. */
-function logFailure(message: string, error: unknown) {
-  console.error(message, sanitizeError(error instanceof Error ? error : new Error(String(error))));
-}
-
-/** A receipt may arrive as JSON or as the string a QR code carried. */
-function readReceiptField(value: unknown): unknown {
-  if (typeof value !== "string") {
-    return value;
-  }
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    return JSON.parse(value);
-  } catch {
-    throw new SponsorshipReceiptError("receipt must be a receipt object or its JSON string");
-  }
-}
+    const campaignId = params.id;
+    const body = await request.json();
 
-function readBody(value: unknown): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new SponsorshipReceiptError("A JSON object body is required");
-  }
-  return value as Record<string, unknown>;
-}
-
-/**
- * Issue the receipt for a sponsorship. The campaign id comes from the URL; a
- * body `campaignId` is allowed but must agree with it, so a receipt can never
- * be issued under a campaign the request did not name.
- */
-export async function POST(request: NextRequest, { params }: RouteContext) {
-  const { id: campaignId } = await params;
-
-  let body: Record<string, unknown>;
-  try {
-    body = readBody(await request.json());
-  } catch (error) {
-    if (error instanceof SponsorshipReceiptError) {
-      return errorResponse(error.message, 400);
-    }
-    return errorResponse("A JSON body is required", 400);
-  }
-
-  if (typeof body.campaignId === "string" && body.campaignId.trim() !== campaignId) {
-    return errorResponse("campaignId in the body must match the campaign in the URL", 400);
-  }
-
-  try {
-    const issuance = issueCampaignSponsorshipReceipt(
-      // The URL's campaign id wins; the body's copy was checked above only to
-      // reject a mismatch.
-      parseSponsorshipReceiptInput({ ...body, campaignId }),
-    );
-    return NextResponse.json({ success: true, ...issuance }, { status: 201 });
-  } catch (error) {
-    if (error instanceof SponsorshipReceiptError) {
-      return errorResponse(error.message, 400);
-    }
-    logFailure("Failed to issue sponsorship receipt", error);
-    return errorResponse("Failed to issue the sponsorship receipt", 500);
-  }
-}
-
-/**
- * Open a receipt token (issue #926): `GET ?token=<token>` returns the receipt
- * and its display summary (tree count, species, location, expected CO2), plus
- * whether its fields still match its commitment. Adding
- * `&transactionHash=<hash>` also checks the commitment against the ledger,
- * exactly as `PUT` does, so a token link alone is enough to verify a receipt.
- */
-export async function GET(request: NextRequest, { params }: RouteContext) {
-  const { id: campaignId } = await params;
-  const searchParams = new URL(request.url).searchParams;
-  const token = searchParams.get("token");
-  if (token === null) {
-    return errorResponse("token is required", 400);
-  }
-  const transactionHash = searchParams.get("transactionHash");
-
-  try {
-    const receipt = decodeSponsorshipReceiptToken(token);
-    if (receipt.campaignId !== campaignId) {
-      return errorResponse("receipt does not belong to this campaign", 400);
-    }
-
-    const verification =
-      transactionHash === null
-        ? null
-        : await verifyCampaignSponsorshipReceipt(receipt, transactionHash);
-    return NextResponse.json({
-      success: true,
+    const result = issueCampaignSponsorshipReceipt({
       campaignId,
-      receipt,
-      summary: summarizeSponsorshipReceipt(receipt),
-      receiptHashMatchesContent: computeReceiptHash(receipt) === receipt.receiptHash,
-      verification,
+      campaignName: body.campaignName,
+      sponsorAddress: body.sponsorAddress,
+      treeCount: body.treeCount,
+      species: body.species,
+      plantingLocation: body.plantingLocation,
+      plantedAt: body.plantedAt,
+      co2PerTreeKgPerYear: body.co2PerTreeKgPerYear,
+      currency: body.currency,
+      amountPaidStroops: body.amountPaidStroops,
+      transactionHash: body.transactionHash,
     });
+
+    return NextResponse.json(result, { status: 201 });
   } catch (error) {
-    if (error instanceof SponsorshipReceiptError) {
-      return errorResponse(error.message, 400);
-    }
-    logFailure("Failed to open sponsorship receipt token", error);
-    return errorResponse("Failed to verify the sponsorship receipt", 502);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to issue sponsorship receipt' },
+      { status: 400 }
+    );
   }
 }
 
-/**
- * Verify a receipt against its Stellar transaction.
- *
- * The receipt may be sent as `receipt` (object or JSON string) or as the
- * `token` it was issued with.
- *
- * Verification outcomes are reported, not thrown: a receipt that fails a check
- * is a successful answer to the question "is this receipt valid?", so this
- * returns 200 with `verified: false` and the failing `status`. Only a malformed
- * request (unparseable body, bad hash, receipt for another campaign) is a 400.
- */
-export async function PUT(request: NextRequest, { params }: RouteContext) {
-  const { id: campaignId } = await params;
-
-  let body: Record<string, unknown>;
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
   try {
-    body = readBody(await request.json());
+    const searchParams = request.nextUrl.searchParams;
+    const token = searchParams.get('token');
+    const txHash = searchParams.get('txHash');
+
+    if (!token && !txHash) {
+      return NextResponse.json(
+        { error: 'Either token or txHash query parameter is required for receipt verification' },
+        { status: 400 }
+      );
+    }
+
+    if (token) {
+      const verification = await verifyCampaignSponsorshipReceipt(token);
+      return NextResponse.json(verification, { status: 200 });
+    }
+
+    return NextResponse.json({ message: 'Receipt verification pending lookup' }, { status: 200 });
   } catch (error) {
-    if (error instanceof SponsorshipReceiptError) {
-      return errorResponse(error.message, 400);
-    }
-    return errorResponse("A JSON body is required", 400);
-  }
-
-  if (body.receipt === undefined && body.token === undefined) {
-    return errorResponse("receipt or token is required", 400);
-  }
-  const transactionHash = body.transactionHash;
-  if (typeof transactionHash !== "string") {
-    return errorResponse("transactionHash is required as a 64-character hex hash", 400);
-  }
-
-  try {
-    const receipt =
-      body.receipt !== undefined
-        ? parseSponsorshipReceipt(readReceiptField(body.receipt))
-        : decodeSponsorshipReceiptToken(body.token);
-    if (receipt.campaignId !== campaignId) {
-      return errorResponse("receipt does not belong to this campaign", 400);
-    }
-
-    const verification = await verifyCampaignSponsorshipReceipt(receipt, transactionHash);
-    return NextResponse.json({ success: true, campaignId, ...verification });
-  } catch (error) {
-    if (error instanceof SponsorshipReceiptError) {
-      return errorResponse(error.message, 400);
-    }
-    logFailure("Failed to verify sponsorship receipt", error);
-    return errorResponse("Failed to verify the sponsorship receipt", 502);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Receipt verification failed' },
+      { status: 400 }
+    );
   }
 }
