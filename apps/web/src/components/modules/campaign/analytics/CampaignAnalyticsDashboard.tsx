@@ -34,6 +34,7 @@ interface DashboardPayload {
   rewardTiers: Array<{ tierId: string; name: string; price: string; backers: number; revenue: string; share: number }>;
   dailyTrend: Array<{ date: string; amount: string; contributions: number; cumulative: string }>;
   totals: { visitors: number; contributions: number; totalFunded: string; conversionRate: number };
+  speciesDiversity: { speciesCount: number; diversityScore: number; species: string[] };
 }
 
 const BAR_COLORS = ["#a855f7", "#8b5cf6", "#6366f1", "#10b981", "#f59e0b"];
@@ -47,6 +48,7 @@ const EMPTY: DashboardPayload = {
   rewardTiers: [],
   dailyTrend: [],
   totals: { visitors: 0, contributions: 0, totalFunded: "0", conversionRate: 0 },
+  speciesDiversity: { speciesCount: 0, diversityScore: 0, species: [] },
 };
 
 export function CampaignAnalyticsDashboard({
@@ -116,6 +118,7 @@ export function CampaignAnalyticsDashboard({
             <StatCard icon={<Activity className="h-4 w-4 text-blue-400" />} label="Contributions" value={String(dashboard.totals.contributions)} />
             <StatCard icon={<TrendingUp className="h-4 w-4 text-emerald-400" />} label="Total Funded" value={dashboard.totals.totalFunded} suffix="XLM" />
             <StatCard icon={<Gift className="h-4 w-4 text-amber-400" />} label="Conversion" value={`${dashboard.totals.conversionRate}%`} />
+            <StatCard icon={<Globe className="h-4 w-4 text-emerald-400" />} label="Species Diversity" value={String(dashboard.speciesDiversity.diversityScore)} suffix={`${dashboard.speciesDiversity.speciesCount} spp`} />
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -218,6 +221,27 @@ export function CampaignAnalyticsDashboard({
                     <Bar dataKey="fundraising" name="Funded (XLM)" fill="#10b981" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            )}
+          </MetricPanel>
+
+          {/* Tree species diversity */}
+          <MetricPanel icon={<Globe className="h-4 w-4 text-emerald-400" />} title="Tree Species Diversity">
+            {dashboard.speciesDiversity.speciesCount === 0 ? (
+              <p className="text-xs text-zinc-500">Species data appears as trees are registered to this campaign.</p>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-300">Diversity Score</span>
+                  <span className="font-semibold text-emerald-400">{dashboard.speciesDiversity.diversityScore}</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {dashboard.speciesDiversity.species.map((species) => (
+                    <span key={species} className="rounded-full border border-emerald-900 bg-emerald-950/60 px-3 py-1 text-[10px] font-semibold text-emerald-300">
+                      {species}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </MetricPanel>
