@@ -188,7 +188,8 @@ export const CampaignSearch: React.FC = () => {
         const matchesCreator = campaign.creator.toLowerCase().includes(query);
         const matchesTree = campaign.treeType.toLowerCase().includes(query);
         const matchesRegion = campaign.region?.toLowerCase().includes(query) ?? false;
-        if (!matchesTitle && !matchesDesc && !matchesCreator && !matchesTree && !matchesRegion) {
+        const matchesLocation = campaign.location?.toLowerCase().includes(query) ?? false;
+        if (!matchesTitle && !matchesDesc && !matchesCreator && !matchesTree && !matchesRegion && !matchesLocation) {
           return false;
         }
       }

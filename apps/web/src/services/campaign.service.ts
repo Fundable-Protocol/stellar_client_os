@@ -250,6 +250,9 @@ export interface CampaignFilter {
   status?: CampaignStatus;
   creator?: string;
   search?: string;
+  location?: string;
+  species?: string;
+  treeSpecies?: string;
   minGoalAmount?: string;
   maxGoalAmount?: string;
   createdAfter?: number;
@@ -872,8 +875,20 @@ export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource 
     if (filter.createdBefore !== undefined && campaign.createdAt > filter.createdBefore) return false;
     if (filter.minGoalAmount && BigInt(campaign.goalAmount) < BigInt(filter.minGoalAmount)) return false;
     if (filter.maxGoalAmount && BigInt(campaign.goalAmount) > BigInt(filter.maxGoalAmount)) return false;
+    if (filter.location) {
+      const loc = filter.location.toLowerCase();
+      const matchLoc = (campaign.location?.toLowerCase().includes(loc) ?? false)
+        || (campaign.region?.toLowerCase().includes(loc) ?? false)
+        || (campaign.countries ?? []).some((c) => c.toLowerCase().includes(loc));
+      if (!matchLoc) return false;
+    }
+    const targetSpecies = filter.species ?? filter.treeSpecies;
+    if (targetSpecies) {
+      const spec = targetSpecies.toLowerCase();
+      if (!campaign.treeSpecies?.toLowerCase().includes(spec)) return false;
+    }
     if (filter.search) {
-      const haystack = `${campaign.id} ${campaign.name} ${campaign.description ?? ""} ${campaign.creator} ${campaign.language ?? ""} ${campaign.translations ? Object.values(campaign.translations).join(" ") : ""}`.toLowerCase();
+      const haystack = `${campaign.id} ${campaign.name} ${campaign.description ?? ""} ${campaign.creator} ${campaign.location ?? ""} ${campaign.region ?? ""} ${(campaign.countries ?? []).join(" ")} ${campaign.treeSpecies ?? ""} ${campaign.language ?? ""} ${campaign.translations ? Object.values(campaign.translations).join(" ") : ""}`.toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
     return true;
