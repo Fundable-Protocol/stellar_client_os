@@ -4,6 +4,7 @@ import {
   recordCampaignContribution,
   recordCampaignRefund,
   recordCampaignView,
+  recordCampaignCreditSale,
 } from "../../../../../services/campaign-analytics.service";
 
 export const runtime = "nodejs";
@@ -35,10 +36,12 @@ export async function POST(
   const campaignId = (await params).id;
   try {
     const body = await request.json() as {
-      event?: "view" | "contribution" | "refund";
+      event?: "view" | "contribution" | "refund" | "credit_sale";
       viewerId?: string;
       sponsor?: string;
       amount?: string;
+      buyer?: string;
+      credits?: string;
     };
     if (body.event === "view") {
       await recordCampaignView(campaignId, body.viewerId);
@@ -47,8 +50,13 @@ export async function POST(
       await recordCampaignContribution(campaignId, body.amount, body.sponsor);
     } else if (body.event === "refund") {
       await recordCampaignRefund(campaignId);
+    } else if (body.event === "credit_sale") {
+      if (!body.sponsor || !body.buyer || !body.credits) {
+        return noStore({ error: "sponsor, buyer, and credits are required" }, { status: 400 });
+      }
+      await recordCampaignCreditSale(campaignId, body.sponsor, body.buyer, body.credits);
     } else {
-      return noStore({ error: "event must be view, contribution, or refund" }, { status: 400 });
+      return noStore({ error: "event must be view, contribution, refund, or credit_sale" }, { status: 400 });
     }
     const analytics = await getCampaignAnalytics(campaignId);
     return noStore({ data: analytics }, { status: 201 });

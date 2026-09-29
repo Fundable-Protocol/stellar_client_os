@@ -8,18 +8,15 @@ import {
   Play,
   Share2,
   ShieldCheck,
-  Trees,
   Clock,
   User,
   MapPin,
   Coins,
-  CheckCircle2,
-  AlertTriangle,
   Info,
 } from "lucide-react";
 import LiveTreeCounter from "./LiveTreeCounter";
 import AnimatedProgressBar from "./AnimatedProgressBar";
-import { CampaignData, CampaignStatus } from "@/types/campaign";
+import { CampaignData } from "@/types/campaign";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
 
 interface CampaignDetailProps {
@@ -76,6 +73,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
       <div className="flex items-center justify-between">
         <Link
           href="/campaigns"
+          aria-label="Back to Campaigns Explorer"
           className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 border border-zinc-800 text-xs font-semibold text-zinc-300 hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
         >
           <ArrowLeft className="size-4" /> Back to Campaigns Explorer
@@ -88,7 +86,11 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           >
             Toggle Creator Simulation ({isCreatorMode ? "Creator View" : "Public View"})
           </button>
-          <button className="p-2 rounded-xl bg-slate-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200">
+          <button
+            type="button"
+            aria-label="Share campaign"
+            className="p-2 rounded-xl bg-slate-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200"
+          >
             <Share2 className="size-4" />
           </button>
         </div>
@@ -96,7 +98,11 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
 
       {/* Action Alert Banner */}
       {actionMessage && (
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-fadeIn">
+        <div
+          role="status"
+          aria-live="polite"
+          className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-fadeIn"
+        >
           <Info className="size-4 text-emerald-400 shrink-0" />
           <span>{actionMessage}</span>
         </div>

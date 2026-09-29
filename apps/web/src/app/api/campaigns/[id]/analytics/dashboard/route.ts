@@ -7,10 +7,15 @@ import {
   recordTrafficSource,
 } from "../../../../../../services/campaign-analytics-dashboard.service";
 import { getCampaignAnalytics } from "../../../../../../services/campaign-analytics.service";
+import {
+  buyCarbonCredits,
+  listCarbonCreditOffers,
+  sellCarbonCredits,
+} from "../../../../../../services/carbon-credit-market.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const reValidate = 0;
 
 const TrafficSourceSchema = z.object({
   source: z.enum(["direct", "search", "social", "referral", "newsletter"]),
@@ -30,6 +35,20 @@ const ContributionSchema = z.object({
   at: z.number().optional(),
 });
 
+const CarbonSellSchema = z.object({
+  event: z.literal("sell_carbon_credits"),
+  sellerId: z.string().min(1),
+  amount: z.number().positive(),
+  pricePerTon: z.number().positive(),
+});
+
+const CarbonPurchaseSchema = z.object({
+  event: z.literal("buy_carbon_credits"),
+  buyerId: z.string().min(1),
+  listingId: z.string().min(1),
+  amount: z.number().positive(),
+});
+
 function noStore<T>(body: T, init?: ResponseInit): NextResponse<T> {
   return NextResponse.json(body, {
     ...init,
@@ -45,7 +64,8 @@ function noStore<T>(body: T, init?: ResponseInit): NextResponse<T> {
  *
  * Returns the detailed creator analytics dashboard: traffic sources,
  * conversion funnel, backer demographics, reward tier popularity, and
- * daily funding trends.
+ * daily funding trends. Also includes the campaign's secondary carbon
+ * credit market listings.
  */
 export async function GET(
   _request: NextRequest,
@@ -55,17 +75,21 @@ export async function GET(
   const dashboard = await getCampaignAnalyticsDashboard(id);
   if (!dashboard) return noStore({ error: "Campaign not found" }, { status: 404 });
   const vertex = await getCampaignAnalytics(id);
-  return noStore({ data: { ...dashboard, vertex } });
+  const carbonPricing = await listCarbonCreditOffers(id);
+  return noStore({ data: { ...dashboard, vertex, carbonPricing } });
 }
 
 /**
  * POST /api/campaigns/:id/analytics/dashboard
  *
- * Records a traffic-source visit, a funnel step, or a backer contribution
- * for the campaign dashboard. Body shape:
+ * Records a traffic-source visit, a funnel step, a backer contribution,
+ * or a secondary-market carbon credit trade for the campaign dashboard.
+ * Body shape:
  *   { event: "traffic", source, viewerId? }
  *   { event: "funnel", stage, viewerId }
  *   { event: "contribution", amount, backerId, region? }
+ *   { event: "sell_carbon_credits", sellerId, amount, pricePerTon }
+ *   { event: "buy_carbon_credits", buyerId, listingId, amount }
  */
 export async function POST(
   request: NextRequest,
@@ -92,8 +116,20 @@ export async function POST(
         return noStore({ error: "Invalid contribution payload", details: parsed.error.flatten() }, { status: 400 });
       }
       await recordBackerContribution(id, parsed.data);
+    } else if (body.event === "sell_carbon_credits") {
+      const parsed = CarbonSellSchema.safeParse(body);
+      if (!parsed.success) {
+        return noStore({ error: "Invalid carbon credit sell payload", details: parsed.error.flatten() }, { status: 400 });
+      }
+      await sellCarbonCredits(id, parsed.data);
+    } else if (body.event === "buy_carbon_credits") {
+      const parsed = CarbonPurchaseSchema.safeParse(body);
+      if (!parsed.success) {
+        return noStore({ error: "Invalid carbon credit purchase payload", details: parsed.error.flatten() }, { status: 400 });
+      }
+      await buyCarbonCredits(id, parsed.data);
     } else {
-      return noStore({ error: "event must be traffic, funnel, or contribution" }, { status: 400 });
+      return noStore({ error: "event must be traffic, funnel, contribution, sell_carbon_credits, or buy_carbon_credits" }, { status: 400 });
     }
     const dashboard = await getCampaignAnalyticsDashboard(id);
     return noStore({ data: dashboard }, { status: 201 });

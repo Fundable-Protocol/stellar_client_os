@@ -62,4 +62,22 @@ describe("CampaignWebhookService", () => {
       eventId: "completion-1",
     }));
   });
+
+  it("publishes funding milestone reached event", async () => {
+    const { service, dispatchEvent } = createService();
+    await service.campaignMilestoneReached({
+      eventId: "campaign-1:25",
+      campaignId: "campaign-1",
+      campaignName: "Test Campaign",
+      percentage: 25,
+      raisedAmount: "2500",
+      goalAmount: "10000",
+    });
+
+    expect(dispatchEvent).toHaveBeenCalledWith("campaign_milestone_reached", expect.objectContaining({
+      eventId: "campaign-1:25",
+      campaignId: "campaign-1",
+      percentage: 25,
+    }));
+  });
 });
