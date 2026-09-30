@@ -56,6 +56,59 @@ describe("GET /api/campaigns/:id freshness (#704)", () => {
       { params: Promise.resolve({ id: "fresh-campaign" }) },
     );
     expect(autoTranslateResponse.status).toBe(501);
+  it("returns reviewed localized content when a supported language is requested", async () => {
+    await createCampaign({
+      id: "localized-campaign",
+      creator: "creator",
+      name: "Forest restoration",
+      description: "Restore coastal forests",
+      language: "en",
+      goalAmount: "1000",
+      localizedContent: { es: { title: "Restauración forestal", description: "Restaurar bosques costeros" } },
+    }, dataSource);
+
+    const response = await GET(new Request("http://localhost/api/campaigns/localized-campaign?language=es"), {
+      params: Promise.resolve({ id: "localized-campaign" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      name: "Restauración forestal",
+      description: "Restaurar bosques costeros",
+      localization: { requestedLanguage: "es", resolvedLanguage: "es", isFallback: false },
+    });
+  });
+
+  it("falls back to source content, negotiates Arabic, and rejects invalid explicit locales", async () => {
+    const campaign = await createCampaign({
+      id: "localized-campaign",
+      creator: "creator",
+      name: "Forest restoration",
+      description: "Restore coastal forests",
+      language: "en",
+      goalAmount: "1000",
+      localizedContent: { ar: { title: "استعادة الغابات" } },
+    }, dataSource);
+
+    const fallback = await GET(new Request("http://localhost/api/campaigns/localized-campaign?language=fr"), {
+      params: Promise.resolve({ id: campaign.id }),
+    });
+    expect(await fallback.json()).toMatchObject({
+      name: "Forest restoration",
+      localization: { resolvedLanguage: "en", isFallback: true },
+    });
+
+    const arabic = await GET(new Request("http://localhost/api/campaigns/localized-campaign", {
+      headers: { "Accept-Language": "ar" },
+    }), { params: Promise.resolve({ id: campaign.id }) });
+    expect(await arabic.json()).toMatchObject({
+      name: "استعادة الغابات",
+      localization: { direction: "rtl", isFallback: true },
+    });
+
+    const invalid = await GET(new Request("http://localhost/api/campaigns/localized-campaign?language=xx"), {
+      params: Promise.resolve({ id: campaign.id }),
+    });
+    expect(invalid.status).toBe(400);
   });
 });
 
@@ -95,5 +148,15 @@ describe("PATCH /api/campaigns/:id impact milestones", () => {
     expect((await PATCH(request({ co2Sequestration: "Infinity" }), context)).status).toBe(400);
     expect((await dataSource.getCampaigns())[0].treeCount).toBe(0);
     expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("accepts explicit localized content and rejects unsupported languages without mutation", async () => {
+    const updated = await PATCH(request({ localizedContent: { zh: { title: "海岸森林恢复" } } }), context);
+    expect(updated.status).toBe(200);
+    expect((await dataSource.getCampaigns())[0].localizedContent?.zh?.title).toBe("海岸森林恢复");
+
+    const invalid = await PATCH(request({ language: "xx" }), context);
+    expect(invalid.status).toBe(400);
+    expect((await dataSource.getCampaigns())[0].language).toBe("en");
   });
 });

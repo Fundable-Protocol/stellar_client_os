@@ -38,6 +38,8 @@ import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignIm
 import { CampaignFollow } from "@/components/modules/campaign/CampaignFollow";
 import { VerificationMediaGallery, type VerificationMediaItem } from "@/components/modules/campaign/VerificationMediaGallery";
 import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
+import { CampaignSustainabilityScore } from "@/components/modules/campaign/sustainability/CampaignSustainabilityScore";
+import { OneTimeDonationButton } from "@/components/modules/campaign/donation/OneTimeDonationButton";
 
 const translations = {
   en: {
@@ -308,6 +310,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     co2OffsetTons: "150",
     treeType: "Oak",
     location: "Amazon Basin, Brazil",
+    sustainability: {
+      treeSpeciesDiversity: 82,
+      regionClimateImpact: 74,
+      soilHealthImprovement: 68,
+      biodiversityPotential: 88,
+    },
     successStory: {
       headline: "From Rainforest Pledge to On-the-Ground Impact",
       creatorInterview: "Every XLM stream is tied to verifiable patrol hours and backers receive monthly GPS updates. The team shipped on every promise.",
@@ -319,6 +327,18 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     },
     treesPlanted: "1,500",
   };
+
+  const sustainabilityScore = React.useMemo(
+    () =>
+      calculateSustainabilityScore({
+        treeType: campaign.treeType,
+        location: campaign.location,
+        treesPlanted: campaign.treesPlanted,
+        description: campaign.shortDescription,
+        category: campaign.category,
+      }),
+    [campaign.treeType, campaign.location, campaign.treesPlanted, campaign.shortDescription, campaign.category]
+  );
 
   // The mock detail page renders as the campaign creator, so creator-only
   // controls (featuring backers, managing community spaces) are exercised.
@@ -364,6 +384,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <Heart className="mr-1.5 h-3.5 w-3.5" /> Donate
             </Button>
           </Link>
+          <OneTimeDonationButton campaignId={campaign.id} campaignName={campaign.title} />
           <Link href="/campaigns/create">
             <Button size="sm" variant="outline" className="border-purple-600/40 text-purple-300 hover:bg-purple-950/40 text-xs">
               <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Campaign
@@ -449,6 +470,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <Badge variant="outline" className="border-emerald-500 text-emerald-400 text-xs font-semibold">
                 <ShieldCheck className="mr-1 h-3 w-3" /> {campaign.status}
               </Badge>
+              <SustainabilityScoreBadge
+                score={sustainabilityScore.totalScore}
+                tier={sustainabilityScore.tier}
+                size="sm"
+              />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -525,6 +551,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           </div>
         </div>
       </div>
+
+      {/* Campaign Sustainability Score - Environmental Index */}
+      <CampaignSustainabilityScore
+        treeSpeciesDiversity={campaign.sustainability.treeSpeciesDiversity}
+        regionClimateImpact={campaign.sustainability.regionClimateImpact}
+        soilHealthImprovement={campaign.sustainability.soilHealthImprovement}
+        biodiversityPotential={campaign.sustainability.biodiversityPotential}
+      />
 
       {/* Funding Milestone Achievement Badges (25%, 50%, 75%, 100%) */}
       <CampaignMilestones
@@ -604,6 +638,13 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               </div>
 
               <CampaignImpactCalculator />
+              {/* Issue #907: real-time CO2 sequestration display, updates as sponsors contribute. */}
+              <CampaignImpactCalculator
+                campaignSpeciesId={campaign.treeType}
+                campaignTreeCount={Number(campaign.treesPlanted.replace(/,/g, ""))}
+                readOnly
+              />
+
               <VerificationMediaGallery items={verificationMedia} />
 
               <CO2SequestrationProjection

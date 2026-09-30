@@ -119,3 +119,4 @@ describe("Campaign detail page — top backers tab", () => {
     expect(container.querySelectorAll('a[href*="openstreetmap.org"]')).toHaveLength(3);
   });
 });
+

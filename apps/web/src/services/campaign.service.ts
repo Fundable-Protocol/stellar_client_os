@@ -4,6 +4,7 @@ import { EmailService, type SendEmailOptions } from "./email.service";
 import { CampaignWebhookService } from "./campaign-webhook.service";
 import { pushNotificationService } from "./push-notification.service";
 import type { CampaignWebhookEvent } from "@/types/webhook";
+import type { CampaignLocalizedContent } from "@/lib/translation";
 
 export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
 
@@ -139,8 +140,19 @@ export interface CampaignRecord {
   language?: string;
   /** Machine translations of the description keyed by ISO 639-1 language code. */
   translations?: Record<string, string>;
+  /** Explicitly reviewed campaign copy, keyed by ISO 639-1 language code. */
+  localizedContent?: Record<string, CampaignLocalizedContent>;
   /** Geographic location of the campaign, used for duplicate detection. */
   location?: string;
+  /** Optional species identifier used for impact reporting. */
+  speciesId?: string;
+  /** Optional human-readable species label used for impact reporting. */
+  species?: string;
+  /** WGS84 coordinates; omitted when the campaign has no consented GPS data. */
+  latitude?: number;
+  longitude?: number;
+  /** Annual CO2 sequestration represented by the campaign, in kilograms. */
+  co2SequestrationKg?: string;
   /** Array of country codes or names the campaign spans, for geographic diversity. */
   countries?: string[];
   /** Optional broad geographic region for discovery filtering. */
@@ -703,6 +715,7 @@ export async function createCampaign(input: {
   description?: string;
   language?: string;
   translations?: Record<string, string>;
+  localizedContent?: Record<string, CampaignLocalizedContent>;
   location?: string;
   countries?: string[];
   region?: string;
@@ -721,6 +734,7 @@ export async function createCampaign(input: {
     description: input.description,
     language: input.language ?? detectCampaignLanguage(input.description),
     translations: input.translations ?? {},
+    localizedContent: input.localizedContent ?? {},
     location: input.location,
     countries: input.countries,
     region: input.region,
@@ -1028,6 +1042,88 @@ export async function exportCampaignJson(campaignId: string, dataSource = getCam
   const campaign = await getCampaign(campaignId, dataSource);
   return campaign ? campaignExportJson(campaign) : null;
 }
+
+export interface CampaignExportDocument {
+  campaign: {
+    id: string;
+    name: string;
+    status: CampaignStatus;
+    creator: string;
+    goalAmount: string;
+    raisedAmount: string;
+    sponsorCount: number;
+    treeCount: number;
+    speciesId?: string;
+    species?: string;
+    location?: string;
+    coordinates?: { latitude: number; longitude: number };
+    co2SequestrationKg?: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+  sponsors: Array<Omit<SponsorRecord, "sponsoredAt"> & { sponsoredAt: string }>;
+  timeline: Array<Omit<StatusHistoryEntry, "changedAt"> & { changedAt: string }>;
+}
+
+export function campaignToExportDocument(campaign: CampaignRecord): CampaignExportDocument {
+  const coordinates = Number.isFinite(campaign.latitude) && Number.isFinite(campaign.longitude)
+    ? { latitude: campaign.latitude as number, longitude: campaign.longitude as number }
+    : undefined;
+  return {
+    campaign: {
+      id: campaign.id,
+      name: campaign.name,
+      status: campaign.status,
+      creator: campaign.creator,
+      goalAmount: campaign.goalAmount,
+      raisedAmount: campaign.raisedAmount,
+      sponsorCount: campaign.sponsorCount,
+      treeCount: campaign.treeCount,
+      speciesId: campaign.speciesId,
+      species: campaign.species,
+      location: campaign.location,
+      coordinates,
+      co2SequestrationKg: campaign.co2SequestrationKg,
+      createdAt: new Date(campaign.createdAt).toISOString(),
+      updatedAt: new Date(campaign.updatedAt).toISOString(),
+    },
+    sponsors: campaign.sponsors.map((sponsor) => ({
+      id: sponsor.id,
+      campaignId: sponsor.campaignId,
+      address: sponsor.address,
+      amount: sponsor.amount,
+      token: sponsor.token,
+      sponsoredAt: new Date(sponsor.sponsoredAt).toISOString(),
+    })),
+    timeline: campaign.statusHistory.map((entry) => ({
+      id: entry.id,
+      campaignId: entry.campaignId,
+      fromStatus: entry.fromStatus,
+      toStatus: entry.toStatus,
+      changedBy: entry.changedBy,
+      changedAt: new Date(entry.changedAt).toISOString(),
+      reason: entry.reason,
+    })),
+  };
+}
+
+export function campaignExportToCsv(document: CampaignExportDocument): string {
+  const rows: unknown[][] = [
+    ["record_type", "campaign_id", "name", "status", "creator", "goal_amount", "raised_amount", "sponsor_count", "tree_count", "species_id", "species", "location", "latitude", "longitude", "co2_sequestration_kg", "sponsor_id", "sponsor_address", "sponsor_amount", "sponsor_token", "sponsored_at", "timeline_id", "from_status", "to_status", "changed_by", "changed_at", "reason"],
+    ["campaign", document.campaign.id, document.campaign.name, document.campaign.status, document.campaign.creator, document.campaign.goalAmount, document.campaign.raisedAmount, document.campaign.sponsorCount, document.campaign.treeCount, document.campaign.speciesId, document.campaign.species, document.campaign.location, document.campaign.coordinates?.latitude, document.campaign.coordinates?.longitude, document.campaign.co2SequestrationKg],
+    ...document.sponsors.map((sponsor) => ["sponsor", document.campaign.id, "", "", "", "", "", "", "", "", "", "", "", "", "", sponsor.id, sponsor.address, sponsor.amount, sponsor.token, sponsor.sponsoredAt]),
+    ...document.timeline.map((entry) => ["timeline", document.campaign.id, "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", entry.id, entry.fromStatus, entry.toStatus, entry.changedBy, entry.changedAt, entry.reason]),
+  ];
+  return rows.map((row) => row.map(csvEscape).join(",")).join("\n") + "\n";
+}
+
+export async function exportCampaign(campaignId: string, format: "csv" | "json", dataSource = getCampaignDataSource()): Promise<{ document: CampaignExportDocument; body: string } | null> {
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) return null;
+  const document = campaignToExportDocument(campaign);
+  return { document, body: format === "json" ? JSON.stringify(document, null, 2) : campaignExportToCsv(document) };
+}
+
 export function calculateCampaignCarbonCredits(campaign: Partial<CampaignRecord> = {}): bigint {
   const baseCredits = BigInt(campaign.treeCount ?? 0);
   const uniqueCountries = new Set(campaign.countries ?? []);

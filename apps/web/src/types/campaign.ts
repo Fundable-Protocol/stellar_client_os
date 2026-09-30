@@ -25,6 +25,31 @@ export type Region =
   | "Oceania"
   | "Global";
 
+export interface SustainabilityPillarScore {
+  score: number;
+  maxScore: number;
+  percentage: number;
+  grade: "Optimal" | "High" | "Moderate" | "Developing";
+  title: string;
+  rationale: string;
+  highlights: string[];
+}
+
+export type SustainabilityTier = "Optimal" | "High Impact" | "Moderate" | "Developing";
+
+export interface CampaignSustainabilityScore {
+  totalScore: number;
+  tier: SustainabilityTier;
+  tierDescription: string;
+  pillars: {
+    speciesDiversity: SustainabilityPillarScore;
+    climateImpact: SustainabilityPillarScore;
+    soilHealth: SustainabilityPillarScore;
+    biodiversityPotential: SustainabilityPillarScore;
+  };
+  recommendations: string[];
+}
+
 export interface CampaignData {
   id: string;
   title: string;
@@ -46,6 +71,7 @@ export interface CampaignData {
   imageUrl?: string;
   uniqueContributors?: number;
   contributionCount?: number;
+  sustainabilityScore?: CampaignSustainabilityScore;
 }
 
 export interface CampaignFilterOptions {

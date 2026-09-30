@@ -11,7 +11,7 @@ export async function GET(
     return NextResponse.json({ success: true, certificates });
   } catch (error: any) {
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to fetch NFT certificates' },
+      { success: false, error: error.message || 'Failed to fetch NFT Certificates' },
       { status: 500 }
     );
   }
@@ -24,11 +24,52 @@ export async function POST(
   try {
     const campaignId = params.id;
     const body = await request.json();
-    const { campaignTitle, creatorAddress, fundingGoal, totalRaised, recipientAddress, isTradeable = false, carbonCredits } = body;
+    const {
+      campaignTitle,
+      creatorAddress,
+      fundingGoal,
+      totalRaised,
+      recipientAddress,
+      isTradeable = false,
+      carbonReceipt,
+    } = body;
 
     if (!campaignTitle || !creatorAddress || !fundingGoal) {
       return NextResponse.json(
         { success: false, error: 'campaignTitle, creatorAddress, and fundingGoal are required' },
+        { status: 400 }
+      );
+    }
+
+    if (!carbonReceipt || typeof carbonReceipt !== 'object') {
+      return NextResponse.json(
+        { success: false, error: 'carbonReceipt is required for a blockchain-verifiable sponsorship receipt' },
+        { status: 400 }
+      );
+    }
+
+    const {
+      treeCount,
+      species,
+      plantingLocation,
+      expectedConSequestrationTonnes,
+      sponsorAddress,
+    } = carbonReceipt;
+
+    if (
+      typeof treeCount !== 'number' ||
+      treeCount <= 0 ||
+      !species ||
+      !plantingLocation ||
+      typeof expectedCo2SequestrationTonnes !== 'number' ||
+      expectedCo2SequestrationTonnes <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'carbonReceipt must include a positive treeCount, species, plantingLocation, and expectedCo2SequestrationTonnes',
+        },
         { status: 400 }
       );
     }
@@ -39,9 +80,14 @@ export async function POST(
       creatorAddress,
       fundingGoal,
       totalRaised: totalRaised || fundingGoal,
-      recipientAddress,
+      recipientAddress: recipientAddress || sponsorAddress,
       isTradeable,
-      carbonCredits,
+      carbonCredits: {
+        treeCount,
+        species,
+        plantingLocation,
+        expectedCo2SequestrationTonnes,
+      },
     });
 
     return NextResponse.json({ success: true, certificate }, { status: 201 });
@@ -56,8 +102,7 @@ export async function POST(
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { id: string } }
-)
-{
+) {
   try {
     const campaignId = params.id;
     const body = await request.json();
@@ -87,7 +132,7 @@ export async function PATCH(
     return NextResponse.json({ success: true, certificate: updatedCertificate });
   } catch (error: any) {
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to update NFT certificate' },
+      { success: false, error: error.message || 'Failed to update NFT Certificate' },
       { status: 400 }
     );
   }
