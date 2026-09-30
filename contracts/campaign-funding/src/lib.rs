@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env,
+    contract, contracterror, contractimpl, contracttype, contractevent, panic_with_error, token, Address, Env,
 };
 
 // ---------------------------------------------------------------------------
@@ -44,6 +44,22 @@ pub enum CampaignStatus {
     Claimed,
 }
 
+
+#[contracttype]
+#[derive(Clone)]
+pub struct BonusParams {
+    pub target_co2: i128,
+    pub actual_co2: i128,
+    pub trees_planted: u32,
+    pub trees_survived: u32,
+    pub treasury: Address,
+    pub planter: Address,
+    pub carbon_token: Address,
+    pub bonus_token: Address,
+    pub co2_bonus_amount: i128,
+    pub planter_bonus_amount: i128,
+}
+
 /// Core campaign record stored on-chain.
 #[contracttype]
 #[derive(Clone)]
@@ -77,7 +93,7 @@ pub struct Campaign {
 // ---------------------------------------------------------------------------
 
 /// Emitted when a new campaign is created.
-#[contracttype]
+#[contractevent]
 #[derive(Clone)]
 pub struct CampaignCreatedEvent {
     pub campaign_id: u64,
@@ -89,7 +105,7 @@ pub struct CampaignCreatedEvent {
 }
 
 /// Emitted each time a contributor adds tokens to a campaign.
-#[contracttype]
+#[contractevent]
 #[derive(Clone)]
 pub struct ContributionMadeEvent {
     pub campaign_id: u64,
@@ -99,7 +115,7 @@ pub struct ContributionMadeEvent {
 }
 
 /// Emitted when a campaign transitions out of the `Active` state.
-#[contracttype]
+#[contractevent]
 #[derive(Clone)]
 pub struct CampaignStatusChangedEvent {
     pub campaign_id: u64,
@@ -107,7 +123,7 @@ pub struct CampaignStatusChangedEvent {
 }
 
 /// Emitted when the campaign creator claims the raised funds.
-#[contracttype]
+#[contractevent]
 #[derive(Clone)]
 pub struct FundsClaimedEvent {
     pub campaign_id: u64,
@@ -117,7 +133,7 @@ pub struct FundsClaimedEvent {
 }
 
 /// Emitted each time a contributor successfully claims a refund.
-#[contracttype]
+#[contractevent]
 #[derive(Clone)]
 pub struct RefundIssuedEvent {
     pub campaign_id: u64,
@@ -298,17 +314,14 @@ impl CampaignFundingContract {
 
         Self::save_campaign(&env, count, &campaign);
 
-        env.events().publish(
-            ("CampaignCreated", count),
-            CampaignCreatedEvent {
+        CampaignCreatedEvent {
                 campaign_id: count,
                 creator,
                 token,
                 target_amount,
                 min_target,
                 deadline,
-            },
-        );
+            }.publish(&env);
 
         count
     }
@@ -356,7 +369,7 @@ impl CampaignFundingContract {
 
         // Transfer tokens into contract escrow.
         let token_client = token::Client::new(&env, &campaign.token);
-        token_client.transfer(&contributor, &env.current_contract_address(), &amount);
+        token_client.transfer(&contributor, env.current_contract_address(), &amount);
 
         // Update per-contributor balance.
         let contrib_key = DataKey::Contribution(campaign_id, contributor.clone());
@@ -374,26 +387,20 @@ impl CampaignFundingContract {
         // Auto-succeed when the hard cap is reached.
         if campaign.total_raised >= campaign.target_amount {
             campaign.status = CampaignStatus::Successful;
-            env.events().publish(
-                ("CampaignStatusChanged", campaign_id),
-                CampaignStatusChangedEvent {
+            CampaignStatusChangedEvent {
                     campaign_id,
                     new_status: CampaignStatus::Successful,
-                },
-            );
+                }.publish(&env);
         }
 
         Self::save_campaign(&env, campaign_id, &campaign);
 
-        env.events().publish(
-            ("ContributionMade", campaign_id),
-            ContributionMadeEvent {
+        ContributionMadeEvent {
                 campaign_id,
                 contributor,
                 amount,
                 total_raised: campaign.total_raised,
-            },
-        );
+            }.publish(&env);
     }
 
     /// Evaluate an `Active` campaign once its deadline has passed and
@@ -430,13 +437,10 @@ impl CampaignFundingContract {
         let new_status = campaign.status;
         Self::save_campaign(&env, campaign_id, &campaign);
 
-        env.events().publish(
-            ("CampaignStatusChanged", campaign_id),
-            CampaignStatusChangedEvent {
+        CampaignStatusChangedEvent {
                 campaign_id,
                 new_status,
-            },
-        );
+            }.publish(&env);
     }
 
     /// Claim the raised funds after a successful campaign.
@@ -482,14 +486,11 @@ impl CampaignFundingContract {
 
         token_client.transfer(&env.current_contract_address(), &campaign.creator, &net);
 
-        env.events().publish(
-            ("FundsClaimed", campaign_id),
-            FundsClaimedEvent {
+        FundsClaimedEvent {
                 campaign_id,
                 creator: campaign.creator,
                 amount: net,
-            },
-        );
+            }.publish(&env);
     }
 
     /// Claim a full refund after a failed campaign.
@@ -528,14 +529,11 @@ impl CampaignFundingContract {
         let token_client = token::Client::new(&env, &campaign.token);
         token_client.transfer(&env.current_contract_address(), &contributor, &amount);
 
-        env.events().publish(
-            ("RefundIssued", campaign_id),
-            RefundIssuedEvent {
+        RefundIssuedEvent {
                 campaign_id,
                 contributor,
                 amount,
-            },
-        );
+            }.publish(&env);
     }
 
     // -----------------------------------------------------------------------
@@ -682,7 +680,29 @@ impl CampaignFundingContract {
         let rate = fee_rate as i128;
         (amount / 10_000) * rate + ((amount % 10_000) * rate) / 10_000
     }
+
+    pub fn calculate_and_distribute_bonuses(
+        env: Env,
+        params: BonusParams,
+    ) -> Result<(), Error> {
+        let co2_threshold = params.target_co2.checked_mul(120).ok_or(Error::ArithmeticOverflow)?.checked_div(100).ok_or(Error::ArithmeticOverflow)?;
+        if params.actual_co2 > co2_threshold {
+            let carbon_client = token::Client::new(&env, &params.carbon_token);
+            carbon_client.transfer(&env.current_contract_address(), &params.treasury, &params.co2_bonus_amount);
+        }
+
+        if params.trees_planted > 0 {
+            let survived_scaled = (params.trees_survived as u64).checked_mul(100).ok_or(Error::ArithmeticOverflow)?;
+            let planted_scaled = (params.trees_planted as u64).checked_mul(90).ok_or(Error::ArithmeticOverflow)?;
+            if survived_scaled > planted_scaled {
+                let bonus_client = token::Client::new(&env, &params.bonus_token);
+                bonus_client.transfer(&env.current_contract_address(), &params.planter, &params.planter_bonus_amount);
+            }
+        }
+        Ok(())
+    }
 }
+
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -716,7 +736,7 @@ mod tests {
     /// Deploy and initialise a `CampaignFundingContract` with a 2.5 % fee.
     fn setup_contract(
         env: &Env,
-    ) -> (Address, CampaignFundingContractClient, Address, Address) {
+    ) -> (Address, CampaignFundingContractClient<'_>, Address, Address) {
         let contract_id = env.register(CampaignFundingContract, ());
         let client = CampaignFundingContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
@@ -727,16 +747,9 @@ mod tests {
 
     /// Set the ledger timestamp to `ts`.
     fn set_time(env: &Env, ts: u64) {
-        env.ledger().set(LedgerInfo {
-            timestamp: ts,
-            protocol_version: env.ledger().protocol_version(),
-            sequence_number: env.ledger().sequence(),
-            network_id: Default::default(),
-            base_reserve: 10,
-            min_temp_entry_ttl: 16,
-            min_persistent_entry_ttl: 16,
-            max_entry_ttl: 6_312_000,
-        });
+        let mut info = env.ledger().get();
+        info.timestamp = ts;
+        env.ledger().set(info);
     }
 
     // -----------------------------------------------------------------------
@@ -1496,5 +1509,83 @@ mod tests {
         // fee = 9_999 * 100 / 10_000 = 99 (integer division); net = 9_900.
         assert_eq!(token_client.balance(&creator), 9_900);
         assert_eq!(token_client.balance(&fee_collector), 99);
+    }
+    #[test]
+    fn test_calculate_and_distribute_bonuses() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(CampaignFundingContract, ());
+        let client = CampaignFundingContractClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let planter = Address::generate(&env);
+
+        let (carbon_token, carbon_client, carbon_admin) = create_token(&env, &admin);
+        let (bonus_token, bonus_client, bonus_admin) = create_token(&env, &admin);
+
+        // Mint tokens to the contract so it can distribute bonuses
+        carbon_admin.mint(&contract_id, &100_000);
+        bonus_admin.mint(&contract_id, &100_000);
+
+        let target_co2 = 1000;
+        let co2_bonus_amount = 500;
+        let planter_bonus_amount = 200;
+
+        // 1. Happy path: Both CO2 > 120% and Survival > 90%
+        client.calculate_and_distribute_bonuses(&BonusParams {
+            target_co2,
+            actual_co2: 1201, // > 1200
+            trees_planted: 100,
+            trees_survived: 91, // > 90%
+            treasury: treasury.clone(),
+            planter: planter.clone(),
+            carbon_token: carbon_token.clone(),
+            bonus_token: bonus_token.clone(),
+            co2_bonus_amount,
+            planter_bonus_amount,
+        });
+
+        assert_eq!(carbon_client.balance(&treasury), 500);
+        assert_eq!(bonus_client.balance(&planter), 200);
+
+        // Reset balances for next test cases
+        carbon_client.transfer(&treasury, &admin, &500);
+        bonus_client.transfer(&planter, &admin, &200);
+
+        // 2. Edge case: exactly 120% CO2 (1200) and exactly 90% survival (90)
+        client.calculate_and_distribute_bonuses(&BonusParams {
+            target_co2,
+            actual_co2: 1200, 
+            trees_planted: 100,
+            trees_survived: 90, 
+            treasury: treasury.clone(),
+            planter: planter.clone(),
+            carbon_token: carbon_token.clone(),
+            bonus_token: bonus_token.clone(),
+            co2_bonus_amount,
+            planter_bonus_amount,
+        });
+
+        assert_eq!(carbon_client.balance(&treasury), 0);
+        assert_eq!(bonus_client.balance(&planter), 0);
+
+        // 3. Edge case: missed survival threshold but met CO2
+        client.calculate_and_distribute_bonuses(&BonusParams {
+            target_co2,
+            actual_co2: 1201, 
+            trees_planted: 100,
+            trees_survived: 89, 
+            treasury: treasury.clone(),
+            planter: planter.clone(),
+            carbon_token: carbon_token.clone(),
+            bonus_token: bonus_token.clone(),
+            co2_bonus_amount,
+            planter_bonus_amount,
+        });
+
+        assert_eq!(carbon_client.balance(&treasury), 500);
+        assert_eq!(bonus_client.balance(&planter), 0);
     }
 }
