@@ -32,6 +32,9 @@ export {
 export * from "./PaymentStreamClient";
 export * from "./DistributorClient";
 export * from "./PlanterClient";
+export * from "./CarbonCreditClient";
+export * from "./ImpactNFTClient";
+export * from "./nft-milestone";
 
 // Export deployment module
 export * from "./deployer";

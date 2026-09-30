@@ -49,6 +49,13 @@ export function isRainySeason(dateOrTimestamp?: Date | number): boolean {
       ? new Date(dateOrTimestamp * 1000)
       : dateOrTimestamp;
   return getCampaignSeason(date) === "rainy-season";
+  if (dateOrTimestamp === undefined) return false;
+  const date =
+    typeof dateOrTimestamp === "number"
+      ? new Date(dateOrTimestamp * 1000)
+      : dateOrTimestamp;
+  const month = date.getMonth() + 1; // 1-indexed (1=Jan, 5=May, 10=Oct)
+  return month >= 5 && month <= 10;
 }
 
 /**
@@ -72,6 +79,11 @@ export function calculateCo2Offset(
   const multiplierBps = getCampaignCreditMultiplierBps(date);
   const co2Multiplier = multiplierBps / 10_000;
   const rainySeason = isRainySeason(dateOrTimestamp);
+  // The rainy-season bonus is a property of a known planting date. Callers
+  // without one (projection calculators, growth-stage models) must get a
+  // deterministic baseline rather than a multiplier that silently changes
+  // with the current calendar month (issue #907).
+  const rainySeason = dateOrTimestamp !== undefined && isRainySeason(dateOrTimestamp);
   const co2Multiplier = (rainySeason ? 2 : 1) * growthRateMultiplier;
 
   const baseCo2PerYearKg = qty * species.co2PerTreePerYearKg;

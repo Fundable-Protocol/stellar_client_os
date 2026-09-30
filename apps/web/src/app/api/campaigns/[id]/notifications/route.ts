@@ -33,6 +33,11 @@ import {
   PreferencesValidationError,
   setPreferences,
 } from "@/services/notification-preferences.service";
+import {
+  getCampaign,
+  getCampaignMilestones,
+  sendCampaignMilestoneNotifications,
+} from "@/services/campaign-notifications.service";
 
 export const runtime = "nodejs";
 
@@ -73,7 +78,7 @@ export async function POST(
 }
 
 /**
- * GET /api/campaigns/[id]/notifications?sponsorId=G…
+ * GET /api/campaigns/[id]/notifications?sponsorId=GΩ
  * One sponsor's preferences, or all preferences for the campaign.
  */
 export async function GET(
@@ -110,4 +115,53 @@ export async function GET(
 
   const all = await getPreferencesForCampaign(id);
   return Response.json({ campaignId: id, preferences: all });
+}
+
+/**
+ * PUT /api/campaigns/[id]/notifications
+ * Body: `{ milestone }`
+ * Sends push notifications to all subscribed sponsors when a sponsored campaign
+ * reaches a milestone: trees planted, verification complete, campaign finished,
+ * impact achieved.
+ */
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+  }
+
+  const milestone = String(body.milestone ?? "");
+  if (!milestone) {
+    return Response.json({ error: "milestone is required" }, { status: 400 });
+  }
+
+  const campaign = await getCampaign(id);
+  if (!campaign) {
+    return Response.json({ error: "campaign not found" }, { status: 404 });
+  }
+
+  const milestones = await getCampaignMilestones(id);
+  if (!milestones.includes(milestone)) {
+    return Response.json(
+      { error: `unknown milestone: ${milestone}`, available: milestones },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const result = await sendCampaignMilestoneNotifications({
+      campaignId: id,
+      milestone,
+    });
+    return Response.json(result, { status: 200 });
+  } catch (error) {
+    if (error instanceof PreferencesValidationError) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+    return Response.json({ error: "internal error sending notifications" }, { status: 500 });
+  }
 }

@@ -49,24 +49,32 @@ export async function POST(
       avatarUrl?: string;
       message?: string;
       txHash?: string;
+      treeCount?: number;
+      selectedTreeIds?: string[];
+      grossAmount?: string;
+      idempotencyKey?: string;
     };
 
     if (!body.backerAddress?.trim()) {
       return NextResponse.json({ error: "backerAddress is required" }, { status: 400, headers: NO_STORE });
     }
-    if (!body.amount) {
-      return NextResponse.json({ error: "amount is required" }, { status: 400, headers: NO_STORE });
+    if (!body.amount && !body.grossAmount) {
+      return NextResponse.json({ error: "amount or grossAmount is required" }, { status: 400, headers: NO_STORE });
     }
 
     const contribution = backersService.recordContribution({
       campaignId: id,
       backerAddress: body.backerAddress,
-      amount: String(body.amount),
+      amount: String(body.grossAmount ?? body.amount),
       token: body.token,
       displayName: body.displayName,
       avatarUrl: body.avatarUrl,
       message: body.message,
       txHash: body.txHash,
+      treeCount: body.treeCount,
+      selectedTreeIds: body.selectedTreeIds,
+      grossAmount: body.grossAmount,
+      idempotencyKey: body.idempotencyKey,
     });
 
     return NextResponse.json(

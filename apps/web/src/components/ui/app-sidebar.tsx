@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -17,6 +18,9 @@ import LogoutIcon from "../svgs/LogoutIcon";
 import BookIcon from "../svgs/BookIcon";
 import EyeIcon from "../svgs/EyeIcon";
 import OfframpIcon from "../svgs/OfframpIcon";
+
+// High contrast mode storage key.
+const HIGH_CONTRAST_STORAGE_KEY = "fundable-high-contrast";
 
 // Desktop menu items.
 const items = [
@@ -128,12 +132,28 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { setOpenMobile } = useSidebar();
   const isMobile = useIsMobile();
+  const [highContrast, setHighContrast] = useState(false);
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem(HIGH_CONTRAST_STORAGE_KEY);
+    if (stored === "true") {
+      setHighContrast(true);
+      document.documentElement.classList.add("high-contrast");
+    }
+  }, []);
+
+  const toggleHighContrast = () => {
+    const next = !highContrast;
+    setHighContrast(next);
+    window.localStorage.setItem(HIGH_CONTRAST_STORAGE_KEY, String(next));
+    document.documentElement.classList.toggle("high-contrast", next);
+  };
 
   // Mobile bottom navigation
   if (isMobile) {
     return (
-      <div className="fixed bottom-0 left-0 right-0 bg-black border-t border-gray-800 z-50 safe-area-pb">
-        <nav className="flex items-center justify-around py-1 px-2 sm:py-2 sm:px-4">
+      <div className={`fixed bottom-0 left-0 right-0 bg-black border-t border-gray-800 z-50 safe-area-pb ${highContrast ? "high-contrast" : ""}`}>
+        <nav className="flex items-center justify-around py-1 px-2 sm:py-2 sm:px-4" aria-label="Mobile navigation">
           {mobileItems.map((item) => {
             const isActive = pathname === item.url;
 
@@ -141,7 +161,7 @@ export function AppSidebar() {
               <Link
                 key={item.title}
                 href={item.url}
-                className={`flex flex-col items-center justify-center py-1 px-1 sm:py-2 sm:px-3 min-w-0 flex-1 transition-colors touch-manipulation ${isActive ? "text-white" : "text-gray-400"
+                className={`flex flex-col items-center justify-center py-1 px-1 sm:py-2 sm:px-3 min-w-0 flex-1 transition-colors touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black ${isActive ? "text-white" : "text-gray-400"
                   }`}
                 onClick={() => setOpenMobile(false)}
               >
@@ -149,7 +169,7 @@ export function AppSidebar() {
                   }`}>
                   {item.icon}
                 </div>
-                <span className={`text-[10px] sm:text-xs font-medium leading-tight ${isActive ? "text-white" : "text-gray-400"
+                <span className={`text-[11px] sm:text-sm font-medium leading-tight ${isActive ? "text-white" : "text-gray-400"
                   }`}>
                   {item.title}
                 </span>
@@ -164,12 +184,24 @@ export function AppSidebar() {
   // Desktop sidebar
   return (
     <Sidebar
-      className="!top-20 !h-[calc(100svh-5rem)] pt-7 bg-fundable-mid-grey/10 border-r-0"
+      className={`!top-20 !h-[calc(100svh-5rem)] pt-7 bg-fundable-mid-grey/10 border-r-0 ${highContrast ? "high-contrast" : ""}`}
       aria-label="Main navigation"
     >
       <Link href="https://fundable.finance">
         <Image src={"/fundable_logo.svg"} alt="Fundable Logo" width={153} height={33} priority className="pl-8 mb-12" />
       </Link>
+      <div className="px-5 pb-4">
+        <button
+          type="button"
+          onClick={toggleHighContrast}
+          aria-pressed={highContrast}
+          aria-label="Toggle high contrast mode"
+          className="w-full flex items-center justify-between gap-x-2 rounded p-2 text-sm font-medium text-white bg-black/40 hover:bg-fundable-purple-2 hover:text-black transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
+        >
+          <span>High Contrast</span>
+          <span aria-hidden="true">{highContrast ? "On" : "Off"}</span>
+        </button>
+      </div>
       <div className="pr-4 pl-5 pb-16 flex-1 flex flex-col justify-between">
         <nav
           className="flex flex-col gap-y-4 pr-2"
@@ -185,7 +217,7 @@ export function AppSidebar() {
                   <Link
                     href={link.url}
                     onClick={() => setOpenMobile(false)}
-                    className={`flex items-center gap-x-2 rounded p-2  transition-colors focus:outline-none focus:ring-1 focus:ring-fundable-purple-2 focus:ring-offset-2 focus:ring-offset-black 
+                    className={`flex items-center gap-x-2 rounded p-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black 
                     ${isActive
                         ? "bg-fundable-purple-2 text-black"
                         : "hover:ring-2 hover:ring-fundable-purple-2 text-white"
@@ -201,7 +233,7 @@ export function AppSidebar() {
                       {link.icon}
                     </span>
                     <span
-                      className="text-sm font-medium"
+                      className="text-base font-semibold"
                       data-slot="sidebar-title"
                     >
                       {link.title}
@@ -215,7 +247,7 @@ export function AppSidebar() {
 
         {true ? (
           <div
-            className="text-white flex items-center gap-x-4 cursor-pointer hover:bg-fundable-purple-2 p-2 rounded hover:text-black transition-all active:bg-fundable-purple-2"
+            className="text-white flex items-center gap-x-4 cursor-pointer hover:bg-fundable-purple-2 p-2 rounded hover:text-black transition-all active:bg-fundable-purple-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             onClick={() => {
               setOpenMobile(false);
             }}
@@ -223,7 +255,7 @@ export function AppSidebar() {
             <span className="size-9 grid place-content-center rounded-full bg-black">
               <LogoutIcon />
             </span>
-            <span className="font-medium">Disconnect Wallet</span>
+            <span className="font-semibold text-base">Disconnect Wallet</span>
           </div>
         ) : null}
       </div>
