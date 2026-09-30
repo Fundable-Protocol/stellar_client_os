@@ -14,7 +14,7 @@ function noStore<T>(body: T, init?: ResponseInit): Response {
   return Response.json(body, { ...init, headers: { ...NO_STORE_HEADERS, ...(init?.headers ?? {}) } });
 }
 
-export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET((_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const campaign = await getCampaign((await params).id);
   return campaign ? noStore(campaign) : noStore({ error: "Campaign not found" }, { status: 404 });
 }
@@ -34,6 +34,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       language?: string;
       translations?: Record<string, string>;
       autoTranslate?: boolean;
+      treeCount?: number;
+      co2Sequestration?: string;
     };
     if (body.language && !isSupportedTranslationLocale(body.language)) {
       return noStore({ error: "language is not supported" }, { status: 400 });
@@ -46,13 +48,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         { error: "Automatic translation is unavailable. Provide translations for the supported languages." },
         { status: 501 },
       );
+    if (body.treeCount !== undefined && (!Number.isSafeInteger(body.treeCount) || body.treeCount < 0)) {
+      return noStore({ error: "treeCount must be a non-negative whole number" }, { status: 400 });
+    }
+    if (body.co2Sequestration !== undefined && (
+      typeof body.co2Sequestration !== "string" ||
+      !/^\d+(?:\.\d+)?$/.test(body.co2Sequestration) ||
+      !Number.isFinite(Number(body.co2Sequestration))
+    )) {
+      return noStore({ error: "co2Sequestration must be a non-negative decimal string in metric tonnes" }, { status: 400 });
     }
     let updated = campaign;
     if (body.status) {
       if (!body.changedBy) return noStore({ error: "changedBy is required when changing status" }, { status: 400 });
       updated = await transitionCampaignStatus(campaign, body.status, body.changedBy, body.reason);
     }
-    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.autoTranslate !== undefined) {
+    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined) {
       const language = body.language ?? updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
       const translations = body.translations ?? updated.translations ?? {};
       const description = body.description ?? updated.description ?? "";
@@ -62,6 +73,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         description,
         language,
         translations,
+        treeCount: body.treeCount ?? updated.treeCount,
+        co2Sequestration: body.co2Sequestration ?? updated.co2Sequestration,
         updatedAt: Date.now(),
       });
     }

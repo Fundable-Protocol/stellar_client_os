@@ -325,6 +325,13 @@ Soroban contract for on-chain fundraising campaigns:
 - Emergency pause and refund flows
 - Multi-token contribution support
 
+### `contracts/campaign-diversity`
+Soroban contract that scores a campaign's tree planting for biodiversity:
+- `0 .. 10000` diversity score from verified species coverage and evenness
+- Simpson-index evenness factor, so a monoculture scores `0`
+- Pending/verified planting lifecycle, and carbon-credit screening
+- See [docs/contracts/campaign-diversity.md](docs/contracts/campaign-diversity.md)
+
 ### `packages/sdk`
 TypeScript SDK for interacting with the deployed contracts.
 

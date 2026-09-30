@@ -16,10 +16,12 @@ import {
   Globe,
   AlertTriangle,
   Crown,
+  TreePine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { CampaignARVisualizer } from "@/components/modules/campaign/ar/CampaignARVisualizer";
 import { CampaignSponsorWall } from "@/components/modules/campaign/sponsor-wall/CampaignSponsorWall";
 import { CampaignCollaboration } from "@/components/modules/campaign/collaboration/CampaignCollaboration";
 import { CampaignMilestones } from "@/components/modules/campaign/CampaignMilestones";
@@ -27,11 +29,15 @@ import { CampaignQAModeration } from "@/components/modules/campaign/qa/CampaignQ
 import { CampaignSeries } from "@/components/modules/campaign/series/CampaignSeries";
 import { CampaignAnalyticsDashboard } from "@/components/modules/campaign/analytics/CampaignAnalyticsDashboard";
 import { BackerCommunity } from "@/components/modules/campaign/community/BackerCommunity";
+import { CampaignFollowButton } from "@/components/modules/campaign/follow/CampaignFollowButton";
 import { TopBackers } from "@/components/modules/campaign/backers/TopBackers";
 import { TOP_BACKERS_LIMIT } from "@/types/campaign-backers";
 import { CampaignFundingVelocityChart } from "@/components/modules/campaign/FundingVelocityChart";
 import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
+import { CampaignFollow } from "@/components/modules/campaign/CampaignFollow";
+import { VerificationMediaGallery, type VerificationMediaItem } from "@/components/modules/campaign/VerificationMediaGallery";
+import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
 
 const translations = {
   en: {
@@ -233,6 +239,39 @@ type TranslationKey = keyof typeof translations;
 function isTranslationKey(value: string): value is TranslationKey {
   return Object.prototype.hasOwnProperty.call(translations, value);
 }
+const verificationMedia: VerificationMediaItem[] = [
+  {
+    id: "field-photo-north-canopy",
+    type: "photo",
+    src: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1280&q=80",
+    alt: "Dense rainforest canopy at the restoration site",
+    caption: "North canopy boundary",
+    capturedAt: "2026-09-14T09:42:00Z",
+    coordinates: { latitude: -3.4653, longitude: -62.2159 },
+    verifier: { name: "Rafael Nascimento", credential: "Field verifier · VF-208" },
+  },
+  {
+    id: "field-video-restoration-walk",
+    type: "video",
+    src: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    poster: "https://images.unsplash.com/photo-1511497584788-876760111969?auto=format&fit=crop&w=1280&q=80",
+    alt: "Flower documented during a native plant survey",
+    caption: "Native species survey",
+    capturedAt: "2026-09-14T10:18:00Z",
+    coordinates: { latitude: -3.4718, longitude: -62.2084 },
+    verifier: { name: "Luzia Mendes", credential: "Field verifier · VF-317" },
+  },
+  {
+    id: "field-photo-river-corridor",
+    type: "photo",
+    src: "https://images.unsplash.com/photo-1511497584788-876760111969?auto=format&fit=crop&w=1280&q=80",
+    alt: "Aerial view of protected forest along the river corridor",
+    caption: "River corridor survey",
+    capturedAt: "2026-09-12T15:06:00Z",
+    coordinates: { latitude: -3.4821, longitude: -62.1976 },
+    verifier: { name: "Rafael Nascimento", credential: "Field verifier · VF-208" },
+  },
+];
 
 const detectLanguage = (text: string): string => {
   if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(text)) return "zh";
@@ -248,6 +287,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const [activeTab, setActiveTab] = useState("overview");
   const [showInsuranceModal, setShowInsuranceModal] = useState(false);
   const [claimSubmitted, setClaimSubmitted] = useState(false);
+  const [showARModal, setShowARModal] = useState(false);
 
   // Mock campaign record data
   const campaign = {
@@ -266,6 +306,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     impactStatement: "Permanently offset 150 metric tons of CO2 while securing habitat for 200+ endangered species.",
     beneficiaries: "5,000 local indigenous community members",
     co2OffsetTons: "150",
+    treeType: "Oak",
+    location: "Amazon Basin, Brazil",
     successStory: {
       headline: "From Rainforest Pledge to On-the-Ground Impact",
       creatorInterview: "Every XLM stream is tied to verifiable patrol hours and backers receive monthly GPS updates. The team shipped on every promise.",
@@ -304,10 +346,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       lang={translationLang || detectedLang}
       className="campaign-accessible container mx-auto px-4 py-8 max-w-6xl space-y-8"
     >
+    <main className="container mx-auto px-4 py-8 max-w-6xl space-y-8" aria-label="Campaign details">
       {/* Navigation Top */}
       <div className="flex items-center justify-between">
         <Link
           href="/campaigns"
+          aria-label="Back to Campaigns Directory"
           className="inline-flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
         >
           <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back to Campaigns Directory
@@ -315,6 +359,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
         <div className="flex items-center gap-2">
           <CampaignAccessibilityControls />
+          <Link href={`/campaigns/${id}/donate`}>
+            <Button size="sm" variant="outline" className="border-rose-600/40 text-rose-300 hover:bg-rose-950/40 text-xs">
+              <Heart className="mr-1.5 h-3.5 w-3.5" /> Donate
+            </Button>
+          </Link>
           <Link href="/campaigns/create">
             <Button size="sm" variant="outline" className="border-purple-600/40 text-purple-300 hover:bg-purple-950/40 text-xs">
               <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Campaign
@@ -332,16 +381,35 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       </div>
 
       {showInsuranceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="insurance-modal-title"
+          aria-describedby="insurance-modal-description"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setShowInsuranceModal(false);
+              setClaimSubmitted(false);
+            }
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+        >
           <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-zinc-100">Submit Insurance Claim</h2>
-              <button type="button" onClick={() => { setShowInsuranceModal(false); setClaimSubmitted(false); }} className="text-zinc-400 hover:text-zinc-200 text-xl">×</button>
+              <h2 id="insurance-modal-title" className="text-lg font-bold text-zinc-100">Submit Insurance Claim</h2>
+              <button
+                type="button"
+                aria-label="Close insurance claim modal"
+                onClick={() => { setShowInsuranceModal(false); setClaimSubmitted(false); }}
+                className="text-zinc-400 hover:text-zinc-200 text-xl p-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-600"
+              >
+                ×
+              </button>
             </div>
             {claimSubmitted ? (
-              <div className="space-y-2">
+              <div role="status" aria-live="polite" className="space-y-2">
                 <p className="text-sm text-emerald-400 font-semibold">Claim submitted successfully.</p>
-                <p className="text-xs text-zinc-400">The campaign creator has submitted proof of failure. The insurance review process will evaluate your claim and pay out if eligible.</p>
+                <p id="insurance-modal-description" className="text-xs text-zinc-400">The campaign creator has submitted proof of failure. The insurance review process will evaluate your claim and pay out if eligible.</p>
               </div>
             ) : (
               <form
@@ -356,6 +424,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   <textarea
                     id="evidence"
                     required
+                    aria-required="true"
                     rows={4}
                     className="w-full rounded-md border border-zinc-700 bg-zinc-950 p-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-600"
                     placeholder="Describe why the campaign failed to meet its goals and provide any supporting evidence or links..."
@@ -410,6 +479,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               {translation?.shortDescription ?? campaign.shortDescription}
             </p>
 
+            <CampaignFollow campaignId={campaign.id} />
+
             <div className="flex items-center gap-4 text-xs text-zinc-400 pt-2">
               <span>Created by: <strong className="text-zinc-200 font-mono">{campaign.creator}</strong></span>
               <span>Ends: <strong className="text-zinc-200">{campaign.endDate}</strong></span>
@@ -430,7 +501,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             </div>
 
             {/* Progress bar */}
-            <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+            <div
+              role="progressbar"
+              aria-valuenow={progressPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Campaign funding progress"
+              aria-valuetext={`${progressPct}% funded (${campaign.raisedAmount} of ${campaign.goalAmount} ${campaign.token})`}
+              className="h-2 w-full overflow-hidden rounded-full bg-zinc-800"
+            >
               <div
                 className="h-full rounded-full bg-gradient-to-r from-purple-500 via-indigo-500 to-emerald-400 transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
@@ -440,6 +519,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             <Button className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 font-bold text-white hover:from-emerald-700 hover:to-teal-700 shadow-md">
               <Heart className="mr-2 h-4 w-4 fill-white" /> Sponsor This Campaign
             </Button>
+
+            {/* Follow for updates without sponsoring (#942 v1) */}
+            <CampaignFollowButton campaignId={campaign.id} />
           </div>
         </div>
       </div>
@@ -453,7 +535,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       {/* Main Content Tabs (Overview, Sponsor Wall #724, Top Backers, Co-Creators #722) */}
       {/* Backer community spaces (#788) render inside the overview sidebar. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-        <TabsList className="grid w-full grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 md:grid-cols-4 xl:grid-cols-8">
+        <TabsList aria-label="Campaign navigation tabs" className="grid w-full grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 md:grid-cols-4 xl:grid-cols-8">
           <TabsTrigger value="overview" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Target className="mr-1.5 h-4 w-4" /> Overview & Story
           </TabsTrigger>
@@ -508,9 +590,26 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   <div>Beneficiaries: <strong className="text-zinc-100">{campaign.beneficiaries}</strong></div>
                   <div>Estimated CO2 Offset: <strong className="text-amber-400 font-bold">{campaign.co2OffsetTons} Tons</strong></div>
                 </div>
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowARModal(true)}
+                    className="w-full border-emerald-600/40 bg-emerald-950/20 text-emerald-300 hover:bg-emerald-950/40 text-xs font-semibold"
+                  >
+                    <TreePine className="mr-1.5 h-3.5 w-3.5 text-emerald-400" /> Visualize {campaign.treesPlanted} Planted Trees in AR (5-20yr)
+                  </Button>
+                </div>
               </div>
 
               <CampaignImpactCalculator />
+              <VerificationMediaGallery items={verificationMedia} />
+
+              <CO2SequestrationProjection
+                campaignSpeciesId={campaign.treeType?.toLowerCase()}
+                campaignTreeCount={parseInt(campaign.treesPlanted.replace(/,/g, ""), 10) || undefined}
+              />
             </div>
 
             <div className="space-y-4">
@@ -613,6 +712,18 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           <CampaignAnalyticsDashboard campaignId={campaign.id} campaignTitle={campaign.title} />
         </TabsContent>
       </Tabs>
-    </div>
+
+      {/* AR Tree Visualizer Modal */}
+      {showARModal && (
+        <CampaignARVisualizer
+          campaignId={campaign.id}
+          campaignTitle={campaign.title}
+          treeType={campaign.treeType}
+          treesPlanted={campaign.treesPlanted}
+          location={campaign.location}
+          onClose={() => setShowARModal(false)}
+        />
+      )}
+    </main>
   );
 }

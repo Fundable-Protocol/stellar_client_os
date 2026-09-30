@@ -8,19 +8,18 @@ import {
   Play,
   Share2,
   ShieldCheck,
-  Trees,
   Clock,
   User,
   MapPin,
   Coins,
-  CheckCircle2,
-  AlertTriangle,
   Info,
 } from "lucide-react";
 import LiveTreeCounter from "./LiveTreeCounter";
 import AnimatedProgressBar from "./AnimatedProgressBar";
 import { CampaignData, CampaignStatus } from "@/types/campaign";
 import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
+import { CampaignData } from "@/types/campaign";
+import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
 
 interface CampaignDetailProps {
   campaignId: string;
@@ -76,6 +75,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
       <div className="flex items-center justify-between">
         <Link
           href="/campaigns"
+          aria-label="Back to Campaigns Explorer"
           className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-900 border border-zinc-800 text-xs font-semibold text-zinc-300 hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
         >
           <ArrowLeft className="size-4" /> Back to Campaigns Explorer
@@ -89,7 +89,11 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           >
             Toggle Creator Simulation ({isCreatorMode ? "Creator View" : "Public View"})
           </button>
-          <button className="p-2 rounded-xl bg-slate-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200">
+          <button
+            type="button"
+            aria-label="Share campaign"
+            className="p-2 rounded-xl bg-slate-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200"
+          >
             <Share2 className="size-4" />
           </button>
         </div>
@@ -97,7 +101,11 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
 
       {/* Action Alert Banner */}
       {actionMessage && (
-        <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-fadeIn">
+        <div
+          role="status"
+          aria-live="polite"
+          className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2 animate-fadeIn"
+        >
           <Info className="size-4 text-emerald-400 shrink-0" />
           <span>{actionMessage}</span>
         </div>
@@ -120,7 +128,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             </span>
 
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-zinc-800/80 text-zinc-300 border border-zinc-700/50">
-              🌲 {campaign.treeType} Species
+              {campaign.treeType === "General Fund" ? "💼 General Fund" : `🌲 ${campaign.treeType} Species`}
             </span>
           </div>
 
@@ -176,17 +184,19 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
       {/* Issue #702: Live Tree Counter & Animated Progress Bar Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Animated Tree Ticker (Issue #702) */}
-        <div className="lg:col-span-5">
-          <LiveTreeCounter
-            treesPlanted={campaign.treesPlanted}
-            targetTrees={campaign.targetTrees}
-            costPerTree={campaign.costPerTree}
-            treeType={campaign.treeType}
-          />
-        </div>
+        {campaign.treeType !== "General Fund" && (
+          <div className="lg:col-span-5">
+            <LiveTreeCounter
+              treesPlanted={campaign.treesPlanted}
+              targetTrees={campaign.targetTrees}
+              costPerTree={campaign.costPerTree}
+              treeType={campaign.treeType}
+            />
+          </div>
+        )}
 
         {/* Animated Goal Progress Bar (Issue #702) */}
-        <div className="lg:col-span-7">
+        <div className={campaign.treeType === "General Fund" ? "lg:col-span-12" : "lg:col-span-7"}>
           <AnimatedProgressBar
             totalRaised={totalRaisedNum}
             targetAmount={targetAmountNum}
@@ -194,6 +204,15 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             currencySymbol="XLM"
           />
         </div>
+      </div>
+
+      {/* Campaign Impact Calculator (v2) */}
+      <div className="w-full">
+        <CampaignImpactCalculator 
+          campaignSpeciesId={campaign.treeType} 
+          campaignTreeCount={campaign.treesPlanted}
+          readOnly={true} 
+        />
       </div>
 
       {/* Contract & Campaign Specs Grid */}

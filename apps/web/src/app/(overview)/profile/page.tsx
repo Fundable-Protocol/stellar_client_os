@@ -1,15 +1,15 @@
-import { PlanterProfile } from "@/components/modules/profile/PlanterProfile";
+import { CreatorProfile } from "@/components/modules/profile/CreatorProfile";
 
 export const metadata = {
-  title: "Planter Profile & Referral Rewards | Fundable",
+  title: "Creator Profile | Fundable",
   description:
-    "View your planter profile, manage your embedded referral link, and earn 5 XLM bonus for every new sponsor onboarded to Fundable.",
+    "View a campaign creator's profile showcasing all created campaigns, total trees planted, total sponsors, and total CO2 sequestered.",
 };
 
 export default function ProfilePage() {
   return (
     <main className="h-full overflow-y-auto px-4 py-8 md:py-10">
-      <PlanterProfile />
+      <CreatorProfile />
     </main>
   );
 }

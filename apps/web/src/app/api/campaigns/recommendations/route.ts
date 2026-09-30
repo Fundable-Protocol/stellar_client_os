@@ -8,12 +8,15 @@ const QuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).optional(),
   includeNonActive: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
   followedCreators: z.string().optional(),
+  species: z.string().optional(),
+  geographicInterests: z.string().optional(),
+  environmentalCauses: z.string().optional(),
 });
 
 /** GET /api/campaigns/recommendations?address=G...&followedCreators=G...,G... */
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
-  const parsed = QuerySchema.safeParse({ address: params.get("address") ?? undefined, network: params.get("network") ?? undefined, limit: params.get("limit") ?? undefined, includeNonActive: params.get("includeNonActive") ?? undefined, followedCreators: params.get("followedCreators") ?? undefined });
+  const parsed = QuerySchema.safeParse({ address: params.get("address") ?? undefined, network: params.get("network") ?? undefined, limit: params.get("limit") ?? undefined, includeNonActive: params.get("includeNonActive") ?? undefined, followedCreators: params.get("followedCreators") ?? undefined, species: params.get("species") ?? undefined, geographicInterests: params.get("geographicInterests") ?? undefined, environmentalCauses: params.get("environmentalCauses") ?? undefined });
   if (!parsed.success) return NextResponse.json({ error: "Invalid query parameters", details: parsed.error.flatten() }, { status: 400 });
   try {
     const result = await getPersonalizedCampaignRecommendationService().getRecommendations(parsed.data.address, {
@@ -21,6 +24,9 @@ export async function GET(request: NextRequest) {
       limit: parsed.data.limit,
       includeNonActive: parsed.data.includeNonActive,
       followedCreators: parsed.data.followedCreators?.split(",").map((creator) => creator.trim()).filter(Boolean),
+      species: parsed.data.species?.split(",").map((value) => value.trim()).filter(Boolean),
+      geographicInterests: parsed.data.geographicInterests?.split(",").map((value) => value.trim()).filter(Boolean),
+      environmentalCauses: parsed.data.environmentalCauses?.split(",").map((value) => value.trim()).filter(Boolean),
     });
     return NextResponse.json(result);
   } catch (error: unknown) {

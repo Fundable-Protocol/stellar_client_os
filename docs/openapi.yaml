@@ -209,7 +209,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Campaigns]
-      summary: Update campaign metadata or status
+      summary: Update campaign metadata, status, or impact totals
       operationId: updateCampaign
       parameters:
         - $ref: '#/components/parameters/CampaignId'
@@ -880,6 +880,10 @@ components:
         raisedAmount: { type: string, pattern: '^\\d+$' }
         sponsorCount: { type: integer, minimum: 0 }
         treeCount: { type: integer, minimum: 0 }
+        co2Sequestration: { type: string, description: 'Cumulative CO2 sequestration in metric tonnes' }
+        impactMilestonesReached:
+          type: array
+          items: { type: string, enum: [1000_trees, 5000_trees, 10_tons_co2] }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         statusChangedAt: { type: string, format: date-time }
@@ -931,6 +935,8 @@ components:
         status: { $ref: '#/components/schemas/CampaignStatus' }
         changedBy: { type: string }
         reason: { type: string }
+        treeCount: { type: integer, minimum: 0, description: 'Cumulative trees planted; crossing 1000 or 5000 emits a campaign_milestone_reached webhook' }
+        co2Sequestration: { type: string, pattern: '^\d+(\.\d+)?$', description: 'Cumulative CO2 sequestration in metric tonnes; crossing 10 emits a campaign_milestone_reached webhook' }
     Pagination:
       type: object
       required: [limit, offset, count]

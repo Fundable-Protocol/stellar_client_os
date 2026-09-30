@@ -37,6 +37,15 @@ const successStories = [
         rating: 5,
       },
     ],
+    impactMetrics: [
+      { label: 'Hectares Protected', value: '25,000' },
+      { label: 'Trees Saved', value: '1,500,000+' }
+    ],
+    beforeAfterPhotos: {
+      beforeUrl: '/images/success-stories/amazon-before.jpg',
+      afterUrl: '/images/success-stories/amazon-after.jpg',
+      caption: 'Before (left): illegal logging. After (right): secured and monitored reserve.'
+    }
   },
   {
     id: 'story-002',
@@ -66,6 +75,15 @@ const successStories = [
         rating: 5,
       },
     ],
+    impactMetrics: [
+      { label: 'Wells Installed', value: '8' },
+      { label: 'People Served', value: '5,000+' }
+    ],
+    beforeAfterPhotos: {
+      beforeUrl: '/images/success-stories/wells-before.jpg',
+      afterUrl: '/images/success-stories/wells-after.jpg',
+      caption: 'Before (left): fetching water from unsafe sources. After (right): clean solar-powered well in the village center.'
+    }
   },
 ];
 

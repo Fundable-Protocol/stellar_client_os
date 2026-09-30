@@ -4,14 +4,18 @@ import {
   hasOnlySupportedTranslationLocales,
   isSupportedTranslationLocale,
 } from "@/lib/translation";
+import { listCreditListings, createCreditListing, purchaseCreditListing } from "@/services/carbon-credit-market.service";
+import { autoTranslate, detectLanguage, SUPPORTED_TRANSLATION_LOCALES } from "@/lib/translation";
+import { withCampaignApiRateLimit } from "@/middlewares/rate-limit.middleware";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request) {
+async function getCampaigns(request: Request) {
   const url = new URL(request.url);
   const status = url.searchParams.get("status") as never;
   const creator = url.searchParams.get("creator") ?? undefined;
   const search = url.searchParams.get("search") ?? undefined;
+  const includeStats = url.searchParams.get("includeStats") === "true";
   const limit = Number(url.searchParams.get("limit") ?? 20);
   const offset = Number(url.searchParams.get("offset") ?? 0);
   const campaigns = await queryCampaigns({
@@ -21,16 +25,36 @@ export async function GET(request: Request) {
     offset: Number.isFinite(offset) ? offset : 0,
     network: (url.searchParams.get("network") as "testnet" | "mainnet" | null) ?? undefined,
   });
+  if (includeStats && creator) {
+    const totalTrees = campaigns.reduce((sum, campaign) => sum + (Number(campaign.treesPlanted) || 0), 0);
+    const totalSponsors = campaigns.reduce((sum, campaign) => sum + (Number(campaign.sponsorCount) || 0), 0);
+    const totalCo2 = campaigns.reduce((sum, campaign) => sum + (Number(campaign.co2Sequestered) || 0), 0);
+    return Response.json({
+      data: campaigns,
+      pagination: { limit, offset, count: campaigns.length },
+      stats: {
+        totalCampaigns: campaigns.length,
+        totalTrees,
+        totalSponsors,
+        totalCo2,
+        profileUrl: `/creators/${encodeURIComponent(creator)}`,
+      },
+    });
+  }
   return Response.json({ data: campaigns, pagination: { limit, offset, count: campaigns.length } });
 }
 
-export async function POST(request: Request) {
+async function postCampaign(request: Request) {
   try {
     const body = await request.json() as {
       creator?: string;
+      creatorEmail?: string;
       name?: string;
       description?: string;
       location?: string;
+      countries?: string[];
+      region?: string;
+      treeSpecies?: string;
       durationMs?: number;
       deadline?: number;
       goalAmount?: string;
@@ -38,6 +62,11 @@ export async function POST(request: Request) {
       language?: string;
       translations?: Record<string, string>;
       autoTranslate?: boolean;
+      nonprofitPartner?: {
+        legalName?: unknown;
+        registrationNumber?: unknown;
+        country?: unknown;
+      };
     };
     if (!body.creator || !body.name || !body.goalAmount) {
       return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
@@ -47,6 +76,15 @@ export async function POST(request: Request) {
     }
     if (body.location !== undefined && typeof body.location !== "string") {
       return Response.json({ error: "location must be a string" }, { status: 400 });
+    }
+    if (body.countries !== undefined && (!Array.isArray(body.countries) || body.countries.some((c) => typeof c !== "string"))) {
+      return Response.json({ error: "countries must be an array of strings" }, { status: 400 });
+    }
+    if (body.region !== undefined && typeof body.region !== "string") {
+      return Response.json({ error: "region must be a string" }, { status: 400 });
+    }
+    if (body.treeSpecies !== undefined && typeof body.treeSpecies !== "string") {
+      return Response.json({ error: "treeSpecies must be a string" }, { status: 400 });
     }
     if (body.durationMs !== undefined && (!Number.isFinite(body.durationMs) || body.durationMs < 0)) {
       return Response.json({ error: "durationMs must be a non-negative number" }, { status: 400 });
@@ -62,6 +100,25 @@ export async function POST(request: Request) {
         { error: "Automatic translation is unavailable. Provide translations for the supported languages." },
         { status: 501 },
       );
+    let nonprofitPartner: { legalName: string; registrationNumber: string; country: string } | undefined;
+    if (body.nonprofitPartner !== undefined) {
+      const partner = body.nonprofitPartner;
+      if (
+        !partner ||
+        typeof partner.legalName !== "string" || !partner.legalName.trim() ||
+        typeof partner.registrationNumber !== "string" || !partner.registrationNumber.trim() ||
+        typeof partner.country !== "string" || !partner.country.trim()
+      ) {
+        return Response.json(
+          { error: "nonprofitPartner must include legalName, registrationNumber, and country" },
+          { status: 400 },
+        );
+      }
+      nonprofitPartner = {
+        legalName: partner.legalName.trim(),
+        registrationNumber: partner.registrationNumber.trim(),
+        country: partner.country.trim(),
+      };
     }
     if (body.deadline !== undefined && !Number.isFinite(body.deadline)) {
       return Response.json({ error: "deadline must be a numeric timestamp" }, { status: 400 });
@@ -93,9 +150,13 @@ export async function POST(request: Request) {
       name: body.name,
       description,
       location: body.location,
+      countries: body.countries,
+      region: body.region,
+      treeSpecies: body.treeSpecies,
       durationMs,
       goalAmount: body.goalAmount,
       network: body.network,
+      nonprofitPartner,
       language,
       translations,
     });
@@ -104,3 +165,81 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON request body" }, { status: 400 });
   }
 }
+
+async function getCreditListings(request: Request) {
+  const url = new URL(request.url);
+  const campaignId = url.searchParams.get("campaignId") ?? undefined;
+  const seller = url.searchParams.get("seller") ?? undefined;
+  const status = url.searchParams.get("status") as never;
+  const listings = await listCreditListings({ campaignId, seller, status });
+  return Response.json({ data: listings });
+}
+
+async function postCreditListing(request: Request) {
+  try {
+    const body = await request.json() as {
+      campaignId?: string;
+      seller?: string;
+      amount?: string;
+      pricePerCredit?: string;
+      network?: "testnet" | "mainnet";
+    };
+    if (!body.campaignId || !body.seller || !body.amount || !body.pricePerCredit) {
+      return Response.json(
+        { error: "campaignId, seller, amount, and pricePerCredit are required" },
+        { status: 400 },
+      );
+    }
+    if (!/^\d+$/.test(body.amount) || !/^\d+$/.test(body.pricePerCredit)) {
+      return Response.json(
+        { error: "amount and pricePerCredit must be non-negative integer strings" },
+        { status: 400 },
+      );
+    }
+    const listing = await createCreditListing({
+      campaignId: body.campaignId,
+      seller: body.seller,
+      amount: body.amount,
+      pricePerCredit: body.pricePerCredit,
+      network: body.network,
+    });
+    return Response.json(listing, { status: 201 });
+  } catch {
+    return Response.json({ error: "Invalid JSON request body" }, { status: 400 });
+  }
+}
+
+async function postCreditPurchase(request: Request) {
+  try {
+    const body = await request.json() as {
+      listingId?: string;
+      buyer?: string;
+      amount?: string;
+      network?: "testnet" | "mainnet";
+    };
+    if (!body.listingId || !body.buyer || !body.amount) {
+      return Response.json(
+        { error: "listingId, buyer, and amount are required" },
+        { status: 400 },
+      );
+    }
+    if (!/^\d+$/.test(body.amount)) {
+      return Response.json({ error: "amount must be a non-negative integer string" }, { status: 400 });
+    }
+    const result = await purchaseCreditListing({
+      listingId: body.listingId,
+      buyer: body.buyer,
+      amount: body.amount,
+      network: body.network,
+    });
+    return Response.json(result, { status: 201 });
+  } catch {
+    return Response.json({ error: "Invalid JSON request body" }, { status: 400 });
+  }
+}
+
+export const GET = withCampaignApiRateLimit(getCampaigns);
+export const POST = withCampaignApiRateLimit(postCampaign);
+export const PUT = withCampaignApiRateLimit(postCreditListing);
+export const PATCH = withCampaignApiRateLimit(postCreditPurchase);
+export const OPTIONS = withCampaignApiRateLimit(getCreditListings);

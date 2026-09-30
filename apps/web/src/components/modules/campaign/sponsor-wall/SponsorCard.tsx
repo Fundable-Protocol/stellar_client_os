@@ -63,7 +63,7 @@ export function SponsorCard({ sponsor }: SponsorCardProps) {
       <div>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            {sponsor.avatarUrl ? (
+            {!sponsor.isAnonymous && sponsor.avatarUrl ? (
               <img
                 src={sponsor.avatarUrl}
                 alt={sponsor.name || sponsor.address}
@@ -71,16 +71,16 @@ export function SponsorCard({ sponsor }: SponsorCardProps) {
               />
             ) : (
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 font-semibold text-zinc-300 border border-zinc-700 shadow-sm">
-                {(sponsor.name || sponsor.address).substring(0, 2).toUpperCase()}
+                {sponsor.isAnonymous ? "A" : (sponsor.name || sponsor.address).substring(0, 2).toUpperCase()}
               </div>
             )}
 
             <div>
               <h4 className="font-semibold text-zinc-100 text-sm group-hover:text-white transition-colors line-clamp-1">
-                {sponsor.name || formatTruncatedAddress(sponsor.address)}
+                {sponsor.isAnonymous ? "Anonymous Sponsor" : (sponsor.name || formatTruncatedAddress(sponsor.address))}
               </h4>
               <p className="text-[11px] text-zinc-400 font-mono">
-                {sponsor.name ? formatTruncatedAddress(sponsor.address) : "Stellar Supporter"}
+                {sponsor.isAnonymous ? "Identity hidden" : (sponsor.name ? formatTruncatedAddress(sponsor.address) : "Stellar Supporter")}
               </p>
             </div>
           </div>

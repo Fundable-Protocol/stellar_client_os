@@ -106,4 +106,16 @@ describe("Campaign detail page — top backers tab", () => {
     // The duplicated insurance-claim modal is gone: exactly one trigger.
     expect(screen.getAllByRole("button", { name: /submit insurance claim/i })).toHaveLength(1);
   });
+
+  it("embeds verification photos and video with capture, location, and verifier metadata", () => {
+    const { container } = renderPage();
+
+    expect(screen.getByRole("heading", { name: "Verification Media" })).toBeTruthy();
+    expect(screen.getByText("North canopy boundary")).toBeTruthy();
+    expect(screen.getAllByText("Rafael Nascimento")).toHaveLength(2);
+    expect(screen.getByText("-3.4653, -62.2159")).toBeTruthy();
+    expect(screen.getByText("Sep 14, 2026, 9:42 AM UTC")).toBeTruthy();
+    expect(container.querySelector("video[controls]")).toBeTruthy();
+    expect(container.querySelectorAll('a[href*="openstreetmap.org"]')).toHaveLength(3);
+  });
 });
