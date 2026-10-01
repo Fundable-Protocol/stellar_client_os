@@ -58,7 +58,6 @@ export function CampaignAnalyticsDashboard({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     fetch(`/api/campaigns/${campaignId}/analytics/dashboard`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
       .then((payload) => {

@@ -34,6 +34,17 @@ export interface BackerContribution {
   avatarUrl?: string;
   /** Optional public message shown next to the contribution. */
   message?: string;
+  /** Number of trees covered by this sponsorship purchase. */
+  treeCount?: number;
+  /** Selected inventory identifiers, when the campaign exposes them. */
+  selectedTreeIds?: string[];
+  /** Server-derived bulk discount tier and rate. */
+  discountTier?: "NONE" | "TREE_10" | "TREE_50" | "TREE_100";
+  discountRateBps?: number;
+  grossAmount?: string;
+  discountAmount?: string;
+  netAmount?: string;
+  idempotencyKey?: string;
 }
 
 /** Per-campaign privacy preference for one backer. */
@@ -112,6 +123,10 @@ export interface RecordContributionInput {
   displayName?: string;
   avatarUrl?: string;
   message?: string;
+  treeCount?: number;
+  selectedTreeIds?: string[];
+  idempotencyKey?: string;
+  grossAmount?: string;
 }
 
 export interface SetPrivacyInput {

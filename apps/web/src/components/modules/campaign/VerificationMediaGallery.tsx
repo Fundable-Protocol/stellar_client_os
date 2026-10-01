@@ -66,6 +66,11 @@ export function VerificationMediaGallery({ items }: VerificationMediaGalleryProp
                       height={540}
                       unoptimized
                       className="h-full w-full object-cover"
+                      // crossOrigin="anonymous" prevents iOS 14 Safari from
+                      // storing the image as an opaque cache entry and then
+                      // refusing to display it in a cross-origin context.
+                      crossOrigin="anonymous"
+                      referrerPolicy="no-referrer-when-downgrade"
                     />
                   ) : (
                     <video
@@ -75,6 +80,9 @@ export function VerificationMediaGallery({ items }: VerificationMediaGalleryProp
                       playsInline
                       preload="metadata"
                       poster={item.poster}
+                      // crossOrigin prevents iOS 14 Safari from treating the
+                      // poster image as an opaque response in the cache.
+                      crossOrigin="anonymous"
                     >
                       <source src={item.src} type="video/mp4" />
                       Your browser does not support embedded video.

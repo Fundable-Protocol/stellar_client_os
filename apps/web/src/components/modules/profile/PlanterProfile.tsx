@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Check,
   Copy,
@@ -12,6 +13,8 @@ import {
   TrendingUp,
   Users,
   Wallet,
+  Sprout,
+  Leaf,
 } from "lucide-react";
 import QRCode from "qrcode";
 import { useWallet } from "@/providers/StellarWalletProvider";
@@ -20,8 +23,8 @@ import {
   getPlanterReferralStats,
   getPlanterReferralUrl,
   REFERRAL_BONUS_XLM,
-  type PlanterReferralStats,
 } from "@/services/social.service";
+import { getCampaignsByCreator, type Campaign } from "@/services/campaign.service";
 
 export interface PlanterProfileProps {
   initialAddress?: string;
@@ -34,23 +37,27 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
-  const [stats, setStats] = useState<PlanterReferralStats>(() =>
-    getPlanterReferralStats(address || "")
+  const stats = useMemo(
+    () => getPlanterReferralStats(address || ""),
+    [address]
   );
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   const referralUrl = useMemo(() => {
     return address ? getPlanterReferralUrl(address) : "";
   }, [address]);
 
+  const activeQrDataUrl = referralUrl ? qrDataUrl : "";
+
   useEffect(() => {
+    let cancelled = false;
     if (address) {
-      setStats(getPlanterReferralStats(address));
+      setCampaigns(getCampaignsByCreator(address));
     }
   }, [address]);
 
   useEffect(() => {
     if (!referralUrl) {
-      setQrDataUrl("");
       return;
     }
     QRCode.toDataURL(referralUrl, {
@@ -61,9 +68,27 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
         light: "#ffffff",
       },
     })
-      .then((url) => setQrDataUrl(url))
+      .then((url) => {
+        if (!cancelled) setQrDataUrl(url);
+      })
       .catch((err) => console.error("Error generating QR code:", err));
+
+    return () => {
+      cancelled = true;
+    };
   }, [referralUrl]);
+
+  const profileTotals = useMemo(() => {
+    return campaigns.reduce(
+      (acc, campaign) => {
+        acc.treesPlanted += campaign.treesPlanted || 0;
+        acc.sponsors += campaign.sponsorsCount || 0;
+        acc.co2Sequestered += campaign.co2Sequestered || 0;
+        return acc;
+      },
+      { treesPlanted: 0, sponsors: 0, co2Sequestered: 0 }
+    );
+  }, [campaigns]);
 
   const handleCopy = async () => {
     if (!referralUrl) return;
@@ -76,6 +101,31 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
     } catch (err) {
       console.error("Failed to copy referral link:", err);
     }
+  };
+
+  const handleShareProfile = async () => {
+    if (!address) return;
+    const profileUrl =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/profile/${address}`
+        : `/profile/${address}`;
+    const shareText = `Check out my Fundable planter profile — I've planted ${profileTotals.treesPlanted} trees with ${profileTotals.sponsors} sponsors!`;
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: "Fundable Planter Profile",
+          text: shareText,
+          url: profileUrl,
+        });
+        return;
+      } catch {
+        // User dismissed share dialog, fallback to twitter/x
+      }
+    }
+    const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+      shareText
+    )}&url=${encodeURIComponent(profileUrl)}`;
+    window.open(twitterUrl, "_blank", "noopener,noreferrer");
   };
 
   const handleShare = async () => {
@@ -147,6 +197,17 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
             </div>
           </div>
 
+          <button
+            type="button"
+            onClick={handleShareProfile}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium transition-all self-start md:self-auto"
+            aria-label="Share planter profile"
+            data-testid="share-profile-btn"
+          >
+            <Share2 className="size-4" />
+            <span>Share Profile</span>
+          </button>
+
           <div className="flex items-center gap-3 bg-zinc-900/80 border border-zinc-800 rounded-2xl px-4 py-3 self-start md:self-auto">
             <Wallet className="size-5 text-emerald-400" />
             <div>
@@ -157,6 +218,118 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
             </div>
           </div>
         </div>
+      </section>
+
+      {/* ── Profile Totals ─────────────────────────────────────────────── */}
+      <section
+        data-testid="profile-totals"
+        className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6"
+      >
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md space-y-2 shadow-lg">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-zinc-400">Total Trees Planted</p>
+            <div className="size-9 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+              <TreePine className="size-5" />
+            </div>
+          </div>
+          <p className="text-3xl font-extrabold text-white" data-testid="total-trees-planted">
+            {profileTotals.treesPlanted.toLocaleString()}
+          </p>
+          <p className="text-xs text-zinc-500">Across all your campaigns</p>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md space-y-2 shadow-lg">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-zinc-400">Total Sponsors</p>
+            <div className="size-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400">
+              <Users className="size-5" />
+            </div>
+          </div>
+          <p className="text-3xl font-extrabold text-white" data-testid="total-sponsors">
+            {profileTotals.sponsors.toLocaleString()}
+          </p>
+          <p className="text-xs text-zinc-500">Supporters across your campaigns</p>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-6 backdrop-blur-md space-y-2 shadow-lg">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-zinc-400">Total CO₂ Sequestered</p>
+            <div className="size-9 rounded-xl bg-teal-500/10 flex items-center justify-center text-teal-400">
+              <Leaf className="size-5" />
+            </div>
+          </div>
+          <p className="text-3xl font-extrabold text-white" data-testid="total-co2-sequestered">
+            {profileTotals.co2Sequestered.toLocaleString()}{" "}
+            <span className="text-lg font-normal text-teal-400">kg</span>
+          </p>
+          <p className="text-xs text-zinc-500">Estimated lifetime impact</p>
+        </div>
+      </section>
+
+      {/* ── Created Campaigns ──────────────────────────────────────────── */}
+      <section
+        data-testid="creator-campaigns-section"
+        className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-6 md:p-8 backdrop-blur-md space-y-6 shadow-xl"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-white">My Campaigns</h2>
+            <p className="text-sm text-zinc-400">
+              All campaigns you have created on Fundable.
+            </p>
+          </div>
+          {campaigns.length > 0 && (
+            <span className="text-xs font-medium text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
+              {campaigns.length} Campaign{campaigns.length === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
+
+        {campaigns.length === 0 ? (
+          <div
+            data-testid="creator-campaigns-empty"
+            className="flex flex-col items-center justify-center py-12 px-4 rounded-2xl bg-zinc-950/40 border border-zinc-800 text-center space-y-3"
+          >
+            <div className="size-12 rounded-full bg-zinc-900 flex items-center justify-center text-zinc-500">
+              <Sprout className="size-6" />
+            </div>
+            <h3 className="text-base font-semibold text-white">No campaigns yet</h3>
+            <p className="text-sm text-zinc-400 max-w-md">
+              You haven&apos;t created any campaigns. Start a new tree planting campaign to
+              showcase it on your profile.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {campaigns.map((campaign) => (
+              <Link
+                key={campaign.id}
+                href={`/campaigns/${campaign.id}`}
+                className="group rounded-2xl border border-zinc-800 bg-zinc-950/50 hover:border-emerald-500/40 hover:bg-zinc-900/80 transition-all overflow-hidden flex flex-col"
+                data-testid="creator-campaign-card"
+              >
+                <div className="p-5 space-y-3 flex-1">
+                  <h3 className="text-base font-semibold text-white group-hover:text-emerald-300 transition-colors line-clamp-2">
+                    {campaign.title}
+                  </h3>
+                  <p className="text-xs text-zinc-400 line-clamp-3">
+                    {campaign.description}
+                  </p>
+                  <div className="flex items-center gap-4 pt-2 text-xs text-zinc-400">
+                    <span className="inline-flex items-center gap-1">
+                      <TreePine className="size-3.5 text-emerald-400" />
+                      {(campaign.treesPlanted || 0).toLocaleString()} trees
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Users className="size-3.5 text-blue-400" />
+                      {(campaign.sponsorsCount || 0).toLocaleString()} sponsors
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* ── Unique Referral Link Card ───────────────────────────────────── */}
@@ -236,7 +409,7 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
         </div>
 
         {/* QR Code Modal / Drawer */}
-        {showQr && qrDataUrl && (
+        {showQr && activeQrDataUrl && (
           <div
             data-testid="qr-code-container"
             className="mt-4 flex flex-col items-center justify-center p-6 rounded-2xl bg-zinc-950 border border-zinc-800 text-center space-y-3 animate-in fade-in zoom-in-95 duration-200"
@@ -246,7 +419,7 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
             </p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={qrDataUrl}
+              src={activeQrDataUrl}
               alt="Planter Referral QR Code"
               className="size-52 rounded-xl shadow-lg border border-white/10"
               data-testid="referral-qr-image"

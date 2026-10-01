@@ -23,13 +23,20 @@ function tokens(value: string | undefined): string[] {
   return (value ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
+/** Search tags plus the single impact-reporting species and tree species labels. */
+function speciesValues(campaign: CampaignRecord): string[] {
+  return [...(campaign.speciesTags ?? []), campaign.species, campaign.treeSpecies].filter(
+    (value): value is string => Boolean(value),
+  );
+}
+
 function documentTokens(campaign: CampaignRecord): string[] {
   return tokens([
     campaign.name,
     campaign.description,
     campaign.location,
     campaign.creator,
-    ...(campaign.species ?? []),
+    ...speciesValues(campaign),
   ].join(" "));
 }
 
@@ -51,7 +58,7 @@ export class InMemoryCampaignSearchProvider implements CampaignSearchProvider {
     return campaigns
       .filter((campaign) => {
         if (location && !(campaign.location ?? "").toLowerCase().includes(location)) return false;
-        if (species && !(campaign.species ?? []).some((item) => item.toLowerCase().includes(species))) return false;
+        if (species && !speciesValues(campaign).some((item) => item.toLowerCase().includes(species))) return false;
         if (creator && !campaign.creator.toLowerCase().includes(creator)) return false;
         const words = documentTokens(campaign);
         return requested.every((term) => words.some((word) => word.includes(term)));
@@ -59,7 +66,7 @@ export class InMemoryCampaignSearchProvider implements CampaignSearchProvider {
       .map((campaign) => {
         const text = documentTokens(campaign).join(" ");
         const matched = requested.filter((term) => text.includes(term));
-        const highlights = [campaign.name, campaign.location, ...(campaign.species ?? [])].filter(Boolean).filter((value) =>
+        const highlights = [campaign.name, campaign.location, ...speciesValues(campaign)].filter((value): value is string => Boolean(value)).filter((value) =>
           requested.some((term) => value.toLowerCase().includes(term)),
         );
         return { campaign, score: matched.length / Math.max(requested.length, 1), highlights };
@@ -78,7 +85,7 @@ export class ElasticsearchCampaignSearchProvider implements CampaignSearchProvid
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        query: { multi_match: { query: query.query, fields: ["name^3", "description", "location^2", "species", "creator"] } },
+        query: { multi_match: { query: query.query, fields: ["name^3", "description", "location^2", "speciesTags", "species", "treeSpecies", "creator"] } },
         size: Math.min(Math.max(query.limit ?? 20, 1), 100),
         from: Math.max(query.offset ?? 0, 0),
       }),

@@ -8,13 +8,11 @@ import {
   EyeOff,
   ThumbsUp,
   Search,
-  Filter,
   Send,
   ShieldAlert,
   BadgeCheck,
   Trash2,
   CheckCircle,
-  XCircle,
   BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +35,16 @@ const STATUS_FILTERS: { label: string; value: QAItemStatus | "all"; icon: React.
 ];
 
 function TimeAgo({ timestamp }: { timestamp: number }) {
-  const diff = Date.now() - timestamp;
+  const [now, setNow] = useState(() => Date.now());
+
+  React.useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const diff = Math.max(0, now - timestamp);
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);

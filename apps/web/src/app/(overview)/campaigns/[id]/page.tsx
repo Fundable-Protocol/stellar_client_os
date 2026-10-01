@@ -16,7 +16,6 @@ import {
   Globe,
   AlertTriangle,
   Crown,
-  Eye,
   TreePine,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -34,7 +33,11 @@ import { CampaignFollowButton } from "@/components/modules/campaign/follow/Campa
 import { TopBackers } from "@/components/modules/campaign/backers/TopBackers";
 import { TOP_BACKERS_LIMIT } from "@/types/campaign-backers";
 import { CampaignFundingVelocityChart } from "@/components/modules/campaign/FundingVelocityChart";
+import { CampaignFollow } from "@/components/modules/campaign/CampaignFollow";
 import { VerificationMediaGallery, type VerificationMediaItem } from "@/components/modules/campaign/VerificationMediaGallery";
+import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
+import { CampaignSustainabilityScore } from "@/components/modules/campaign/sustainability/CampaignSustainabilityScore";
+import { OneTimeDonationButton } from "@/components/modules/campaign/donation/OneTimeDonationButton";
 
 const translations = {
   es: {
@@ -141,6 +144,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     co2OffsetTons: "150",
     treeType: "Oak",
     location: "Amazon Basin, Brazil",
+    sustainability: {
+      treeSpeciesDiversity: 82,
+      regionClimateImpact: 74,
+      soilHealthImprovement: 68,
+      biodiversityPotential: 88,
+    },
     successStory: {
       headline: "From Rainforest Pledge to On-the-Ground Impact",
       creatorInterview: "Every XLM stream is tied to verifiable patrol hours and backers receive monthly GPS updates. The team shipped on every promise.",
@@ -151,7 +160,22 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       ],
     },
     treesPlanted: "1,500",
+    targetTrees: 2000,
+    treeType: "Mangrove",
+    location: "Amazon Basin, South America",
   };
+
+  const sustainabilityScore = React.useMemo(
+    () =>
+      calculateSustainabilityScore({
+        treeType: campaign.treeType,
+        location: campaign.location,
+        treesPlanted: campaign.treesPlanted,
+        description: campaign.shortDescription,
+        category: campaign.category,
+      }),
+    [campaign.treeType, campaign.location, campaign.treesPlanted, campaign.shortDescription, campaign.category]
+  );
 
   // The mock detail page renders as the campaign creator, so creator-only
   // controls (featuring backers, managing community spaces) are exercised.
@@ -174,11 +198,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   );
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
+    <main className="container mx-auto px-4 py-8 max-w-6xl space-y-8" aria-label="Campaign details">
       {/* Navigation Top */}
       <div className="flex items-center justify-between">
         <Link
           href="/campaigns"
+          aria-label="Back to Campaigns Directory"
           className="inline-flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
         >
           <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back to Campaigns Directory
@@ -190,6 +215,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <Heart className="mr-1.5 h-3.5 w-3.5" /> Donate
             </Button>
           </Link>
+          <OneTimeDonationButton campaignId={campaign.id} campaignName={campaign.title} />
           <Link href="/campaigns/create">
             <Button size="sm" variant="outline" className="border-purple-600/40 text-purple-300 hover:bg-purple-950/40 text-xs">
               <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Campaign
@@ -207,16 +233,35 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       </div>
 
       {showInsuranceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="insurance-modal-title"
+          aria-describedby="insurance-modal-description"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setShowInsuranceModal(false);
+              setClaimSubmitted(false);
+            }
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+        >
           <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-zinc-100">Submit Insurance Claim</h2>
-              <button type="button" onClick={() => { setShowInsuranceModal(false); setClaimSubmitted(false); }} className="text-zinc-400 hover:text-zinc-200 text-xl">×</button>
+              <h2 id="insurance-modal-title" className="text-lg font-bold text-zinc-100">Submit Insurance Claim</h2>
+              <button
+                type="button"
+                aria-label="Close insurance claim modal"
+                onClick={() => { setShowInsuranceModal(false); setClaimSubmitted(false); }}
+                className="text-zinc-400 hover:text-zinc-200 text-xl p-1 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-600"
+              >
+                ×
+              </button>
             </div>
             {claimSubmitted ? (
-              <div className="space-y-2">
+              <div role="status" aria-live="polite" className="space-y-2">
                 <p className="text-sm text-emerald-400 font-semibold">Claim submitted successfully.</p>
-                <p className="text-xs text-zinc-400">The campaign creator has submitted proof of failure. The insurance review process will evaluate your claim and pay out if eligible.</p>
+                <p id="insurance-modal-description" className="text-xs text-zinc-400">The campaign creator has submitted proof of failure. The insurance review process will evaluate your claim and pay out if eligible.</p>
               </div>
             ) : (
               <form
@@ -231,6 +276,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   <textarea
                     id="evidence"
                     required
+                    aria-required="true"
                     rows={4}
                     className="w-full rounded-md border border-zinc-700 bg-zinc-950 p-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-600"
                     placeholder="Describe why the campaign failed to meet its goals and provide any supporting evidence or links..."
@@ -255,6 +301,11 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <Badge variant="outline" className="border-emerald-500 text-emerald-400 text-xs font-semibold">
                 <ShieldCheck className="mr-1 h-3 w-3" /> {campaign.status}
               </Badge>
+              <SustainabilityScoreBadge
+                score={sustainabilityScore.totalScore}
+                tier={sustainabilityScore.tier}
+                size="sm"
+              />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -282,6 +333,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               {translation?.shortDescription ?? campaign.shortDescription}
             </p>
 
+            <CampaignFollow campaignId={campaign.id} />
+
             <div className="flex items-center gap-4 text-xs text-zinc-400 pt-2">
               <span>Created by: <strong className="text-zinc-200 font-mono">{campaign.creator}</strong></span>
               <span>Ends: <strong className="text-zinc-200">{campaign.endDate}</strong></span>
@@ -302,7 +355,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             </div>
 
             {/* Progress bar */}
-            <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
+            <div
+              role="progressbar"
+              aria-valuenow={progressPct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Campaign funding progress"
+              aria-valuetext={`${progressPct}% funded (${campaign.raisedAmount} of ${campaign.goalAmount} ${campaign.token})`}
+              className="h-2 w-full overflow-hidden rounded-full bg-zinc-800"
+            >
               <div
                 className="h-full rounded-full bg-gradient-to-r from-purple-500 via-indigo-500 to-emerald-400 transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
@@ -319,6 +380,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         </div>
       </div>
 
+      {/* Campaign Sustainability Score - Environmental Index */}
+      <CampaignSustainabilityScore
+        treeSpeciesDiversity={campaign.sustainability.treeSpeciesDiversity}
+        regionClimateImpact={campaign.sustainability.regionClimateImpact}
+        soilHealthImprovement={campaign.sustainability.soilHealthImprovement}
+        biodiversityPotential={campaign.sustainability.biodiversityPotential}
+      />
+
       {/* Funding Milestone Achievement Badges (25%, 50%, 75%, 100%) */}
       <CampaignMilestones
         raisedAmount={campaign.raisedAmount}
@@ -328,9 +397,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       {/* Main Content Tabs (Overview, Sponsor Wall #724, Top Backers, Co-Creators #722) */}
       {/* Backer community spaces (#788) render inside the overview sidebar. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-        <TabsList className="grid w-full grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 md:grid-cols-4 xl:grid-cols-8">
+        <TabsList aria-label="Campaign navigation tabs" className="grid w-full grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 md:grid-cols-4 xl:grid-cols-8">
           <TabsTrigger value="overview" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Target className="mr-1.5 h-4 w-4" /> Overview & Story
+          </TabsTrigger>
+          <TabsTrigger value="ar-view" className="text-xs font-semibold data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
+            <Camera className="mr-1.5 h-4 w-4 text-emerald-300" /> AR Tree View
           </TabsTrigger>
           <TabsTrigger value="sponsors" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Heart className="mr-1.5 h-4 w-4 text-rose-400" /> Sponsor Wall (#724)
@@ -396,7 +468,19 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                 </div>
               </div>
 
+              {/* Issue #907: real-time CO2 sequestration display, updates as sponsors contribute. */}
+              <CampaignImpactCalculator
+                campaignSpeciesId={campaign.treeType}
+                campaignTreeCount={Number(campaign.treesPlanted.replace(/,/g, ""))}
+                readOnly
+              />
+
               <VerificationMediaGallery items={verificationMedia} />
+
+              <CO2SequestrationProjection
+                campaignSpeciesId={campaign.treeType?.toLowerCase()}
+                campaignTreeCount={parseInt(campaign.treesPlanted.replace(/,/g, ""), 10) || undefined}
+              />
             </div>
 
             <div className="space-y-4">
@@ -430,6 +514,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <BackerCommunity campaignId={campaign.id} canManage={isCreatorView} />
             </div>
           </div>
+        </TabsContent>
+
+        <TabsContent value="ar-view">
+          <CampaignARViewer
+            treesPlanted={Number(campaign.treesPlanted.replace(/,/g, ""))}
+            targetTrees={campaign.targetTrees}
+            treeType={campaign.treeType}
+            location={campaign.location}
+          />
         </TabsContent>
 
         {/* Tab 2: Sponsor Wall (#724) */}
@@ -511,6 +604,6 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           onClose={() => setShowARModal(false)}
         />
       )}
-    </div>
+    </main>
   );
 }

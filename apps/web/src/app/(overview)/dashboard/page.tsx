@@ -8,6 +8,7 @@ import { TreeMilestoneTimeline } from "@/components/modules/dashboard/TreeMilest
 import ForestReportExport from "@/components/modules/dashboard/ForestReportExport";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
 import CampaignCreatorBadge from "@/components/modules/dashboard/CampaignCreatorBadge";
+import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
 
 const DashboardPage = async () => {
     return (
@@ -20,6 +21,7 @@ const DashboardPage = async () => {
             <TreeMilestoneTimeline />
             <FeatureCards />
             <CampaignImpactCalculator />
+            <CO2SequestrationProjection />
             <ImpactMapSection />
         </main>
     );
