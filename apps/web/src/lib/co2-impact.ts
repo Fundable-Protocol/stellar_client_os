@@ -1,15 +1,9 @@
 export interface TreeSpecies {
   id: string;
   label: string;
-  /** Estimated CO2 absorbed (kg) per mature tree per year. */
   co2PerTreePerYearKg: number;
 }
 
-/**
- * Species-level CO2 uptake estimates. Values are indicative figures for a
- * mature tree (kg CO2 absorbed per year) and are used to project campaign
- * impact. Real uptake varies with age, soil, climate, and management.
- */
 export const TREE_SPECIES: TreeSpecies[] = [
   { id: "oak", label: "Oak", co2PerTreePerYearKg: 21 },
   { id: "maple", label: "Maple", co2PerTreePerYearKg: 12 },
@@ -23,11 +17,10 @@ export const TREE_SPECIES: TreeSpecies[] = [
 
 export const DEFAULT_SPECIES_ID = TREE_SPECIES[0].id;
 
-/** Average CO2 emitted by a passenger car, kg per km (approx. 120 g/km). */
 const CAR_CO2_KG_PER_KM = 0.12;
 
 export function getTreeSpecies(id: string): TreeSpecies {
-  return TREE_SPECIES.find((species) => species.id === id) ?? TREE_SPECIES[0];
+  return TREE_SPECIES.find((s) => s.id === id) ?? TREE_SPECIES[0];
 }
 
 export interface Co2ImpactResult {
@@ -35,6 +28,7 @@ export interface Co2ImpactResult {
   speciesLabel: string;
   co2PerTreePerYearKg: number;
   quantity: number;
+  co2Multiplier: number;
   co2PerYearKg: number;
   co2PerYearTonnes: number;
   co2Over10YearsKg: number;
@@ -43,21 +37,46 @@ export interface Co2ImpactResult {
 }
 
 /**
- * Compute the projected CO2 offset for a campaign.
+ * Helper to determine if a given date/timestamp falls within rainy season (May - October).
+ * (issue #714)
+ */
+export function isRainySeason(dateOrTimestamp?: Date | number): boolean {
+  if (dateOrTimestamp === undefined) return false;
+  const date =
+    typeof dateOrTimestamp === "number"
+      ? new Date(dateOrTimestamp * 1000)
+      : dateOrTimestamp;
+  const month = date.getMonth() + 1; // 1-indexed (1=Jan, 5=May, 10=Oct)
+  return month >= 5 && month <= 10;
+}
+
+/**
+ * Compute the projected CO2 offset for a campaign, applying a 2x bonus multiplier
+ * for campaigns created during the rainy season (May-October). (issue #714)
  *
  * @param speciesId - selected tree species id
  * @param quantity - number of trees (>= 0)
- * @returns the projected annual and 10-year CO2 offset plus a rough
+ * @returns the projected annual and 10- year CO2 offset plus a rough
  *          car-km equivalence for the annual figure
  */
 export function calculateCo2Offset(
   speciesId: string,
   quantity: number,
+  dateOrTimestamp?: Date | number,
+  growthRateMultiplier: number = 1.0,
 ): Co2ImpactResult {
   const species = getTreeSpecies(speciesId);
   const qty = Math.max(0, Math.floor(quantity) || 0);
 
-  const co2PerYearKg = qty * species.co2PerTreePerYearKg;
+  // The rainy-season bonus is a property of a known planting date. Callers
+  // without one (projection calculators, growth-stage models) must get a
+  // deterministic baseline rather than a multiplier that silently changes
+  // with the current calendar month (issue #907).
+  const rainySeason = dateOrTimestamp !== undefined && isRainySeason(dateOrTimestamp);
+  const co2Multiplier = (rainySeason ? 2 : 1) * growthRateMultiplier;
+
+  const baseCo2PerYearKg = qty * species.co2PerTreePerYearKg;
+  const co2PerYearKg = baseCo2PerYearKg * co2Multiplier;
   const co2Over10YearsKg = co2PerYearKg * 10;
 
   return {
@@ -65,6 +84,7 @@ export function calculateCo2Offset(
     speciesLabel: species.label,
     co2PerTreePerYearKg: species.co2PerTreePerYearKg,
     quantity: qty,
+    co2Multiplier,
     co2PerYearKg,
     co2PerYearTonnes: co2PerYearKg / 1000,
     co2Over10YearsKg,

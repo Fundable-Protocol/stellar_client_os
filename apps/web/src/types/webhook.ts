@@ -1,3 +1,6 @@
+export const CAMPAIGN_WEBHOOK_EVENTS = ["tree_verified", "batch_verified", "campaign_milestone_reached", "campaign_completed"] as const;
+export type CampaignWebhookEvent = (typeof CAMPAIGN_WEBHOOK_EVENTS)[number];
+
 export interface WebhookSubscription {
   id: string;
   url: string;

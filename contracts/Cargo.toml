@@ -5,16 +5,16 @@ members = [
     "payment-stream",
     "distributor",
     "nft-stream",
-    "planter"
-    "dispute-arbiter",
-    "nft-stream",
     "campaign-funding",
     "soulbound-badge",
+    "verifier-penalty",
     "planter",
+    "dispute-arbiter",
     "timelock",
     "upgrade-proxy",
     "sponsor-crowdfunding",
     "sponsor-insurance",
+    "campaign-diversity",
 ]
 
 [workspace.package]

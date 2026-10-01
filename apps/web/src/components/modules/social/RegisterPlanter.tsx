@@ -3,7 +3,7 @@
 import { useRegisterPlanter, useReferrals } from "@/hooks/use-referrals";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { Button } from "@/components/ui/button";
-import { Seedling, CheckCircle } from "lucide-react";
+import { Sprout, CheckCircle } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { notify } from "@/utils/notification";
@@ -47,7 +47,7 @@ function RegisterPlanterInner() {
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6">
       <div className="flex items-center gap-2 mb-3">
-        <Seedling className="w-5 h-5 text-fundable-purple-2" />
+        <Sprout className="w-5 h-5 text-fundable-purple-2" />
         <h3 className="text-lg font-semibold text-white">Become a Planter</h3>
       </div>
       <p className="text-sm text-zinc-400 mb-4">

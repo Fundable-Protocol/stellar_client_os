@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import toast from "react-hot-toast";
-import { Heart, Receipt, ShieldCheck } from "lucide"/
+import { Heart, Receipt, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useWallet } from "@/providers/StellarIWalletProvider";
+import { useWallet } from "@/providers/StellarWalletProvider";
 import {
   DONATION_ALLOCATION_DESCRIPTION,
   DONATION_PRESET_AMOUNTS,
@@ -198,8 +198,8 @@ export function CampaignDonationPanel({
                 amount === preset
                   ? "border-emerald-400 bg-emerald-400/10 text-emerald-200"
                   : "border-white/10 text-zinc-300 hover:border-white/30"
-              }`
-            }>
+              }`}
+            >
               {preset} {token}
             </button>
           ))}

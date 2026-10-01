@@ -1,4 +1,4 @@
-import DeployContract from "/components/modules/deploy-contract/DeployContract";
+import DeployContract from "@/components/modules/deploy-contract/DeployContract";
 export default function DeployContractPage() {
   return (
     <div className="mx-auto w-full py-6 sm:py-10 h-full overflow-y-auto pb-24 md:pb-6">

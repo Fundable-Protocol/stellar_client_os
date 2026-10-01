@@ -18,6 +18,9 @@ export function SponsorTeamDashboard() {
   const [treeId, setTreeId] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [isSubmittingTeam, setIsSubmittingTeam] = useState(false);
+  const [isSubmittingInvite, setIsSubmittingInvite] = useState(false);
+  const [isSubmittingTree, setIsSubmittingTree] = useState(false);
   const ownedTeams = useMemo(() => teams.filter((team) => team.owner === address), [teams, address]);
   const selectedTeam = teams.find((team) => team.id === selectedTeamId) ?? ownedTeams[0];
 
@@ -27,6 +30,7 @@ export function SponsorTeamDashboard() {
 
   function submitTeam(event: FormEvent) {
     event.preventDefault();
+    setIsSubmittingTeam(true);
     try {
       if (!address) throw new Error("Connect your wallet to create a team");
       const team = createSponsorTeam(address, name);
@@ -36,11 +40,14 @@ export function SponsorTeamDashboard() {
       refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to create team");
+    } finally {
+      setIsSubmittingTeam(false);
     }
   }
 
   function submitInvite(event: FormEvent) {
     event.preventDefault();
+    setIsSubmittingInvite(true);
     try {
       if (!address || !selectedTeam) throw new Error("Create a team first");
       inviteSponsorToTeam(selectedTeam.id, address, invite);
@@ -49,11 +56,14 @@ export function SponsorTeamDashboard() {
       refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to invite sponsor");
+    } finally {
+      setIsSubmittingInvite(false);
     }
   }
 
   function submitTree(event: FormEvent) {
     event.preventDefault();
+    setIsSubmittingTree(true);
     try {
       if (!address || !selectedTeam) throw new Error("Create a team first");
       recordTeamTreeSponsorship(selectedTeam.id, address, treeId);
@@ -62,6 +72,8 @@ export function SponsorTeamDashboard() {
       refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to record sponsorship");
+    } finally {
+      setIsSubmittingTree(false);
     }
   }
 
@@ -78,8 +90,10 @@ export function SponsorTeamDashboard() {
 
       <form onSubmit={submitTeam} className="flex flex-wrap gap-2">
         <label className="sr-only" htmlFor="team-name">Team name</label>
-        <input id="team-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Team name" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm" />
-        <button type="submit" disabled={!address} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">Create team</button>
+        <input id="team-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Team name" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm" disabled={isSubmittingTeam} />
+        <button type="submit" disabled={!address || isSubmittingTeam} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">
+          {isSubmittingTeam ? "Creating..." : "Create team"}
+        </button>
       </form>
 
       {selectedTeam && (
@@ -94,13 +108,17 @@ export function SponsorTeamDashboard() {
           <div className="grid gap-3 md:grid-cols-2">
             <form onSubmit={submitInvite} className="flex gap-2">
               <label className="sr-only" htmlFor="team-invite">Sponsor address</label>
-              <input id="team-invite" value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="Sponsor address" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs" />
-              <button type="submit" className="rounded-lg border border-white/10 px-3 py-2 text-xs">Invite</button>
+              <input id="team-invite" value={invite} onChange={(event) => setInvite(event.target.value)} placeholder="Sponsor address" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs" disabled={isSubmittingInvite} />
+              <button type="submit" disabled={isSubmittingInvite} className="rounded-lg border border-white/10 px-3 py-2 text-xs disabled:opacity-50">
+                {isSubmittingInvite ? "Inviting..." : "Invite"}
+              </button>
             </form>
             <form onSubmit={submitTree} className="flex gap-2">
               <label className="sr-only" htmlFor="team-tree">Tree ID</label>
-              <input id="team-tree" value={treeId} onChange={(event) => setTreeId(event.target.value)} placeholder="Sponsored tree ID" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs" />
-              <button type="submit" className="rounded-lg border border-white/10 px-3 py-2 text-xs">Add tree</button>
+              <input id="team-tree" value={treeId} onChange={(event) => setTreeId(event.target.value)} placeholder="Sponsored tree ID" className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs" disabled={isSubmittingTree} />
+              <button type="submit" disabled={isSubmittingTree} className="rounded-lg border border-white/10 px-3 py-2 text-xs disabled:opacity-50">
+                {isSubmittingTree ? "Adding..." : "Add tree"}
+              </button>
             </form>
           </div>
         </div>

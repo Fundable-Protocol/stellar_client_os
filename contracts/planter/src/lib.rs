@@ -111,8 +111,6 @@ const DEFAULT_REWARD: i128 = 20_000_000;
 // Contract
 // ---------------------------------------------------------------------------
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env};
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlanterMetrics {
@@ -171,13 +169,13 @@ impl PlanterContract {
             .set(&DataKey::Planter(planter.clone()), &planter_info);
         env.storage()
             .persistent()
-            .extend_ttl(&DataKey::Planter(planter), LEDGER_THRESHOLD, LEDGER_BUMP);
+            .extend_ttl(&DataKey::Planter(planter.clone()), LEDGER_THRESHOLD, LEDGER_BUMP);
 
         // Update referrer's referral count
-        if let Some(ref ref) = referrer {
-            let mut referral_info = Self::load_referral_info(&env, ref.clone());
+        if let Some(referrer_addr) = referrer.clone() {
+            let mut referral_info = Self::load_referral_info(&env, referrer_addr.clone());
             referral_info.referral_count += 1;
-            Self::save_referral_info(&env, ref.clone(), &referral_info);
+            Self::save_referral_info(&env, referrer_addr.clone(), &referral_info);
         }
 
         env.events().publish(
@@ -356,6 +354,24 @@ impl PlanterContract {
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
         env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
+
+    /// Return aggregate metrics for a planter wallet.
+    pub fn get_planter_metrics(env: Env, wallet: Address) -> PlanterMetrics {
+        env.storage()
+            .persistent()
+            .get(&wallet)
+            .unwrap_or(PlanterMetrics {
+                trees_completed: 0,
+                avg_completion_time: 0,
+                success_rate: 0,
+                current_bond_locked: 0,
+            })
+    }
+
+    /// Persist aggregate metrics for a planter wallet.
+    pub fn set_planter_metrics(env: Env, wallet: Address, metrics: PlanterMetrics) {
+        env.storage().persistent().set(&wallet, &metrics);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -365,37 +381,45 @@ impl PlanterContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Ledger, LedgerInfo};
+    use soroban_sdk::{
+        testutils::Address as _,
+        token::StellarAssetClient,
+    };
 
-    fn setup(env: &Env) -> Address {
+    /// Deploy and initialise the contract with a real reward token.
+    ///
+    /// Returns `(admin, reward_token, contract_id, client)`.
+    fn setup(env: &Env) -> (Address, Address, Address, PlanterContractClient) {
+        let contract_id = env.register(PlanterContract, ());
+        let client = PlanterContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
-        let reward_token = Address::generate(env);
-        PlanterContract::initialize(env.clone(), admin.clone(), reward_token, DEFAULT_REWARD);
-        admin
+        let token_admin = Address::generate(env);
+        let reward_token = env
+            .register_stellar_asset_contract_v2(token_admin.clone())
+            .address();
+        client.initialize(&admin, &reward_token, &DEFAULT_REWARD);
+        (admin, reward_token, contract_id, client)
     }
 
     #[test]
     fn test_initialize() {
         let env = Env::default();
         env.mock_all_auths();
-        let admin = Address::generate(&env);
-        let reward_token = Address::generate(&env);
-        
-        PlanterContract::initialize(env.clone(), admin.clone(), reward_token, DEFAULT_REWARD);
-        
-        assert_eq!(PlanterContract::get_reward_amount(env), DEFAULT_REWARD);
+        let (_, _, _, client) = setup(&env);
+
+        assert_eq!(client.get_reward_amount(), DEFAULT_REWARD);
     }
 
     #[test]
     fn test_register_planter() {
         let env = Env::default();
         env.mock_all_auths();
-        setup(&env);
-        
+        let (_, _, _, client) = setup(&env);
+
         let planter = Address::generate(&env);
-        PlanterContract::register_planter(env.clone(), planter.clone(), None);
-        
-        let info = PlanterContract::get_planter(env, planter);
+        client.register_planter(&planter, &None);
+
+        let info = client.get_planter(&planter);
         assert_eq!(info.jobs_completed, 0);
         assert_eq!(info.first_job_reward_claimed, false);
     }
@@ -404,16 +428,16 @@ mod tests {
     fn test_register_planter_with_referrer() {
         let env = Env::default();
         env.mock_all_auths();
-        setup(&env);
-        
+        let (_, _, _, client) = setup(&env);
+
         let referrer = Address::generate(&env);
         let planter = Address::generate(&env);
-        PlanterContract::register_planter(env.clone(), planter.clone(), Some(referrer.clone()));
-        
-        let info = PlanterContract::get_planter(env, planter);
+        client.register_planter(&planter, &Some(referrer.clone()));
+
+        let info = client.get_planter(&planter);
         assert_eq!(info.referrer, Some(referrer.clone()));
-        
-        let referral_info = PlanterContract::get_referral_info(env, referrer);
+
+        let referral_info = client.get_referral_info(&referrer);
         assert_eq!(referral_info.referral_count, 1);
     }
 
@@ -421,13 +445,13 @@ mod tests {
     fn test_complete_job() {
         let env = Env::default();
         env.mock_all_auths();
-        setup(&env);
-        
+        let (_, _, _, client) = setup(&env);
+
         let planter = Address::generate(&env);
-        PlanterContract::register_planter(env.clone(), planter.clone(), None);
-        PlanterContract::complete_job(env.clone(), planter.clone());
-        
-        let info = PlanterContract::get_planter(env, planter);
+        client.register_planter(&planter, &None);
+        client.complete_job(&planter);
+
+        let info = client.get_planter(&planter);
         assert_eq!(info.jobs_completed, 1);
     }
 
@@ -435,33 +459,25 @@ mod tests {
     fn test_claim_referral_reward() {
         let env = Env::default();
         env.mock_all_auths();
-        let admin = setup(&env);
-        let reward_token = Address::generate(&env);
-        
-        // Fund contract with XLM (simplified for test)
-        // In real scenario, this would be done via token minting or transfer
-        
+        let (_, reward_token, contract_id, client) = setup(&env);
+
         let referrer = Address::generate(&env);
         let planter = Address::generate(&env);
-        
-        PlanterContract::register_planter(env.clone(), planter.clone(), Some(referrer.clone()));
-        PlanterContract::complete_job(env.clone(), planter.clone());
-        
-        // Note: This test would need proper token setup to fully test the transfer
-        // For now, we test the logic without the actual transfer
-        let info = PlanterContract::get_planter(env.clone(), planter.clone());
-        assert_eq!(info.jobs_completed, 1);
-        assert_eq!(info.first_job_reward_claimed, false);
-    pub fn get_planter_metrics(env: Env, wallet: Address) -> PlanterMetrics {
-        env.storage().persistent().get(&wallet).unwrap_or(PlanterMetrics {
-            trees_completed: 0,
-            avg_completion_time: 0,
-            success_rate: 0,
-            current_bond_locked: 0,
-        })
-    }
 
-    pub fn set_planter_metrics(env: Env, wallet: Address, metrics: PlanterMetrics) {
-        env.storage().persistent().set(&wallet, &metrics);
+        client.register_planter(&planter, &Some(referrer.clone()));
+        client.complete_job(&planter);
+
+        // Fund the contract so it can pay out the reward.
+        let token_admin_client = StellarAssetClient::new(&env, &reward_token);
+        token_admin_client.mint(&contract_id, &DEFAULT_REWARD);
+
+        client.claim_referral_reward(&referrer, &planter);
+
+        let info = client.get_planter(&planter);
+        assert_eq!(info.jobs_completed, 1);
+        assert_eq!(info.first_job_reward_claimed, true);
+
+        let referral_info = client.get_referral_info(&referrer);
+        assert_eq!(referral_info.successful_referrals, 1);
     }
 }

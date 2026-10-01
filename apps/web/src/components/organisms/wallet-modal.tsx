@@ -156,7 +156,6 @@ export function WalletModal() {
                 <button
                   key={wallet.id}
                   type="button"
-                  aria-pressed={isSelected}
                   role="radio"
                   aria-checked={isSelected}
                   onClick={() => setActiveSelection(wallet.id)}

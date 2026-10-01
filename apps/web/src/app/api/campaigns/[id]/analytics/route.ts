@@ -4,6 +4,7 @@ import {
   recordCampaignContribution,
   recordCampaignRefund,
   recordCampaignView,
+  recordCampaignCreditSale,
 } from "../../../../services/campaign-analytics.service";
 import { fundInsurancePool } from "../../../../services/campaign-insurance.service";
 import { isDonationToken } from "@/types/campaign-insurance";
@@ -22,12 +23,83 @@ function noStore<T>(body: T, init?: ResponseInit): NextResponse<T> {
   });
 }
 
+type SustainabilityInputs = {
+  treeSpeciesDiversity?: number;
+  regionClimateImpact?: number;
+  soilHealthImprovement?: number;
+  biodiversityPotential?: number;
+};
+
+function clamp0100(value: number): number {
+  if (!Number.finite(value)) return 0;
+  return Math.min(100, Math.max(0, value));
+}
+
+function normalize100(value: number): number {
+  if (!Number.finite(value)) return 0;
+  if (value <= 1) return clamp0100(value * 100);
+  return clamp0100(value);
+}
+
+export function calculateSustainabilityScore(inputs: SustainabilityInputs): number {
+  const treeSpeciesDiversity = normalize100(inputs.treeSpeciesDiversity ?? 0);
+  const regionClimateImpact = normalize100(inputs.regionClimateImpact ?? 0);
+  const soilHealthImprovement = normalize100(inputs.soilHealthImprovement ?? 0);
+  const biodiversityPotential = normalize100(inputs.biodiversityPotential ?? 0);
+
+  const weighted =
+    treeSpeciesDiversity * 0.3 +
+    regionClimateImpact * 0.25 +
+    soilHealthImprovement * 0.25 +
+    biodiversityPotential * 0.2;
+
+  return Math.round(clamp0100(weighted));
+}
+
+function extractSustainabilityInputs(analytics: unknown | null | undefined): SustainabilityInputs {
+  if (!analytics || typeof analytics !== "object") return {};
+  const candidate = analytics as Record<string, unknown>;
+  const source =
+    (candidate.sustainability as Record<string, unknown> | undefined) ??
+    (candidate.environmentalIndex as Record<string, unknown> | undefined) ??
+    candidate;
+
+  const toNumber = (value: unknown): number | undefined => {
+    if (typeof value === "number") return value;
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      return Number.finite(parsed) ? parsed : undefined;
+    }
+    return undefined;
+  };
+
+  return {
+    treeSpeciesDiversity: toNumber(source.treeSpeciesDiversity),
+    regionClimateImpact: toNumber(source.regionClimateImpact),
+    soilHealthImprovement: toNumber(source.soilHealthImprovement),
+    biodiversityPotential: toNumber(source.biodiversityPotential),
+  };
+}
+
+function withSustainabilityScore(analytics: unknown | null | undefined) {
+  if (!analytics || typeof analytics !== "object") return analytics;
+  const inputs = extractSustainabilityInputs(analytics);
+  const score = calculateSustainabilityScore(inputs);
+  return {
+    ...(analytics as Record<string, unknown>),
+    sustainabilityScore: score,
+    environmentalIndex: score,
+  };
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const analytics = await getCampaignAnalytics((await params).id);
-  return analytics ? noStore({ data: analytics }) : noStore({ error: "Campaign not found" }, { status: 404 });
+  return analytics
+    ? noStore({ data: withSustainabilityScore(analytics) })
+    : noStore({ error: "Campaign not found" }, { status: 404 });
 }
 
 export async function POST(
@@ -36,12 +108,14 @@ export async function POST(
 ) {
   const campaignId = (await params).id;
   try {
-    const body = (await request.json()) as {
-      event?: "view" | "contribution" | "refund";
+    const body = await request.json() as {
+      event?: "view" | "contribution" | "refund" | "credit_sale";
       viewerId?: string;
       sponsor?: string;
       amount?: string;
       token?: string;
+      buyer?: string;
+      credits?: string;
     };
     if (body.event === "view") {
       await recordCampaignView(campaignId, body.viewerId);
@@ -53,11 +127,16 @@ export async function POST(
       await fundInsurancePool(campaignId, body.amount, token);
     } else if (body.event === "refund") {
       await recordCampaignRefund(campaignId);
+    } else if (body.event === "credit_sale") {
+      if (!body.sponsor || !body.buyer || !body.credits) {
+        return noStore({ error: "sponsor, buyer, and credits are required" }, { status: 400 });
+      }
+      await recordCampaignCreditSale(campaignId, body.sponsor, body.buyer, body.credits);
     } else {
-      return noStore({ error: "event must be view, contribution, or refund" }, { status: 400 });
+      return noStore({ error: "event must be view, contribution, refund, or credit_sale" }, { status: 400 });
     }
     const analytics = await getCampaignAnalytics(campaignId);
-    return noStore({ data: analytics }, { status: 201 });
+    return noStore({ data: withSustainabilityScore(analytics) }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid analytics event";
     return noStore({ error: message }, { status: message === "Campaign not found" ? 404 : 400 });

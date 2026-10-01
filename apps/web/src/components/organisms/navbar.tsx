@@ -35,6 +35,12 @@ export function Navbar() {
             Social
           </Link>
           <Link
+            href="/grants"
+            className="hover:text-white transition-colors uppercase pb-1 border-b-2 border-transparent hover:border-white/50"
+          >
+            Grants
+          </Link>
+          <Link
             href="#"
             className="hover:text-white transition-colors uppercase pb-1 border-b-2 border-transparent hover:border-white/50"
           >

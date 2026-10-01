@@ -80,6 +80,75 @@
                   "storage": [
                     {
                       "key": {
+                        "symbol": "fee_tiers"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "fee_rate"
+                                },
+                                "val": {
+                                  "u32": 500
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "threshold"
+                                },
+                                "val": {
+                                  "i128": "0"
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "fee_rate"
+                                },
+                                "val": {
+                                  "u32": 250
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "threshold"
+                                },
+                                "val": {
+                                  "i128": "50000"
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "fee_rate"
+                                },
+                                "val": {
+                                  "u32": 100
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "threshold"
+                                },
+                                "val": {
+                                  "i128": "500000"
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": {
                         "vec": [
                           {
                             "symbol": "Admin"

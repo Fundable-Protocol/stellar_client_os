@@ -32,6 +32,9 @@ export {
 export * from "./PaymentStreamClient";
 export * from "./DistributorClient";
 export * from "./PlanterClient";
+export * from "./CarbonCreditClient";
+export * from "./ImpactNFTClient";
+export * from "./nft-milestone";
 
 // Export deployment module
 export * from "./deployer";
@@ -47,6 +50,9 @@ export * from "./utils/BalanceWatcher";
 export * from "./utils/transactions";
 export * from "./utils/GasEstimator";
 export * from "./utils/rpcConnectionOptions";
+
+// Export tax reporting utilities (issue #792)
+export * from "./tax";
 
 // Export error handling utilities
 export {
