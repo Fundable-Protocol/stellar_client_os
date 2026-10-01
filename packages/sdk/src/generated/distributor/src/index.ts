@@ -21,12 +21,13 @@ import type {
   Timepoint,
   Duration,
 } from "@stellar/stellar-sdk/contract";
+/* eslint-disable @typescript-eslint/no-unsafe-declaration-merging */
 export * from "@stellar/stellar-sdk";
 export * as contract from "@stellar/stellar-sdk/contract";
 export * as rpc from "@stellar/stellar-sdk/rpc";
 
 if (typeof window !== "undefined") {
-  //@ts-ignore Buffer exists
+  // @ts-expect-error Buffer is installed globally by the browser polyfill.
   window.Buffer = window.Buffer || Buffer;
 }
 

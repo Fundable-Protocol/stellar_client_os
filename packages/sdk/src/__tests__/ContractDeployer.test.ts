@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ContractDeployer } from '../deployer/ContractDeployer';
+import { ContractDeployer } from '../deployer/ContractDeployer.js';
 import {
   DeployerError,
   InvalidWasmError,
@@ -8,7 +8,7 @@ import {
   ContractInstantiationError,
   FeeEstimationError,
   DeploymentTimeoutError,
-} from '../deployer/errors';
+} from '../deployer/errors.js';
 
 // ---------------------------------------------------------------------------
 // Minimal valid WASM buffer (magic number 0x00 0x61 0x73 0x6D + version)

@@ -16,7 +16,7 @@
  *
  * ```ts
  * // In your test file:
- * import { createMockRpcServer, resetMockRpcServer } from '../test-utils/mockRpcServer';
+ * import { createMockRpcServer, resetMockRpcServer } from '../test-utils/mockRpcServer.js';
  *
  * const rpc = createMockRpcServer();
  *

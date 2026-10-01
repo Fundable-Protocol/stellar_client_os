@@ -10,7 +10,7 @@ import {
   SorobanRpc,
   AnalogSignaturePayload,
 } from "@stellar/stellar-sdk";
-import { parseContractError, FundableStellarError } from "./errors";
+import { parseContractError, FundableStellarError } from "./errors.js";
 
 /**
  * Configuration options for waiting on a transaction
@@ -97,18 +97,9 @@ export async function waitForTransaction<T = unknown>(
   const startTime = Date.now();
   let attempt = 0;
 
-  while (true) {
+  while (Date.now() - startTime <= timeout) {
     attempt++;
     const elapsedMs = Date.now() - startTime;
-
-    // Check timeout
-    if (elapsedMs > timeout) {
-      const timeoutError = parseContractError(
-        `Transaction confirmation timeout after ${timeout}ms. Hash: ${tx.hash}`,
-        "Transaction confirmation"
-      );
-      throw new FundableStellarError(timeoutError);
-    }
 
     try {
       // Invoke callback if provided
@@ -169,6 +160,12 @@ export async function waitForTransaction<T = unknown>(
       throw new FundableStellarError(parsedError);
     }
   }
+
+  const timeoutError = parseContractError(
+    `Transaction confirmation timeout after ${timeout}ms. Hash: ${tx.hash}`,
+    "Transaction confirmation"
+  );
+  throw new FundableStellarError(timeoutError);
 }
 
 /**

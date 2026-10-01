@@ -1,6 +1,6 @@
 import { xdr } from "@stellar/stellar-sdk";
 import { Server, Api } from "@stellar/stellar-sdk/rpc";
-import { resolveRpcServerOptions } from "./rpcConnectionOptions";
+import { resolveRpcServerOptions } from "./rpcConnectionOptions.js";
 
 const DEFAULT_BASE_FEE = "100";
 const DEFAULT_RESOURCE_BUFFER = 1.2;

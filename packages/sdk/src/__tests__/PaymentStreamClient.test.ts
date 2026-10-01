@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PaymentStreamClient } from "../PaymentStreamClient";
+import { PaymentStreamClient } from "../PaymentStreamClient.js";
 import { Address } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ const mockContractClient = {
   initialize: vi.fn(),
 };
 
-vi.mock("../generated/payment-stream/src/index", () => ({
+vi.mock("../generated/payment-stream/src/index.js", () => ({
   Client: vi.fn().mockImplementation(() => mockContractClient),
 }));
 
@@ -71,7 +71,7 @@ describe("PaymentStreamClient", () => {
     });
 
     it("passes options through to the generated ContractClient", async () => {
-      const { Client } = await import("../generated/payment-stream/src/index");
+      const { Client } = await import("../generated/payment-stream/src/index.js");
       expect(Client).toHaveBeenCalledWith(VALID_OPTIONS);
     });
   });

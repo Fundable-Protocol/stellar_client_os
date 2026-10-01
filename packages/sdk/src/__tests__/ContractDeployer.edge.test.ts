@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ContractDeployer } from '../deployer/ContractDeployer';
+import { ContractDeployer } from '../deployer/ContractDeployer.js';
 import {
   DeployerError,
   InvalidWasmError,
@@ -21,7 +21,7 @@ import {
   ContractInstantiationError,
   FeeEstimationError,
   DeploymentTimeoutError,
-} from '../deployer/errors';
+} from '../deployer/errors.js';
 
 // ---------------------------------------------------------------------------
 // WASM fixtures

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getStreamHistory, getAllStreamHistory } from "../utils/streamHistory";
+import { getStreamHistory, getAllStreamHistory } from "../utils/streamHistory.js";
 
 // ---------------------------------------------------------------------------
 // Mock SorobanRpc.Server

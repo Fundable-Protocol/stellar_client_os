@@ -7,7 +7,7 @@ import {
   type TransactionEstimate,
   type NetworkMetrics,
   type ResourceUsage,
-} from '../utils/soroban-transaction-helper';
+} from '../utils/soroban-transaction-helper.js';
 import { Server, Api } from '@stellar/stellar-sdk/rpc';
 import { TransactionBuilder, Networks, Keypair } from '@stellar/stellar-sdk';
 

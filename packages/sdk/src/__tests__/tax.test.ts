@@ -5,7 +5,7 @@ import {
   selectTaxForm,
   TaxReportingSDK,
   type EarningsTransaction,
-} from "../tax";
+} from "../tax.js";
 
 function tx(amount: string, timestamp: number, reference?: string): EarningsTransaction {
   return { amount, timestamp, reference };

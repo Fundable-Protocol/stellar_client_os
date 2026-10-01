@@ -3,7 +3,7 @@ import {
   GasEstimator,
   estimateSorobanGas,
   type GasEstimatorRpc,
-} from "../utils/GasEstimator";
+} from "../utils/GasEstimator.js";
 
 function createRpc(overrides: Partial<GasEstimatorRpc> = {}): GasEstimatorRpc {
   return {

@@ -1,4 +1,4 @@
-import { Client as ContractClient } from "./generated/distributor/src/index";
+import { Client as ContractClient } from "./generated/distributor/src/index.js";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
@@ -8,14 +8,14 @@ import {
   UserStats,
   TokenStats,
   DistributionHistory,
-} from "./generated/distributor/src/index";
-import { executeWithErrorHandling } from "./utils/errors";
+} from "./generated/distributor/src/index.js";
+import { executeWithErrorHandling } from "./utils/errors.js";
 import {
   prepareBatchEqualDistribution,
   prepareBatchWeightedDistribution,
   BatchDistributionConfig,
   BatchDistributionResult,
-} from "./utils/batchDistribution";
+} from "./utils/batchDistribution.js";
 
 /**
  * Type alias for address parameters that accept both string and Address objects

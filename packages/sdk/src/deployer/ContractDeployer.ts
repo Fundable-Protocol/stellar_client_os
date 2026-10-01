@@ -19,7 +19,7 @@ import type {
   Deployer,
   Signer,
   DeployerAccount,
-} from './types';
+} from './types.js';
 import {
   DeployerError,
   InvalidWasmError,
@@ -28,9 +28,9 @@ import {
   ContractInstantiationError,
   FeeEstimationError,
   DeploymentTimeoutError,
-} from './errors';
-import { resolveRpcServerOptions } from '../utils/rpcConnectionOptions';
-import { secureRandomBytes } from '../utils/secureRandom';
+} from './errors.js';
+import { resolveRpcServerOptions } from '../utils/rpcConnectionOptions.js';
+import { secureRandomBytes } from '../utils/secureRandom.js';
 
 const DEFAULT_BASE_FEE = '100';
 const DEFAULT_TIMEOUT = 60;

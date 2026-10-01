@@ -4,7 +4,7 @@ import {
   FundableStellarError,
   executeWithErrorHandling,
   CONTRACT_ERRORS,
-} from "../utils/errors";
+} from "../utils/errors.js";
 import { xdr } from '@stellar/stellar-sdk';
 
 describe("Error Handling Utilities", () => {

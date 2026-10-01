@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PlanterClient } from "../PlanterClient";
+import { PlanterClient } from "../PlanterClient.js";
 import { Address } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +27,6 @@ vi.mock("../generated/planter/src/index", () => ({
   Client: vi.fn().mockImplementation(() => mockContractClient),
 }));
 
-vi.mock("../utils/errors", () => ({
+vi.mock("../utils/errors.js", () => ({
   executeWithErrorHandling: vi.fn((tx: any, method: any) => tx),
 }));

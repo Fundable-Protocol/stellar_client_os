@@ -4,7 +4,7 @@ import {
   ClientOptions as ContractClientOptions,
 } from "@stellar/stellar-sdk/contract";
 import { Address } from "@stellar/stellar-sdk";
-import { executeWithErrorHandling } from "./utils/errors";
+import { executeWithErrorHandling } from "./utils/errors.js";
 
 /**
  * Type alias for address parameters that accept both string and Address objects

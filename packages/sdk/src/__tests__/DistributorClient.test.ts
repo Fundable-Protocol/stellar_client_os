@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DistributorClient } from "../DistributorClient";
+import { DistributorClient } from "../DistributorClient.js";
 import { Address } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ const mockContractClient = {
   set_protocol_fee: vi.fn(),
 };
 
-vi.mock("../generated/distributor/src/index", () => ({
+vi.mock("../generated/distributor/src/index.js", () => ({
   Client: vi.fn().mockImplementation(() => mockContractClient),
 }));
 
@@ -61,7 +61,7 @@ describe("DistributorClient", () => {
     });
 
     it("passes options through to the generated ContractClient", async () => {
-      const { Client } = await import("../generated/distributor/src/index");
+      const { Client } = await import("../generated/distributor/src/index.js");
       expect(Client).toHaveBeenCalledWith(VALID_OPTIONS);
     });
   });

@@ -23,7 +23,7 @@ import {
   DEFAULT_NETWORK_INFO,
   DEFAULT_LATEST_LEDGER,
   DEFAULT_FEE_STATS,
-} from '../test-utils/mockRpcServer';
+} from '../test-utils/mockRpcServer.js';
 import { Server as RpcServer, Api } from '@stellar/stellar-sdk/rpc';
 import { rpc as StellarRpc, SorobanRpc } from '@stellar/stellar-sdk';
 

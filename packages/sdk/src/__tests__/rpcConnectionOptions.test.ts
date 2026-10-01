@@ -3,7 +3,7 @@ import {
   assertSecureRpcUrl,
   isLoopbackHttpUrl,
   resolveRpcServerOptions,
-} from '../utils/rpcConnectionOptions';
+} from '../utils/rpcConnectionOptions.js';
 
 describe('rpcConnectionOptions', () => {
   describe('isLoopbackHttpUrl', () => {

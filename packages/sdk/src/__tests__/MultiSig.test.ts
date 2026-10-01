@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Keypair } from '@stellar/stellar-sdk';
-import { ContractDeployer } from '../deployer/ContractDeployer';
+import { ContractDeployer } from '../deployer/ContractDeployer.js';
 
 // ---------------------------------------------------------------------------
 // Minimal valid WASM buffer

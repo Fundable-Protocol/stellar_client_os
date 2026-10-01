@@ -5,7 +5,7 @@ import {
   signAndWait,
   type TransactionWaitResult,
   type WaitForTransactionOptions,
-} from "../utils/transactions";
+} from "../utils/transactions.js";
 
 /**
  * Mock AssembledTransaction for testing
