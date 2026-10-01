@@ -20,8 +20,10 @@ export default async function CampaignPage({
     ? Math.min(Number((BigInt(campaign.raisedAmount) * 100n) / goal), 100)
     : 0;
 
+  const hallOfFame = await getCampaignHallOfFame(campaign.id);
+
   return (
-    <main className="mx-auto max-w-3xl space-y-6 px-6 py-10">
+    <main className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <p className="text-sm font-medium text-fundable-purple-2">Impact campaign</p>
         <h1 className="mt-2 text-3xl font-bold text-zinc-950 dark:text-white">{campaign.name}</h1>
@@ -73,3 +75,4 @@ export default async function CampaignPage({
     </main>
   );
 }
+

@@ -8,13 +8,11 @@ import {
   EyeOff,
   ThumbsUp,
   Search,
-  Filter,
   Send,
   ShieldAlert,
   BadgeCheck,
   Trash2,
   CheckCircle,
-  XCircle,
   BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -40,6 +38,17 @@ function TimeAgo({ timestamp, now }: { timestamp: number; now: number | null }) 
   if (now === null) return <span>Just now</span>;
 
   const diff = now - timestamp;
+function TimeAgo({ timestamp }: { timestamp: number }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  React.useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const diff = Math.max(0, now - timestamp);
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);

@@ -41,13 +41,14 @@ const getSampleCampaign = (id: string): CampaignData => ({
   minTarget: "5000",
   totalRaised: "7250",
   status: id === "2" ? "Paused" : "Active",
-  treeType: id === "2" ? "Acacia" : "Mangrove",
+  treeType: id === "2" ? "Aacia" : "Mangrove",
   costPerTree: 10,
   treesPlanted: 725,
   targetTrees: 1000,
   createdAt: Date.now() / 1000 - 86400 * 10,
   deadline: Date.now() / 1000 + 86400 * 20,
   location: "Amazon Basin, South America",
+  countries: id === "2" ? ["Kenya", "Tanzania", "Uganda"] : ["Brazil", "Peru", "Colombia"],
 });
 
 interface SustainabilityScoreInputs {
@@ -187,6 +188,8 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
   const totalRaisedNum = Number(campaign.totalRaised);
   const targetAmountNum = Number(campaign.targetAmount);
   const minTargetNum = Number(campaign.minTarget);
+  const countries = campaign.countries ?? [];
+  const geographicDiversityBonus = countries.length > 1;
 
   const sustainabilityInputs = getSustainabilityInputs(campaign);
   const sustainabilityScore = computeSustainabilityScore(sustainabilityInputs);
@@ -240,8 +243,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span
-              className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                campaign.status === "Active"
+              className={`px-3 py-1 rounded-full texe-xs font-bold uppercase tracking-wider ${ compaign.status === "Active"
                   ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
                   : campaign.status === "Paused"
                   ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
@@ -252,8 +254,14 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             </span>
 
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-zinc-800/80 text-zinc-300 border border-zinc-700/50">
-              {campaign.treeType === "General Fund" ? "💼 General Fund" : `🌲 ${campaign.treeType} Species`}
+              {campaign.treeType === "General Fund" ? "💰 General Fund" : `🌰 ${campaign.treeType} Species`}
             </span>
+
+            {geographicDiversityBonus && (
+              <span className="px-3 py-1 rounded-full texe-xs font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/40">
+                🌍 1.2x Geographic Diversity Bonus
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 text-xs text-zinc-400">
@@ -261,6 +269,17 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             <span>{campaign.location}</span>
           </div>
         </div>
+
+{countries.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
+            <span className="font-semibold text-emerald-400">Countries:</span>
+            {countries.map((country) => (
+              <span key={country} className="px-2.5 py-0.5 rounded-full bg-zinc-800/70 border border-zinc-700/50 text-zinc-200">
+                {country}
+              </span>
+            ))}
+          </div>
+        )}
 
         <h1 id="campaign-detail-title" className="text-2xl sm:text-4xl font-black text-white tracking-tight">
           {campaign.title}
@@ -276,7 +295,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             <div className="flex items-center gap-2">
               <ShieldCheck className="size-5 text-emerald-400" />
               <div>
-                <h4 className="text-xs font-bold text-zinc-200">Campaign Creator Management</h4>
+                <h4 className="texe-xs font-bold text-zinc-200">Campaign Creator Management</h4>
                 <p className="text-[11px] text-zinc-400">
                   Pause or resume accepting sponsorships on-chain.
                 </p>
@@ -287,8 +306,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
               type="button"
               aria-label={campaign.status === "Active" ? "Pause fundraising" : "Resume fundraising"}
               onClick={togglePauseResume}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
-                campaign.status === "Active"
+              className={` inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${ campaign.status === "Active"
                   ? "bg-amber-500 text-zinc-950 hover:bg-amber-400"
                   : "bg-emerald-500 text-zinc-950 hover:bg-emerald-400"
               }`}
@@ -440,8 +458,8 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
 
       {/* Contract & Campaign Specs Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
-          <div className="flex items-center gap-2 text-zinc-400 text-xs">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
+          <div className="flex items-center gap-2 text-zinc-400 texe-xs">
             <User className="size-4 text-emerald-400" />
             <span>Campaign Creator</span>
           </div>
@@ -450,7 +468,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
           <div className="flex items-center gap-2 text-zinc-400 text-xs">
             <Coins className="size-4 text-emerald-400" />
             <span>Funding Asset Token</span>
@@ -460,8 +478,8 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
-          <div className="flex items-center gap-2 text-zinc-400 text-xs">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
+          <div className="flex items-center gap-2 text-zinc-400 texe-xs">
             <Clock className="size-4 text-emerald-400" />
             <span>Campaign Deadline</span>
           </div>

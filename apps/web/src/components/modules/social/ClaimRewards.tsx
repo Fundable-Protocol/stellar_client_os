@@ -15,7 +15,7 @@ import { notify } from "@/utils/notification";
 export default function ClaimRewards() {
   const { address } = useWallet();
   const { referralInfo, planterInfo, isLoading } = useReferrals();
-  const { claimReward, isClaiming } = useReferralRewardClaim();
+  const { isClaiming } = useReferralRewardClaim();
 
   // The referral info tracks total and successful referrals.
   // In this implementation, rewards are claimed per referred planter via the contract.

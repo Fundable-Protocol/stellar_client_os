@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SuccessStories from "@/components/modules/campaign/success-stories/SuccessStories";
 import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
+import { CampaignSearchPanel } from "@/components/modules/campaign/CampaignSearchPanel";
 import { useCampaigns } from "@/hooks/use-campaigns";
 import { useCampaignWishlist } from "@/hooks/use-campaign-wishlist";
 import {
@@ -29,11 +30,10 @@ const CARD_ESTIMATED_HEIGHT_PX = 280;
 const OVERSCAN_COUNT = 3;
 
 export default function CampaignsDirectoryPage() {
-  const { campaigns } = useCampaigns();
+const { campaigns } = useCampaigns();
   const { toggleWishlist, isInWishlist } = useCampaignWishlist();
   const [treeSpecies, setTreeSpecies] = useState<DiscoveryTreeSpecies | "All">("All");
   const [region, setRegion] = useState<DiscoveryRegion | "All">("All");
-
   const filteredCampaigns = useMemo(
     () => filterCampaignsByDiscoveryOptions(campaigns, { treeSpecies, region }),
     [campaigns, treeSpecies, region],
@@ -130,7 +130,9 @@ export default function CampaignsDirectoryPage() {
       {/* Success Stories Section */}
       <SuccessStories />
 
-      {/* Filter panel */}
+      <CampaignSearchPanel />
+
+{/* Filter panel */}
       <section aria-label="Filter campaigns" className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-zinc-100">Find campaigns by impact</h2>
@@ -166,6 +168,38 @@ export default function CampaignsDirectoryPage() {
           </p>
         </div>
       </section>
+
+      {filteredCampaigns.length > 0 ? (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {filteredCampaigns.map((c) => {
+          const progress = Math.round((parseFloat(String(c.raisedAmount).replace(/,/g, "")) / parseFloat(String(c.goalAmount).replace(/,/g, ""))) * 100) || 0;
+          const wished = isInWishlist(c.id);
+
+          return (
+            <div
+              key={c.id}
+              className="group flex flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-xl transition-all duration-300 hover:border-purple-500/50 hover:shadow-2xl relative"
+            >
+<div className="absolute top-4 right-4 z-10">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => toggleWishlist(c.id)}
+                  className={`rounded-full h-8 w-8 hover:bg-rose-500/20 ${wished ? 'text-rose-500 bg-rose-500/10' : 'text-zinc-500 hover:text-rose-400'}`}
+                >
+                  <Heart className={`h-4 w-4 ${wished ? 'fill-rose-500' : ''}`} />
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pr-10">
+                  <Badge className="bg-purple-950/60 text-purple-300 border-purple-800 text-[11px]">
+                    {c.category}
+                  </Badge>
+                  <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 text-[10px] whitespace-nowrap ml-2">
+                    <ShieldCheck className="mr-1 h-3 w-3 inline" /> {c.status}
+                  </Badge>
+                </div>
 
       {/* Campaign list — virtualised for 10k+ items */}
       {filteredCampaigns.length > 0 ? (
@@ -266,7 +300,7 @@ export default function CampaignsDirectoryPage() {
                               />
                             </div>
 
-                            <div className="flex items-center justify-between text-xs pt-1">
+<div className="flex items-center justify-between text-xs pt-1">
                               <div className="flex items-center gap-3 text-zinc-400 text-[11px]">
                                 <span className="flex items-center gap-1">
                                   <Heart className="h-3.5 w-3.5 text-rose-400 fill-rose-400/20" />
@@ -290,10 +324,11 @@ export default function CampaignsDirectoryPage() {
                     })}
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+</div>
+            </div>
+          );
+        })}
+      </div>
       ) : (
         <div className="rounded-xl border border-dashed border-zinc-700 px-6 py-12 text-center">
           <Trees className="mx-auto h-8 w-8 text-zinc-500" />

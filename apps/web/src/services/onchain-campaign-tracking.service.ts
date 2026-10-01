@@ -78,6 +78,7 @@ export class OnChainCampaignTrackingService {
       metadataUri,
       assetCode,
       verified: true,
+      impact: input.impact,
     };
 
     this.certificates.set(certId, certificate);
@@ -93,6 +94,19 @@ export class OnChainCampaignTrackingService {
     });
 
     return certificate;
+  }
+
+  /** Mint the completion certificate once and one personal impact NFT per sponsor. */
+  public async mintEnvironmentalImpactNFTs(input: MintCertificateInput & { sponsorAddresses: string[] }): Promise<NFTCertificate[]> {
+    if (Number(input.totalRaised) < Number(input.fundingGoal)) {
+      throw new Error("Environmental impact NFTs can only be minted for completed campaigns");
+    }
+    const recipients = [input.recipientAddress ?? input.creatorAddress, ...input.sponsorAddresses];
+    const certificates: NFTCertificate[] = [];
+    for (const recipientAddress of [...new Set(recipients)]) {
+      certificates.push(await this.issueNFTCertificate({ ...input, recipientAddress }));
+    }
+    return certificates;
   }
 
   /**

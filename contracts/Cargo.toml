@@ -9,10 +9,13 @@ members = [
     "soulbound-badge",
     "verifier-penalty",
     "planter",
+    "campaign-verification-audit",
+    "verifier-penalty",
     "dispute-arbiter",
     "timelock",
     "upgrade-proxy",
     "sponsor-crowdfunding",
+    "sponsor-insurance"
     "sponsor-insurance",
     "campaign-diversity",
 ]

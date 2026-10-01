@@ -326,6 +326,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       ],
     },
     treesPlanted: "1,500",
+    targetTrees: 2000,
+    treeType: "Mangrove",
+    location: "Amazon Basin, South America",
   };
 
   const sustainabilityScore = React.useMemo(
@@ -573,6 +576,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           <TabsTrigger value="overview" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Target className="mr-1.5 h-4 w-4" /> Overview & Story
           </TabsTrigger>
+          <TabsTrigger value="ar-view" className="text-xs font-semibold data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
+            <Camera className="mr-1.5 h-4 w-4 text-emerald-300" /> AR Tree View
+          </TabsTrigger>
           <TabsTrigger value="sponsors" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Heart className="mr-1.5 h-4 w-4 text-rose-400" /> Sponsor Wall (#724)
           </TabsTrigger>
@@ -684,6 +690,15 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <BackerCommunity campaignId={campaign.id} canManage={isCreatorView} />
             </div>
           </div>
+        </TabsContent>
+
+        <TabsContent value="ar-view">
+          <CampaignARViewer
+            treesPlanted={Number(campaign.treesPlanted.replace(/,/g, ""))}
+            targetTrees={campaign.targetTrees}
+            treeType={campaign.treeType}
+            location={campaign.location}
+          />
         </TabsContent>
 
         {/* Tab 2: Sponsor Wall (#724) */}
