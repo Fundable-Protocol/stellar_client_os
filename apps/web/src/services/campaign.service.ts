@@ -3,6 +3,7 @@ import type { VerificationAuditEntry, VerificationEvidence } from "@/types/campa
 import { EmailService, type SendEmailOptions } from "./email.service";
 import { CampaignWebhookService } from "./campaign-webhook.service";
 import { pushNotificationService } from "./push-notification.service";
+import { campaignImpactNftService } from "./campaign-impact-nft.service";
 import type { CampaignWebhookEvent } from "@/types/webhook";
 import type { CampaignLocalizedContent } from "@/lib/translation";
 
@@ -19,6 +20,11 @@ export type CampaignSortField =
   | "treeCount";
 
 export type SortDirection = "ASC" | "DESC";
+
+export interface CampaignCoordinates {
+  latitude: number;
+  longitude: number;
+}
 
 export interface SponsorRecord {
   id: string;
@@ -75,6 +81,10 @@ export interface CampaignVerificationSummary {
   emailVerified: boolean;
   phoneVerified: boolean;
   addressVerified: boolean;
+  /** Backwards-compatible aliases used by older API consumers. */
+  verifiedEmail?: boolean;
+  verifiedPhone?: boolean;
+  verifiedAddress?: boolean;
   badges: string[];
   status: CampaignVerificationStatus;
   isVerified: boolean;
@@ -166,6 +176,10 @@ export interface CampaignRecord {
   treeCount: number;
   treeSpecies?: string;
   gpsLocations?: Array<{ latitude: number; longitude: number; capturedAt?: number }>;
+  /** Underrepresented-community tags declared by the creator at campaign
+   * creation, used by the platform-funded grant matching programs to qualify
+   * campaigns for the first-10% match. */
+  underrepresentedTags?: string[];
   co2Sequestration?: string;
   verificationEvidence?: VerificationEvidence[];
   verificationAuditTrail?: VerificationAuditEntry[];
@@ -704,6 +718,18 @@ export async function recordCampaignContribution(
     updatedAt: now,
   };
   await dataSource.saveCampaign(updated);
+
+  // Platform-funded creator grant matching: campaigns from underrepresented
+  // communities get their first `matchPercentage`% of funds matched
+  // automatically as contributions land. Best-effort — a matching hiccup
+  // (broken pool, closed program) must never block the contribution itself.
+  try {
+    const { applyAutomaticGrantMatches } = await import("./grant-program.service");
+    await applyAutomaticGrantMatches(campaignId, contribution.toString(), "platform", dataSource);
+  } catch {
+    // Ignore — contribution recording is the source of truth.
+  }
+
   return { campaign: updated, milestones: newlyReached };
 }
 
@@ -720,12 +746,33 @@ export async function createCampaign(input: {
   countries?: string[];
   region?: string;
   treeSpecies?: string;
+/** GPS coordinates of the campaign's planting site(s), stored for the global
+   * planting map (campaign geolocation, v1). */
+  gpsLocations?: Array<{ latitude: number; longitude: number; capturedAt?: number }>;
+  /** Underrepresented-community tags used by the platform's grant matching
+   * programs to qualify the campaign for the first-10% match. */
+  underrepresentedTags?: string[];
+  species?: string;
+  treeCount?: number;
+  co2SequestrationKg?: string;
   durationMs?: number;
   deadline?: number;
   goalAmount: string;
+  raisedAmount?: string;
+  sponsorCount?: number;
+  sponsors?: SponsorRecord[];
   network?: "testnet" | "mainnet";
   nonprofitPartner?: Omit<CampaignNonprofitPartner, "verificationStatus" | "verifiedAt" | "verifiedBy">;
 }, dataSource = getCampaignDataSource(), now = Date.now()): Promise<CampaignRecord> {
+  if (input.coordinates !== undefined) {
+    const { latitude, longitude } = input.coordinates;
+    if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) {
+      throw new Error("coordinates.latitude must be between -90 and 90");
+    }
+    if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+      throw new Error("coordinates.longitude must be between -180 and 180");
+    }
+  }
   const campaign: CampaignRecord = {
     id: input.id ?? crypto.randomUUID(),
     creator: input.creator,
@@ -739,17 +786,21 @@ export async function createCampaign(input: {
     countries: input.countries,
     region: input.region,
     treeSpecies: input.treeSpecies,
+gpsLocations: input.gpsLocations,
+    underrepresentedTags: input.underrepresentedTags,
+    species: input.species,
+    treeCount: input.treeCount ?? 0,
     durationMs: input.deadline !== undefined ? input.deadline - now : input.durationMs,
     status: "DRAFT",
     goalAmount: input.goalAmount,
-    raisedAmount: "0",
-    sponsorCount: 0,
-    treeCount: 0,
+    raisedAmount: input.raisedAmount ?? "0",
+    sponsorCount: input.sponsorCount ?? (input.sponsors ? input.sponsors.length : 0),
+    co2SequestrationKg: input.co2SequestrationKg,
     createdAt: now,
     updatedAt: now,
     statusChangedAt: now,
     network: input.network,
-    sponsors: [],
+    sponsors: input.sponsors ?? [],
     nonprofitPartner: input.nonprofitPartner
       ? { ...input.nonprofitPartner, verificationStatus: "PENDING" }
       : undefined,
@@ -949,8 +1000,11 @@ export async function transitionCampaignStatus(
     }).catch((error) => {
       console.error(`[Campaign webhook] Failed to dispatch completion for ${campaign.id}:`, error);
     });
+
+    void campaignImpactNftService.mintCampaignCompletionNFT(campaign.id, { dataSource }).catch((error) => {
+      console.error(`[Impact NFT] Failed to auto-mint completion NFT for ${campaign.id}:`, error);
+    });
   }
-  return saved;
 
   if (campaign.sponsorCount > 0) {
     if (campaign.status === "PENDING_VERIFICATION" && toStatus === "ACTIVE") {
@@ -960,7 +1014,7 @@ export async function transitionCampaignStatus(
     }
   }
 
-  return dataSource.saveCampaign(next);
+  return saved;
 }
 
 export async function submitCampaignInsuranceClaim(

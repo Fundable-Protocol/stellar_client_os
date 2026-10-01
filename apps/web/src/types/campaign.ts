@@ -50,6 +50,11 @@ export interface CampaignSustainabilityScore {
   recommendations: string[];
 }
 
+export interface CampaignCoordinates {
+  latitude: number;
+  longitude: number;
+}
+
 export interface CampaignData {
   id: string;
   title: string;

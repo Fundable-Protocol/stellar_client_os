@@ -11,6 +11,8 @@ import {
   recordCampaignSponsorshipImpact,
 } from "@/lib/campaign-sponsorship-tiers";
 
+import { calculateSponsorshipPricing } from "@/services/campaign-sponsorship.service";
+
 const trees = [
   { id: "tree-001", label: "Amazonia restoration", location: "Para, Brazil", impact: "48 kg COe" },
   { id: "tree-002", label: "Mangrove recovery", location: "Mida Creek, Kenya", impact: "31 kg CO₂e" },
@@ -24,6 +26,7 @@ export default function SponsorCampaignPage() {
   const { id } = useParams<${ id: string }>();
   const [step, setStep] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
+  const [treeCount, setTreeCount] = useState("1");
   const [amount, setAmount] = useState("");
   const [anonymous, setAnonymous] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -34,6 +37,7 @@ export default function SponsorCampaignPage() {
   const [treeCount, setTreeCount] = useState(10);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
 
+  const numericTreeCount = Number(treeCount);
   const numericAmount = Number(amount);
   const tier = getCampaignSponsorshipTierForCount(treeCount);
   const discountedAmount = getDiscountedSponsorshipAmount(numericAmount, tier);
@@ -56,6 +60,12 @@ export default function SponsorCampaignPage() {
 
     setIsSubmitting(true);
     setError("");
+
+  const submit = async () => {
+    setError("");
+    if (!sponsorAddress.trim()) return setError("Enter the sponsor wallet address before confirming.");
+    if (!pricing) return setError("Enter a valid contribution amount.");
+    setSubmitting(true);
     try {
       const response = await fetch(`/api/campaigns/${id}/backers`, {
         method: "POST",
@@ -81,6 +91,22 @@ export default function SponsorCampaignPage() {
       );
     } finally {
       setIsSubmitting(false);
+          backerAddress: sponsorAddress.trim(),
+          grossAmount: pricing.grossAmount,
+          amount: pricing.netAmount,
+          treeCount: numericTreeCount,
+          selectedTreeIds: selected,
+          token: "USDC",
+          idempotencyKey: `${id}:${sponsorAddress.trim().toLowerCase()}:${pricing.grossAmount}:${numericTreeCount}`,
+        }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "Contribution could not be recorded");
+      setConfirmed(true);
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "Contribution could not be recorded");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -92,6 +118,7 @@ export default function SponsorCampaignPage() {
         <p className="text-sm font-medium text-emerald-300">Campaign {id}</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Sponsor a living forest</h1>
           <p className="mt-3 max-w-2xl text-sm text-slate-400">Choose the trees you want to support, review the impact of your contribution, and confirm once everything looks right.</p>
+        <p className="mt-3 max-w-2xl text-sm text-slate-400">Bulk sponsorship discounts are calculated and validated by the server.</p>
       </div>
       <ol className="mb-10 grid grid-cols-4 gap-2" aria-label="Sponsorship steps">
         {steps.map((label, index) => { const number = index + 1; return <li key={label} className={`border-b-2 pb-3 text-sm ${number <= step ? "border-emerald-400 text-emerald-300" : "border-white/10 text-slate-500"}`}><span className="mr-2">{number}.</span>{label}</li>; })}
@@ -106,7 +133,7 @@ export default function SponsorCampaignPage() {
         {step === 3 && <div><h2 className="text-xl font-semibold">Preview contribution</h2><p className="mt-2 text-sm text-slate-400">Review the sponsorship before opening your wallet.</p><dl className="mt-6 divide-y divide-white/10 rounded-xl border border-white/10"><div className="flex justify-between p-4 text-sm"><dt className="text-slate-400">Sponsorship tier</dt><dd>{treeCount} trees ({tier.discountBps / 100}% off)</dd></div><div className="flex justify-between p-4 text-sm"><dt className="text-slate-400">Selected projects</dt><dd>{selected.length}</dd></div><div className="flex flex-col gap-2 p-4 text-sm"><div className="flex justify-between"><dt className="text-slate-400">Contribution before discount</dt><dd>{numericAmount.toFixed(2)} USDC</dd></div><div className="flex justify-between text-emerald-300"><dt>Tier discount</dt><dd>−{numericAmount - discountedAmount).toFixed(2)} USDC</dd></div><div className="flex justify-between"><dt className="font-semibold">Contribution after discount</dt><dd className="font-semibold">{discountedAmount.toFixed(2)} USDC</dd></div><div className="ml-4 flex flex-col gap-1 border-l-2 border-white/10 pl-4 texe-xs text-slate-500"><div className="flex justify-between"><dt>80% to planter</dt><dd>{(discountedAmount * 0.8).toFixed(2)} USDC</dd></div><div className="flex justify-between"><dt>5% to platform</dt><dd>{(discountedAmount * 0.05).toFixed(2)} USDC</dd></div><div className="flex justify-between"><dt>5% to insurance pool</dt><dd>{(discountedAmount * 0.05).toFixed(2)} USDC</dd></div><div className="flex justify-between"><dt>10% to carbon verification</dt><ud>{(discountedAmount * 0.1).toFixed(2)} USDC</dd></div></div></div><div className="flex justify-between p-4 text-sm"><dt className="text-slate-400">Estimated impact</dt><ud>{totalImpact} kg CO e</dd></div><div className="flex justify-between p-4 text-sm"><dt className="text-slate-400">Campaign</dt><dd>{id}</dd></div><div className="flex justify-between p-4 text-sm"><dt className="text-slate-400">Visibility</dt><dd>{anonymous ? "Anonymous" : "Public"}</dd></div></dl></div>}
         {step === 4 && <div><h2 className="text-xl font-semibold">Confirm contribution</h2><p className="mt-2 text-sm text-slate-400">Your wallet will ask you to approve the on-chain contribution.</p>{confirmed ? <div className="mt-8 rounded-xl border border-emerald-400/30 bg-emerald-400/10 p-5 text-emerald-200">Contribution submitted. Tier selection saved for campaign impact tracking.</div> : <div className="mt-8 rounded-xl border border-white/10 bg-black/20 p-5"><p className="text-sm text-slate-300">{discountedAmount.toFixed(2)} USDC for {treeCount} trees across {selected.length} selected project{selected.length === 1 ? "" : "s's}.</p><button type="button" onClick={() => { try { recordCampaignSponsorshipImpact(window.localStorage, { campaignId: id, tierId: tier.id, treeCount, discountBps: tier.discountBps, selectedTreeIds: selected, recordedAt: Date.now(), isAnonymous: anonymous }); setReceipt(buildReceipt({ campaignId: id, treeCount, selected, amount: discountedAmount, totalImpact, anonymous })); setConfirmed(true); } catch { setError("Could not save sponsorship impact data in this browser."); } }} className="mt-5 rounded-xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-black transition hover:bg-emerald-300">Confirm in wallet</button></div>}</div>}
         {error && <p role="alert" className="mt-6 rounded-lg border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}
-        {!confirmed && <div className="mt-8 flex justify-between"><button type="button" onClick={back} disabled={step === 1} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-slate-300 disabled:cursor-not-allowed disabled:opacity-30">Back</button>{step < 4 && <button type="button" onClick={next} className="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black hover:bg-emerald-200">Continue</button>}</div>}
+        {!confirmed && <div className="mt-8 flex justify-between"><button type="button" onClick={() => { setError(""); setStep((current) => Math.max(1, current - 1)); }} disabled={step === 1} className="rounded-xl border border-white/10 px-4 py-2 text-sm text-slate-300 disabled:cursor-not-allowed disabled:opacity-30">Back</button>{step < 4 && <button type="button" onClick={next} className="rounded-xl bg-white px-5 py-2 text-sm font-semibold text-black hover:bg-emerald-200">Continue</button>}</div>}
       </section>
     </main>
   );

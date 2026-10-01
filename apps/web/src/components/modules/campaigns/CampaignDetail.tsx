@@ -193,6 +193,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
 
   return (
     <div className="campaign-accessible w-full space-y-6">
+    <main className="w-full space-y-6" aria-labelledby="campaign-detail-title">
       {/* Top Navigation Bar */}
       <div className="flex items-center justify-between">
         <Link
@@ -206,6 +207,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
         <div className="flex items-center gap-3">
           <CampaignAccessibilityControls />
           <button
+            type="button"
             onClick={() => setIsCreatorMode((prev) => !prev)}
             className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 font-medium hover:bg-zinc-700 transition-colors"
           >
@@ -260,7 +262,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           </div>
         </div>
 
-        <h1 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+        <h1 id="campaign-detail-title" className="text-2xl sm:text-4xl font-black text-white tracking-tight">
           {campaign.title}
         </h1>
 
@@ -282,6 +284,8 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             </div>
 
             <button
+              type="button"
+              aria-label={campaign.status === "Active" ? "Pause fundraising" : "Resume fundraising"}
               onClick={togglePauseResume}
               className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
                 campaign.status === "Active"
@@ -304,7 +308,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
       </div>
 
       {/* Issue #702: Live Tree Counter & Animated Progress Bar Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" aria-label="Campaign impact summary">
         {/* Animated Tree Ticker (Issue #702) */}
         {campaign.treeType !== "General Fund" && (
           <div className="lg:col-span-5">
@@ -466,7 +470,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           </p>
         </div>
       </div>
-    </div>
+    </main>
   );
 };
 

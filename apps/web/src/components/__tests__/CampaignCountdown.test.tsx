@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
-import '@testing-library/jest-dom';
 import { CampaignCountdown } from '../CampaignCountdown';
 
 describe('CampaignCountdown', () => {
@@ -20,16 +19,16 @@ describe('CampaignCountdown', () => {
 
     render(<CampaignCountdown targetDate={target} />);
 
-    expect(screen.getByText('1')).toBeInTheDocument(); // Days
-    expect(screen.getByText('02')).toBeInTheDocument(); // Hours
-    expect(screen.getByText('15')).toBeInTheDocument(); // Minutes
-    expect(screen.getByText('04')).toBeInTheDocument(); // Seconds
+    expect(screen.getByText('1')).toBeDefined(); // Days
+    expect(screen.getByText('02')).toBeDefined(); // Hours
+    expect(screen.getByText('15')).toBeDefined(); // Minutes
+    expect(screen.getByText('04')).toBeDefined(); // Seconds
 
     act(() => {
       vi.advanceTimersByTime(1000);
     });
 
-    expect(screen.getByText('03')).toBeInTheDocument(); // Seconds goes down to 3
+    expect(screen.getByText('03')).toBeDefined(); // Seconds goes down to 3
   });
 
   it('displays Campaign Ended when expired', () => {
@@ -38,6 +37,6 @@ describe('CampaignCountdown', () => {
     const target = new Date(now.getTime() - 1000);
 
     render(<CampaignCountdown targetDate={target} />);
-    expect(screen.getByText('Campaign Ended')).toBeInTheDocument();
+    expect(screen.getByText('Campaign Ended')).toBeDefined();
   });
 });

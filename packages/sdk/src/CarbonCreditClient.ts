@@ -34,8 +34,11 @@ export class CarbonCreditClient {
     if (totalRaised <= BigInt(0) || sponsorContribution <= BigInt(0) || verifiedTrees <= 0) {
       return BigInt(0);
     }
-    const mult = Math.max(1, co2Multiplier);
-    const totalCredits = BigInt(verifiedTrees) * BigInt(mult);
+    const actualMult = co2Multiplier <= 2 ? co2Multiplier * 10 : co2Multiplier;
+    const mult = Math.max(10, actualMult);
+    const totalCredits = (BigInt(verifiedTrees) * BigInt(mult)) / BigInt(10);
     return (sponsorContribution * totalCredits) / totalRaised;
   }
 }
+
+

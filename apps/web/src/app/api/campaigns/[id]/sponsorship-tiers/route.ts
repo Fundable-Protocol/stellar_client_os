@@ -26,7 +26,13 @@ export async function GET(
 
   const url = new URL(request.url);
   const countParam = url.searchParams.get("treeCount");
-  const baseCostPerTree = 10; // Default XLM per tree
+  
+  let baseCostPerTree = campaign.costPerTree || 10; // Default XLM per tree
+  const target = parseFloat(campaign.targetAmount || "0");
+  const raised = parseFloat(campaign.totalRaised || "0");
+  if (target > 0 && raised / target >= 0.9) {
+    baseCostPerTree = Math.ceil(baseCostPerTree * 1.5);
+  }
 
   let calculated = null;
   if (countParam) {
@@ -94,7 +100,13 @@ export async function POST(
     ? getCampaignSponsorshipTier(body.tierId) ?? getCampaignSponsorshipTierForCount(treeCount)
     : getCampaignSponsorshipTierForCount(treeCount);
 
-  const baseCostPerTree = 10;
+  let baseCostPerTree = campaign.costPerTree || 10;
+  const target = parseFloat(campaign.targetAmount || "0");
+  const raised = parseFloat(campaign.totalRaised || "0");
+  if (target > 0 && raised / target >= 0.9) {
+    baseCostPerTree = Math.ceil(baseCostPerTree * 1.5);
+  }
+
   const grossAmount = treeCount * baseCostPerTree;
   const netAmount = getDiscountedSponsorshipAmount(grossAmount, tier);
 

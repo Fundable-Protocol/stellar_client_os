@@ -20,6 +20,7 @@ import {
   sumTokenAmounts,
   formatTokenAmount,
 } from "@/types/campaign-backers";
+import { calculateSponsorshipPricing } from "./campaign-sponsorship.service";
 
 /**
  * Top backers per campaign.
@@ -94,20 +95,36 @@ class CampaignBackersService {
     if (!campaignId) throw new Error("campaignId is required");
     if (!backerAddress) throw new Error("backerAddress is required");
 
-    const scaled = parseTokenAmount(input.amount);
+    if (input.idempotencyKey?.trim()) {
+      const existing = this.getContributions(campaignId).find((entry) => entry.idempotencyKey === input.idempotencyKey?.trim());
+      if (existing) return existing;
+    }
+
+    const treeCount = input.treeCount ?? 1;
+    const pricing = calculateSponsorshipPricing(input.grossAmount ?? input.amount, treeCount);
+    const amount = input.grossAmount ? pricing.netAmount : String(input.amount).trim();
+    const scaled = parseTokenAmount(amount);
     if (scaled === null || scaled <= 0n) throw new Error("A positive contribution amount is required");
 
     const contribution: BackerContribution = {
       id: `bk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       campaignId,
       backerAddress,
-      amount: String(input.amount).trim(),
+      amount,
       token: (input.token?.trim() || "XLM").toUpperCase(),
       contributedAt: input.contributedAt ?? Date.now(),
       txHash: input.txHash?.trim() || undefined,
       displayName: input.displayName?.trim() || undefined,
       avatarUrl: input.avatarUrl?.trim() || undefined,
       message: input.message?.trim() || undefined,
+      treeCount,
+      selectedTreeIds: input.selectedTreeIds?.map((id) => id.trim()).filter(Boolean),
+      discountTier: pricing.tier,
+      discountRateBps: pricing.discountRateBps,
+      grossAmount: pricing.grossAmount,
+      discountAmount: pricing.discountAmount,
+      netAmount: pricing.netAmount,
+      idempotencyKey: input.idempotencyKey?.trim() || undefined,
     };
 
     const list = this.contributions.get(campaignId) ?? [];

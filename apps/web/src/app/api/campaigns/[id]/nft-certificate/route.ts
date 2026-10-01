@@ -52,7 +52,7 @@ export async function POST(
       treeCount,
       species,
       plantingLocation,
-      expectedConSequestrationTonnes,
+      expectedCo2SequestrationTonnes,
       sponsorAddress,
     } = carbonReceipt;
 
