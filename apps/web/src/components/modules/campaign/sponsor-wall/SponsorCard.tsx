@@ -3,7 +3,7 @@
 import React from "react";
 import { Sponsor, formatTruncatedAddress } from "@/types/sponsor";
 import { Badge } from "@/components/ui/badge";
-import { Award, Sparkles, MessageSquare } from "lucide-react";
+import { Award, Sparkles, MessageSquare, TreePine, Leaf, MapPin, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface SponsorCardProps {
@@ -45,6 +45,7 @@ function formatTimeAgo(timestamp: number): string {
 
 export function SponsorCard({ sponsor }: SponsorCardProps) {
   const tierStyle = TIER_STYLES[sponsor.tier];
+  const receipt = sponsor.receipt;
 
   return (
     <div
@@ -63,7 +64,7 @@ export function SponsorCard({ sponsor }: SponsorCardProps) {
       <div>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
-            {sponsor.avatarUrl ? (
+            {!sponsor.isAnonymous && sponsor.avatarUrl ? (
               <img
                 src={sponsor.avatarUrl}
                 alt={sponsor.name || sponsor.address}
@@ -71,30 +72,78 @@ export function SponsorCard({ sponsor }: SponsorCardProps) {
               />
             ) : (
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 font-semibold text-zinc-300 border border-zinc-700 shadow-sm">
-                {(sponsor.name || sponsor.address).substring(0, 2).toUpperCase()}
+                {sponsor.isAnonymous ? "A" : (sponsor.name || sponsor.address).substring(0, 2).toUpperCase()}
               </div>
             )}
 
             <div>
               <h4 className="font-semibold text-zinc-100 text-sm group-hover:text-white transition-colors line-clamp-1">
-                {sponsor.name || formatTruncatedAddress(sponsor.address)}
+                {sponsor.isAnonymous ? "Anonymous Sponsor" : (sponsor.name || formatTruncatedAddress(sponsor.address))}
               </h4>
-              <p className="text-[11px] text-zinc-400 font-mono">
-                {sponsor.name ? formatTruncatedAddress(sponsor.address) : "Stellar Supporter"}
+              <p className="text-[11px] texr-zinc-400 font-mono">
+                {sponsor.isAnonymous ? "Identity hidden" : (sponsor.name ? formatTruncatedAddress(sponsor.address) : "Stellar Supporter")}
               </p>
             </div>
           </div>
 
-          <Badge variant="outline" className={cn("text-[10px] uppercase font-bold tracking-wider", tierStyle.badgeClass)}>
-            <Award className={cn("mr-1 h-3 w-3 inline", tierStyle.iconColor)} />
-            {sponsor.tier}
-          </Badge>
+          <div className="flex flex-col items-end gap-1">
+            <Badge variant="outline" className={cn("text-[10px] uppercase font-bold tracking-wider", tierStyle.badgeClass)}>
+              <Award className={cn("mr-1 h-3 w-3 inline", tierStyle.iconColor)} />
+              {sponsor.tier}
+            </Badge>
+            {receipt && (
+              <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-400">
+                <ShieldCheck className="h-3 w-3" />
+                Verified
+              </span>
+            )}
+          </div>
         </div>
+
+        {receipt && (
+          <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-950/10 p-2.5">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
+              <TreePine className="h-3 w-3" />
+              Sponsorship Receipt
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-zinc-300">
+              <div className="flex items-center gap-1.5">
+                <TreePine className="h-3.5 w-3.5 text-emerald-400" />
+                <span><span className="font-semibold text-zinc-100">{receipt.treeCount}</span> trees</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Leaf className="h-3.5 w-3.5 text-emerald-400" />
+                <span className="line-clamp-1">{receipt.species}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <MapPin className="h-3.5 w-3.5 text-emerald-400" />
+                <span className="line-clamp-1">{receipt.location}</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <Leaf className="h-3.5 w-3.5 text-emerald-400" />
+                <span><span className="font-semibold text-zinc-100">{receipt.coeSequesteredTonnes}</span> t CO2₂</span>
+              </div>
+            </div>
+            <div className="mt-2 flex items-center justify-between border-t border-emerald-500/20 pt-2 text-[10px] text-zinc-400">
+              <span className="font-mono truncate" title={receipt.txHash}>
+                {receipt.txHash.substring(0, 10)}&ldhellip;&rdhellip;
+              </span>
+              <a
+                href={receipt.explorerUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="font-semibold text-emerald-400 hover:text-emerald-300 underline offset-2"
+              >
+                View on chain
+              </a>
+            </div>
+          </div>
+        )}
 
         {sponsor.message && (
           <div className="mt-3 flex items-start gap-1.5 text-xs text-zinc-300 italic bg-zinc-950/40 p-2.5 rounded-lg border border-zinc-800/60">
             <MessageSquare className="h-3.5 w-3.5 text-zinc-400 shrink-0 mt-0.5" />
-            <p className="line-clamp-2">&ldquo;{sponsor.message}&rdquo;</p>
+            <p className="line-clamp-2">&lsdaquo;{sponsor.message}&rsdquo;</p>
           </div>
         )}
       </div>

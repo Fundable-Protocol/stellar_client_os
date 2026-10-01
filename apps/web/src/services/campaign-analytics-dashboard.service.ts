@@ -283,7 +283,7 @@ export async function getCampaignAnalyticsDashboard(
     };
   }).sort((a, b) => b.views - a.views);
 
-  const funnelEntries = FUNNEL_STAGES.map(({ stage, label }) => state.funnel.get(stage)!.size);
+  const funnelEntries = FUNNEL_STAGES.map(({ stage }) => state.funnel.get(stage)!.size);
   const firstStage = funnelEntries[0] ?? 0;
   const funnel: FunnelStage[] = FUNNEL_STAGES.map(({ stage, label }, index) => {
     const count = funnelEntries[index];
@@ -315,7 +315,6 @@ export async function getCampaignAnalyticsDashboard(
     bucket.backers.add(selection.viewerId);
     tierRevenue.set(selection.tierId, bucket);
   }
-  const totalRevenue = sumBigInt(Array.from(tierRevenue.values(), (bucket) => bucket.revenue));
   const rewardTiers: RewardTierStat[] = DEFAULT_REWARD_TIERS.map((tier) => {
     const bucket = tierRevenue.get(tier.tierId);
     const backers = bucket?.backers.size ?? 0;

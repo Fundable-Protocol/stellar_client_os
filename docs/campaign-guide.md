@@ -19,6 +19,8 @@ This guide covers the full lifecycle of a Fundable campaign: creation, sponsorsh
 
 A Fundable campaign lets a creator raise tokens from sponsors to fund a real-world tree-planting effort. The contract enforces every financial rule — escrow, fees, insurance, milestones, refunds, and payouts — with no trusted intermediary.
 
+For the product lifecycle states (`Draft`, `Active`, `TreesBeingPlanted`, `UnderVerification`, `Completed`, and `Abandoned`) and their allowed transitions, see [Campaign lifecycle states](campaign-states.md). The contract funding flow below uses contract-specific statuses and is a separate state machine.
+
 The lifecycle looks like this:
 
 ```

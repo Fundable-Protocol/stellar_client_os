@@ -24,10 +24,10 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json && node scripts/rename-cjs.js",
-    "build:esm": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.cjs.json && node scripts/rename-cjs.js",
+    "build:esm": "tsc -p tsconfig.build.json",
     "build:cjs": "tsc -p tsconfig.cjs.json && node scripts/rename-cjs.js",
-    "dev": "tsc --watch",
+    "dev": "tsc -p tsconfig.build.json --watch",
     "test": "vitest --run",
     "test:watch": "vitest",
     "test:integration": "vitest --run --config vitest.integration.config.ts",

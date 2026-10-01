@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Animated,
   FlatList,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -22,6 +23,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import * as Notifications from "expo-notifications";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,13 +48,36 @@ export interface CampaignDetail {
   sponsors: Sponsor[];
   /** Percentage of verification steps completed (0-100). */
   verificationProgress: number;
+  /** Tree species diversity score (0-100). */
+  treeSpeciesDiversity?: number;
+  /** Region climate impact score (0-100). */
+  regionClimateImpact?: number;
+  /** Soil health improvement score (0-100). */
+  soilHealthImprovement?: number;
+  /** Biodiversity potential score (0-100). */
+  biodiversityPotential?: number;
 }
 
 type WsMessage =
   | { type: "campaign_update"; payload: Partial<CampaignDetail> }
   | { type: "tree_planted";    payload: { treeCount: number } }
   | { type: "new_sponsor";     payload: Sponsor }
+  | { type: "milestone";       payload: CampaignMilestone }
   | { type: "ping" };
+
+export type CampaignMilestoneType =
+  | "trees_planted"
+  | "verification_complete"
+  | "campaign_finished"
+  | "impact_achieved";
+
+export interface CampaignMilestone {
+  type: CampaignMilestoneType;
+  title: string;
+  body: string;
+  /** Optional numeric value associated with the milestone (e.g. tree count). */
+  value?: number;
+}
 
 // ── State / reducer ───────────────────────────────────────────────────────────
 
@@ -68,7 +93,8 @@ type Action =
   | { type: "WS_DISCONNECTED" }
   | { type: "CAMPAIGN_UPDATE"; patch: Partial<CampaignDetail> }
   | { type: "TREE_PLANTED";    treeCount: number }
-  | { type: "NEW_SPONSOR";     sponsor: Sponsor };
+  | { type: "NEW_SPONSOR";     sponsor: Sponsor }
+  | { type: "MILESTONE";       milestone: CampaignMilestone };
 
 function reducer(state: ScreenState, action: Action): ScreenState {
   switch (action.type) {
@@ -111,6 +137,10 @@ function reducer(state: ScreenState, action: Action): ScreenState {
       };
     }
 
+    case "MILESTONE":
+      // Milestones are surfaced as push notifications; no state change needed.
+      return state;
+
     default:
       return state;
   }
@@ -123,6 +153,78 @@ function shortAddress(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
+// ── Push notifications ────────────────────────────────────────────────────────
+
+/**
+ * Configure the notification handler once at module load so that milestone
+ * notifications are displayed while the app is foregrounded.
+ */
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
+
+/**
+ * Request notification permissions and register a push token with the backend.
+ * Returns the Expo push token when granted, otherwise `null`.
+ */
+async function registerForPushNotifications(
+  apiBaseUrl: string,
+  campaignId: string,
+): Promise<string | null> {
+  try {
+    const existing = await Notifications.getPermissionsAsync();
+    let status = existing.status;
+    if (status !== "granted") {
+      const requested = await Notifications.requestPermissionsAsync();
+      status = requested.status;
+    }
+    if (status !== "granted") return null;
+
+    const tokenResponse = await Notifications.getExpoPushTokenAsync();
+    const token = tokenResponse.data;
+
+    // Best-effort registration; failures must not break the screen.
+    try {
+      await fetch(`${apiBaseUrl}/api/campaigns/${campaignId}/push-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, platform: Platform.OS }),
+      });
+    } catch {
+      // ignore network errors during registration
+    }
+
+    return token;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Present a local push notification for a campaign milestone.
+ */
+async function presentMilestoneNotification(
+  milestone: CampaignMilestone,
+): Promise<void> {
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: milestone.title,
+        body: milestone.body,
+        data: { type: milestone.type, value: milestone.value ?? null },
+        sound: true,
+      },
+      trigger: null,
+    });
+  } catch {
+    // Notification failures should never crash the screen.
+  }
+}
+
 function progressPercent(raised: string, goal: string): number {
   try {
     const g = BigInt(goal);
@@ -133,6 +235,50 @@ function progressPercent(raised: string, goal: string): number {
   } catch {
     return 0;
   }
+}
+
+/**
+ * Compute the campaign sustainability score (0-100) as a weighted average of
+ * four environmental indices. Missing indices default to 0 and are excluded
+ * from the weighting so partial data still yields a meaningful score.
+ */
+export function computeSustainabilityScore(campaign: {
+  treeSpeciesDiversity?: number;
+  regionClimateImpact?: number;
+  soilHealthImprovement?: number;
+  biodiversityPotential?: number;
+}): number {
+  const clamp = (n: number) => Math.min(100, Math.max(0, n));
+  const components: Array<{ value: number; weight: number }> = [
+    { value: campaign.treeSpeciesDiversity,   weight: 0.3 },
+    { value: campaign.regionClimateImpact,    weight: 0.25 },
+    { value: campaign.soilHealthImprovement,  weight: 0.25 },
+    { value: campaign.biodiversityPotential,  weight: 0.2 },
+  ].filter((c): c is { value: number; weight: number } =>
+    typeof c.value === "number" && Number.isFinite(c.value),
+  );
+
+  if (components.length === 0) return 0;
+
+  const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
+  const weighted = components.reduce(
+    (sum, c) => sum + clamp(c.value) * c.weight,
+    0,
+  );
+  return Math.round(weighted / totalWeight);
+}
+
+function scoreColor(score: number): string {
+  if (score >= 75) return "#1a7248";
+  if (score >= 50) return "#b8860b";
+  return "#c0392b";
+}
+
+function scoreLabel(score: number): string {
+  if (score >= 75) return "Excellent";
+  if (score >= 50) return "Good";
+  if (score >= 25) return "Fair";
+  return "Low";
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -183,6 +329,63 @@ function SponsorRow({ item }: { item: Sponsor }) {
   );
 }
 
+function SustainabilityScore({
+  treeSpeciesDiversity,
+  regionClimateImpact,
+  soilHealthImprovement,
+  biodiversityPotential,
+}: {
+  treeSpeciesDiversity?: number;
+  regionClimateImpact?: number;
+  soilHealthImprovement?: number;
+  biodiversityPotential?: number;
+}) {
+  const score = computeSustainabilityScore({
+    treeSpeciesDiversity,
+    regionClimateImpact,
+    soilHealthImprovement,
+    biodiversityPotential,
+  });
+  const color = scoreColor(score);
+
+  const metrics: Array<{ label: string; value?: number }> = [
+    { label: "Tree species diversity", value: treeSpeciesDiversity },
+    { label: "Region climate impact",  value: regionClimateImpact },
+    { label: "Soil health improvement", value: soilHealthImprovement },
+    { label: "Biodiversity potential", value: biodiversityPotential },
+  ];
+
+  return (
+    <View style={styles.sustainCard}>
+      <View style={styles.sustainHeader}>
+        <Text style={styles.sustainTitle}>Sustainability score</Text>
+        <View style={[styles.sustainBadge, { backgroundColor: color }]}>
+          <Text style={styles.sustainBadgeText}>{scoreLabel(score)}</Text>
+        </View>
+      </View>
+      <View style={styles.sustainScoreRow}>
+        <Text style={[styles.sustainScore, { color }]}>{score}</Text>
+        <Text style={styles.sustainScoreMax}>/ 100</Text>
+      </View>
+      <View style={styles.sustainTrack}>
+        <View style={[styles.sustainFill, { width: `${score}%`, backgroundColor: color }]} />
+      </View>
+      <View style={styles.sustainMetrics}>
+        {metrics.map((m) => (
+          <View key={m.label} style={styles.sustainMetricRow}>
+            <Text style={styles.sustainMetricLabel}>{m.label}</Text>
+            <Text style={styles.sustainMetricValue}>
+              {typeof m.value === "number" && Number.isFinite(m.value)
+                ? `${Math.round(Math.min(100, Math.max(0, m.value)))}`
+                : "—"}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 export interface CampaignDetailScreenProps {
@@ -212,6 +415,7 @@ export default function CampaignDetailScreen({
   const [state, dispatch] = useReducer(reducer, { status: "loading" });
   const wsRef             = useRef<WebSocket | null>(null);
   const treeAnim          = useRef(new Animated.Value(1)).current;
+  const seenMilestonesRef = useRef<Set<string>>(new Set());
 
   // Pulse animation triggered on each tree_planted event
   const pulsTree = useCallback(() => {
@@ -220,6 +424,17 @@ export default function CampaignDetailScreen({
       Animated.timing(treeAnim, { toValue: 1,    duration: 180, useNativeDriver: true }),
     ]).start();
   }, [treeAnim]);
+
+  // ── Register for push notifications ────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    registerForPushNotifications(apiBaseUrl, campaignId).then((token) => {
+      if (cancelled) return;
+      // Token is registered server-side; nothing else to do here.
+      void token;
+    });
+    return () => { cancelled = true; };
+  }, [apiBaseUrl, campaignId]);
 
   // ── Fetch initial campaign data ────────────────────────────────────────────
   useEffect(() => {
@@ -277,6 +492,16 @@ export default function CampaignDetailScreen({
             dispatch({ type: "NEW_SPONSOR", sponsor: message.payload as Sponsor });
           }
           break;
+        case "milestone": {
+          const milestone = message.payload as CampaignMilestone | undefined;
+          if (!milestone || typeof milestone.type !== "string") break;
+          const key = `${milestone.type}:${milestone.value ?? ""}`;
+          if (seenMilestonesRef.current.has(key)) break;
+          seenMilestonesRef.current.add(key);
+          dispatch({ type: "MILESTONE", milestone });
+          presentMilestoneNotification(milestone);
+          break;
+        }
         case "ping":
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "pong" }));
           break;
@@ -368,6 +593,14 @@ export default function CampaignDetailScreen({
         {/* Verification progress */}
         <ProgressBar percent={verifyPct} label="Verification progress" />
 
+        {/* Sustainability score */}
+        <SustainabilityScore
+          treeSpeciesDiversity={campaign.treeSpeciesDiversity}
+          regionClimateImpact={campaign.regionClimateImpact}
+          soilHealthImprovement={campaign.soilHealthImprovement}
+          biodiversityPotential={campaign.biodiversityPotential}
+        />
+
         {/* Sponsor list */}
         <Text style={styles.sectionTitle}>Sponsors</Text>
         {campaign.sponsors.length === 0 ? (
@@ -434,6 +667,25 @@ const styles = StyleSheet.create({
   progressTrack:    { height: 8, backgroundColor: "#e4e0f0", borderRadius: 4, overflow: "hidden" },
   progressFill:     { height: "100%", backgroundColor: PURPLE, borderRadius: 4 },
   progressPct:      { fontSize: 11, color: PURPLE, fontWeight: "600", marginTop: 4, textAlign: "right" },
+
+  // Sustainability score
+  sustainCard:        {
+    backgroundColor: "#fff", borderRadius: 12, padding: 16,
+    borderWidth: 1, borderColor: "#e4e0f0", marginBottom: 20,
+  },
+  sustainHeader:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sustainTitle:       { fontSize: 14, fontWeight: "700", color: "#1a1a28" },
+  sustainBadge:       { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
+  sustainBadgeText:   { color: "#fff", fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
+  sustainScoreRow:    { flexDirection: "row", alignItems: "flex-end", marginTop: 8 },
+  sustainScore:       { fontSize: 40, fontWeight: "800", lineHeight: 44 },
+  sustainScoreMax:    { fontSize: 14, color: "#6b6b80", marginLeft: 4, marginBottom: 6 },
+  sustainTrack:       { height: 8, backgroundColor: "#e4e0f0", borderRadius: 4, overflow: "hidden", marginTop: 8 },
+  sustainFill:        { height: "100%", borderRadius: 4 },
+  sustainMetrics:     { marginTop: 12, gap: 6 },
+  sustainMetricRow:   { flexDirection: "row", justifyContent: "space-between" },
+  sustainMetricLabel: { fontSize: 12, color: "#6b6b80" },
+  sustainMetricValue: { fontSize: 12, color: "#1a1a28", fontWeight: "600" },
 
   // Sponsors
   sectionTitle:     { fontSize: 16, fontWeight: "700", color: "#1a1a28", marginBottom: 12, marginTop: 8 },

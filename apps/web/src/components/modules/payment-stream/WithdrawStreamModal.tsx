@@ -85,7 +85,7 @@ export function WithdrawStreamModal({
     return () => {
       cancelled = true
     }
-  }, [open, stream.id])
+  }, [open, stream.id, stream.contractStreamId])
 
   // Update amount when useMax changes
   useEffect(() => {
