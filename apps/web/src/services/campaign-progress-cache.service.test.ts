@@ -1,6 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CampaignProgressCacheService } from "./campaign-progress-cache.service";
+import {
+  buildCampaignProgressCacheKey,
+  CampaignProgressCacheService,
+  DEFAULT_CAMPAIGN_PROGRESS_TTL_SECONDS,
+} from "./campaign-progress-cache.service";
 import * as campaignService from "./campaign.service";
+
+const baseMetrics = {
+  treeCount: 500,
+  sponsorCount: 20,
+  co2ImpactKg: 10000,
+  co2SequestrationTonnes: "10.00",
+  raisedAmount: "5000",
+  goalAmount: "20000",
+};
 
 describe("CampaignProgressCacheService", () => {
   let cacheService: CampaignProgressCacheService;
@@ -129,5 +142,110 @@ describe("CampaignProgressCacheService", () => {
     const removed = cacheService.invalidate("c-inv");
     expect(removed).toBe(true);
     expect(cacheService.get("c-inv")).toBeNull();
+  });
+
+  it("namespaces cache keys per campaign so params cannot collide", () => {
+    expect(buildCampaignProgressCacheKey("campaign-abc")).toBe(
+      "campaign:progress:campaign-abc"
+    );
+    expect(buildCampaignProgressCacheKey("campaign-abc")).not.toBe(
+      buildCampaignProgressCacheKey("campaign-xyz")
+    );
+  });
+
+  it("isolates cached entries per campaign key", () => {
+    cacheService.set("c-a", { campaignId: "c-a", ...baseMetrics, treeCount: 1 });
+    cacheService.set("c-b", { campaignId: "c-b", ...baseMetrics, treeCount: 2 });
+
+    expect(cacheService.get("c-a")?.treeCount).toBe(1);
+    expect(cacheService.get("c-b")?.treeCount).toBe(2);
+
+    expect(cacheService.invalidate("c-a")).toBe(true);
+    expect(cacheService.get("c-a")).toBeNull();
+    expect(cacheService.get("c-b")?.treeCount).toBe(2);
+  });
+
+  it("returns unchanged metrics on a cache hit even if the source changes", async () => {
+    const spy = vi
+      .spyOn(campaignService, "getCampaign")
+      .mockResolvedValue({
+        id: "c-stable",
+        name: "Stable",
+        treeCount: 300,
+        sponsorCount: 12,
+        co2Sequestration: "6.00",
+        raisedAmount: "3000",
+        goalAmount: "9000",
+      } as any);
+
+    const first = await cacheService.getOrFetch("c-stable");
+    const snapshot = { ...first.metrics };
+
+    spy.mockResolvedValue({
+      id: "c-stable",
+      name: "Stable",
+      treeCount: 999,
+      sponsorCount: 99,
+      raisedAmount: "9999",
+      goalAmount: "9999",
+    } as any);
+
+    vi.advanceTimersByTime(60 * 1000);
+    const second = await cacheService.getOrFetch("c-stable");
+
+    expect(second.cacheHit).toBe(true);
+    expect(second.metrics).toEqual(snapshot);
+    expect(second.metrics.treeCount).toBe(300);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("honors an injectable clock for expiry", () => {
+    let now = 1_000_000;
+    const clocked = new CampaignProgressCacheService({
+      ttlSeconds: DEFAULT_CAMPAIGN_PROGRESS_TTL_SECONDS,
+      now: () => now,
+    });
+
+    const stored = clocked.set("c-clock", { campaignId: "c-clock", ...baseMetrics });
+    expect(stored.cachedAt).toBe(1_000_000);
+    expect(stored.expiresAt).toBe(1_000_000 + 300 * 1000);
+
+    now += 299 * 1000;
+    expect(clocked.get("c-clock")).not.toBeNull();
+
+    now += 2 * 1000;
+    expect(clocked.get("c-clock")).toBeNull();
+  });
+
+  it("reads the default TTL from CAMPAIGN_PROGRESS_CACHE_TTL_SECONDS", () => {
+    const original = process.env.CAMPAIGN_PROGRESS_CACHE_TTL_SECONDS;
+    try {
+      process.env.CAMPAIGN_PROGRESS_CACHE_TTL_SECONDS = "60";
+      const envCache = new CampaignProgressCacheService();
+      const stored = envCache.set("c-env", { campaignId: "c-env", ...baseMetrics });
+      expect(stored.ttlSeconds).toBe(60);
+    } finally {
+      if (original === undefined) {
+        delete process.env.CAMPAIGN_PROGRESS_CACHE_TTL_SECONDS;
+      } else {
+        process.env.CAMPAIGN_PROGRESS_CACHE_TTL_SECONDS = original;
+      }
+    }
+  });
+
+  it("falls back to the 5-minute default for an invalid env TTL", () => {
+    const original = process.env.CAMPAIGN_PROGRESS_CACHE_TTL_SECONDS;
+    try {
+      process.env.CAMPAIGN_PROGRESS_CACHE_TTL_SECONDS = "not-a-number";
+      const envCache = new CampaignProgressCacheService();
+      const stored = envCache.set("c-env-bad", { campaignId: "c-env-bad", ...baseMetrics });
+      expect(stored.ttlSeconds).toBe(DEFAULT_CAMPAIGN_PROGRESS_TTL_SECONDS);
+    } finally {
+      if (original === undefined) {
+        delete process.env.CAMPAIGN_PROGRESS_CACHE_TTL_SECONDS;
+      } else {
+        process.env.CAMPAIGN_PROGRESS_CACHE_TTL_SECONDS = original;
+      }
+    }
   });
 });
