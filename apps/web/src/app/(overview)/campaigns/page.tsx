@@ -7,6 +7,7 @@ import { Rocket, Plus, Heart, Users, ShieldCheck, ChevronRight, Trophy, Scale, S
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SuccessStories from "@/components/modules/campaign/success-stories/SuccessStories";
+import { CampaignSearchPanel } from "@/components/modules/campaign/CampaignSearchPanel";
 import { useCampaigns } from "@/hooks/use-campaigns";
 import { useCampaignWishlist } from "@/hooks/use-campaign-wishlist";
 import {
@@ -119,6 +120,8 @@ const { campaigns } = useCampaigns();
       {/* Success Stories Section */}
       <SuccessStories />
 
+      <CampaignSearchPanel />
+
 {/* Filter panel */}
       <section aria-label="Filter campaigns" className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
         <div className="mb-3">
@@ -161,7 +164,7 @@ const { campaigns } = useCampaigns();
         {filteredCampaigns.map((c) => {
           const progress = Math.round((parseFloat(String(c.raisedAmount).replace(/,/g, "")) / parseFloat(String(c.goalAmount).replace(/,/g, ""))) * 100) || 0;
           const wished = isInWishlist(c.id);
-          
+
           return (
             <div
               key={c.id}

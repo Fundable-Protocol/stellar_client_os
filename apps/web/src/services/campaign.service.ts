@@ -165,6 +165,8 @@ export interface CampaignRecord {
   co2SequestrationKg?: string;
   /** Array of country codes or names the campaign spans, for geographic diversity. */
   countries?: string[];
+  /** Tree species or ecological tags used by campaign discovery search. */
+  speciesTags?: string[];
   /** Optional broad geographic region for discovery filtering. */
   region?: string;
   /** Intended campaign duration in milliseconds, used for duplicate detection. */
@@ -744,6 +746,7 @@ export async function createCampaign(input: {
   localizedContent?: Record<string, CampaignLocalizedContent>;
   location?: string;
   countries?: string[];
+  speciesTags?: string[];
   region?: string;
   treeSpecies?: string;
 /** GPS coordinates of the campaign's planting site(s), stored for the global
@@ -784,6 +787,7 @@ export async function createCampaign(input: {
     localizedContent: input.localizedContent ?? {},
     location: input.location,
     countries: input.countries,
+    speciesTags: input.speciesTags ?? [],
     region: input.region,
     treeSpecies: input.treeSpecies,
 gpsLocations: input.gpsLocations,

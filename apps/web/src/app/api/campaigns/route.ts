@@ -70,6 +70,7 @@ async function postCampaign(request: Request) {
       description?: string;
       location?: string;
       countries?: string[];
+      speciesTags?: string[];
       region?: string;
       treeSpecies?: string;
       /** GPS coordinates of the planting site(s), validated and stored for the
@@ -115,6 +116,9 @@ async function postCampaign(request: Request) {
     }
     if (body.countries !== undefined && (!Array.isArray(body.countries) || body.countries.some((c) => typeof c !== "string"))) {
       return Response.json({ error: "countries must be an array of strings" }, { status: 400 });
+    }
+    if (body.speciesTags !== undefined && (!Array.isArray(body.speciesTags) || body.speciesTags.some((tag) => typeof tag !== "string"))) {
+      return Response.json({ error: "speciesTags must be an array of strings" }, { status: 400 });
     }
     if (body.region !== undefined && typeof body.region !== "string") {
       return Response.json({ error: "region must be a string" }, { status: 400 });
@@ -211,6 +215,7 @@ async function postCampaign(request: Request) {
       description,
       location: body.location,
       countries: body.countries,
+      speciesTags: body.speciesTags,
       region: body.region,
       treeSpecies: body.treeSpecies,
       gpsLocations: body.gpsLocations,
