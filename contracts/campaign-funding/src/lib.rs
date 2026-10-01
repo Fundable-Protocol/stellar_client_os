@@ -47,7 +47,8 @@ pub enum DataKey {
     Contribution(u64, Address),
     /// Campaign metadata IPFS CID or hex hash keyed by campaign ID.
     CampaignIpfsHash(u64),
-    /// Total count of tree planting records.
+    /// Total count of tree planting records. A non-zero count also serves as
+    /// the "trees planted" marker for the tiered refund policy.
     PlantingCount(u64),
     /// Tree planting verification SLA record keyed by `(campaign_id, planting_id)`.
     PlantingSla(u64, u64),
@@ -275,6 +276,19 @@ pub struct CampaignStatusChangedEvent {
     pub campaign_id: u64,
     /// New lifecycle state assigned to the campaign.
     pub new_status: CampaignStatus,
+}
+
+/// Emitted when a planter is assigned to a campaign, marking the campaign as
+/// started for the tiered refund policy (issue #889).
+#[contracttype]
+#[derive(Clone)]
+pub struct PlanterAssignedEvent {
+    /// Identifier of the campaign the planter was assigned to.
+    pub campaign_id: u64,
+    /// Address of the assigned planter.
+    pub planter: Address,
+    /// Unix timestamp (seconds) when the assignment happened.
+    pub assigned_at: u64,
 }
 
 /// Emitted when the campaign creator claims the raised funds.
@@ -597,6 +611,21 @@ const LEDGER_BUMP: u32 = 535_680;
 const MAX_CAMPAIGN_DURATION_SECONDS: u64 = 180 * 24 * 60 * 60;
 /// 30-day Tree Verification SLA duration in seconds (30 * 24 * 60 * 60).
 const VERIFICATION_SLA_SECONDS: u64 = 2_592_000;
+/// Refund tier 1 window: a campaign must start (planter assigned) within 60
+/// days of creation (60 * 24 * 60 * 60 seconds) or sponsors are entitled to a
+/// full refund.
+const REFUND_TIER_START_SECONDS: u64 = 60 * 24 * 60 * 60;
+/// Refund tier 2 window: trees must be planted within 90 days of creation
+/// (90 * 24 * 60 * 60 seconds) or sponsors are entitled to a half refund.
+const REFUND_TIER_PLANTING_SECONDS: u64 = 90 * 24 * 60 * 60;
+/// Full refund percentage: the campaign never started within 60 days.
+const REFUND_PERCENT_FULL: u32 = 100;
+/// Partial refund percentage: the campaign started but no trees were planted
+/// within 90 days.
+const REFUND_PERCENT_PARTIAL: u32 = 50;
+/// No refund percentage: the campaign completed (funds claimed) or trees were
+/// planted within the 90-day window.
+const REFUND_PERCENT_NONE: u32 = 0;
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -881,6 +910,53 @@ impl CampaignFundingContract {
             CampaignStatusChangedEvent {
                 campaign_id,
                 new_status: CampaignStatus::Verified,
+            },
+        );
+    }
+
+    /// Assign a planter to a campaign, marking it as started.
+    ///
+    /// This anchors the tiered refund policy to an explicit on-chain action:
+    /// the 60-day full-refund window only applies while no planter has been
+    /// assigned. Assignment is permanent — the first assignment wins and any
+    /// later attempt fails with [`Error::PlanterAlreadyAssigned`], so the
+    /// refund outcome can never be changed retroactively.
+    ///
+    /// Only the contract admin can call this.
+    ///
+    /// # Arguments
+    /// * `campaign_id` — ID of the campaign to assign the planter to.
+    /// * `planter`     — Address of the planter responsible for planting.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`]        — contract not initialised.
+    /// * [`Error::Unauthorized`]          — caller is not the admin.
+    /// * [`Error::CampaignNotFound`]      — campaign does not exist.
+    /// * [`Error::PlanterAlreadyAssigned`] — campaign already has a planter.
+    pub fn assign_planter(env: Env, campaign_id: u64, planter: Address) {
+        Self::assert_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        let mut campaign = Self::load_campaign(&env, campaign_id);
+
+        if campaign.planter != OptionalAddress::None {
+            panic_with_error!(&env, Error::PlanterAlreadyAssigned);
+        }
+
+        campaign.planter = OptionalAddress::Some(planter.clone());
+        Self::save_campaign(&env, campaign_id, &campaign);
+
+        env.events().publish(
+            ("PlanterAssigned", campaign_id),
+            PlanterAssignedEvent {
+                campaign_id,
+                planter,
+                assigned_at: env.ledger().timestamp(),
             },
         );
     }
@@ -1510,47 +1586,107 @@ impl CampaignFundingContract {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
-    /// Claim a full refund after a failed campaign.
+    /// Compute the refund percentage a contributor is entitled to.
     ///
-    /// Each contributor calls this individually to recover exactly the amount
-    /// they contributed.  The contribution record is cleared before the
+    /// Implements the tiered refund policy (issue #889):
+    ///
+    /// | Tier | Condition | Refund |
+    /// |------|-----------|--------|
+    /// | 1 | Campaign never started (no planter assigned) within 60 days of creation | 100 % |
+    /// | 2 | Campaign started but no trees planted within 90 days of creation | 50 % |
+    /// | 3 | Campaign completed (`Claimed` / `VerificationFailed`) or trees planted within the 90-day window | 0 % |
+    ///
+    /// A campaign that reached its deadline without meeting `min_target`
+    /// (`Failed` status) always refunds in full regardless of these windows.
+    ///
+    /// # Arguments
+    /// * `campaign`    — The campaign to evaluate.
+    /// * `campaign_id` — ID of the campaign (used to look up planting state).
+    ///
+    /// # Returns
+    /// The refund percentage: 100, 50, or 0.
+    fn compute_refund_percent(env: &Env, campaign: &Campaign, campaign_id: u64) -> u32 {
+        let now = env.ledger().timestamp();
+
+        // Completed campaigns (funds claimed) and insurance-refund states are
+        // terminal: nothing is refundable through this entry point.
+        if campaign.status == CampaignStatus::Claimed
+            || campaign.status == CampaignStatus::VerificationFailed
+        {
+            return REFUND_PERCENT_NONE;
+        }
+
+        // A campaign that failed its funding target refunds in full.
+        if campaign.status == CampaignStatus::Failed {
+            return REFUND_PERCENT_FULL;
+        }
+
+        // Tier 1 — the campaign never started within 60 days.
+        if campaign.planter == OptionalAddress::None
+            && now > campaign.created_at + REFUND_TIER_START_SECONDS
+        {
+            return REFUND_PERCENT_FULL;
+        }
+
+        // Tier 2 — started but no trees planted within 90 days.
+        let planting_count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PlantingCount(campaign_id))
+            .unwrap_or(0);
+        if planting_count == 0 && now > campaign.created_at + REFUND_TIER_PLANTING_SECONDS {
+            return REFUND_PERCENT_PARTIAL;
+        }
+
+        REFUND_PERCENT_NONE
+    }
+
+    /// Return the refund tier a contributor currently falls into.
+    ///
+    /// * `100` — full refund (campaign failed, or never started within 60 days)
+    /// * `50`  — partial refund (started but no trees planted within 90 days)
+    /// * `0`   — no refund (completed campaign, or trees planted in time)
+    ///
+    /// # Errors
+    /// * [`Error::CampaignNotFound`] — campaign does not exist.
+    pub fn get_refund_percent(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        Self::compute_refund_percent(&env, &campaign, campaign_id)
+    }
+
+    /// Claim a refund according to the tiered refund policy (issue #889).
+    ///
+    /// Each contributor calls this individually to recover their share of the
+    /// escrowed contribution:
+    ///
+    /// * **100 %** — campaign failed its funding target, or never started
+    ///   (no planter assigned) within 60 days of creation.
+    /// * **50 %** — campaign started but no trees were planted within 90 days
+    ///   of creation. The remaining 50 % stays escrowed for the planter who
+    ///   ultimately fulfils the commitment.
+    /// * **0 %** — the campaign completed (`Claimed`) or entered
+    ///   `VerificationFailed`; refunds are handled by the insurance flow
+    ///   instead.
+    ///
+    /// The refunded portion of the contribution record is cleared before the
     /// transfer executes (check-effects-interactions pattern) to prevent
-    /// double-refunds.
+    /// double-refunds. A 50 % refund clears the record entirely — the
+    /// contributor cannot claim the remaining half later.
     ///
     /// # Arguments
     /// * `contributor`  — The address reclaiming their contribution.
-    /// * `campaign_id`  — The failed campaign to refund from.
+    /// * `campaign_id`  — The campaign to refund from.
     ///
     /// # Errors
-    /// * [`Error::CampaignNotFailed`]    — campaign is not in `Failed` state.
+    /// * [`Error::CampaignNotFailed`]    — refund percentage is 0 % (campaign
+    ///   completed or still within all refund windows).
     /// * [`Error::NoContributionFound`]  — caller has no recorded contribution.
     pub fn refund(env: Env, contributor: Address, campaign_id: u64) {
         contributor.require_auth();
 
         let campaign = Self::load_campaign(&env, campaign_id);
 
-        let now = env.ledger().timestamp();
-        let sixty_days = 60 * 24 * 60 * 60;
-        let ninety_days = 90 * 24 * 60 * 60;
-
-        let mut refund_percent = 0;
-
-        if campaign.status == CampaignStatus::Failed {
-            refund_percent = 100;
-        } else if campaign.planter == OptionalAddress::None && now > campaign.created_at + sixty_days {
-            refund_percent = 100;
-        } else {
-            let count_key = DataKey::PlantingCount(campaign_id);
-            let planting_count: u64 = env.storage().instance().get(&count_key).unwrap_or(0);
-            if planting_count == 0 && now > campaign.created_at + ninety_days {
-                refund_percent = 50;
-            }
-        }
-
-        if campaign.status == CampaignStatus::Claimed || campaign.status == CampaignStatus::VerificationFailed {
-            refund_percent = 0;
-        }
-
+        let refund_percent = Self::compute_refund_percent(&env, &campaign, campaign_id);
         if refund_percent == 0 {
             panic_with_error!(&env, Error::CampaignNotFailed);
         }
@@ -2283,7 +2419,24 @@ impl CampaignFundingContract {
         tree_count: u32,
     ) -> u64 {
         planter.require_auth();
-        let _campaign = Self::load_campaign(&env, campaign_id);
+        let mut campaign = Self::load_campaign(&env, campaign_id);
+
+        // The first recorded planting permanently marks the campaign as
+        // started and anchors the refund tiers to real on-chain activity
+        // (issue #889). Later plantings are attributed to the same planter.
+        if campaign.planter == OptionalAddress::None {
+            campaign.planter = OptionalAddress::Some(planter.clone());
+            Self::save_campaign(&env, campaign_id, &campaign);
+
+            env.events().publish(
+                ("PlanterAssigned", campaign_id),
+                PlanterAssignedEvent {
+                    campaign_id,
+                    planter: planter.clone(),
+                    assigned_at: env.ledger().timestamp(),
+                },
+            );
+        }
 
         let count_key = DataKey::PlantingCount(campaign_id);
         let mut planting_count: u64 = env
@@ -3895,6 +4048,338 @@ mod tests {
         client.trigger_expiry(&id);
         client.refund(&contributor, &id); // First refund — OK.
         client.refund(&contributor, &id); // Second refund — must panic.
+    }
+
+    // -----------------------------------------------------------------------
+    // Tiered refund policy (issue #889)
+    //
+    // 100 % — campaign never started (no planter) within 60 days of creation
+    //  50 % — started but no trees planted within 90 days of creation
+    //   0 % — completed campaign, or trees planted within the 90-day window
+    // -----------------------------------------------------------------------
+
+    const DAY: u64 = 24 * 60 * 60;
+
+    #[test]
+    fn test_refund_tier1_full_refund_after_60_days_no_planter() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        // Far-future deadline so the campaign stays Active past the 60-day
+        // tier boundary.
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Before 60 days: no refund available yet.
+        set_time(&env, 1_000 + 60 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+
+        // After 60 days with no planter assigned: full refund.
+        set_time(&env, 1_000 + 60 * DAY + 1);
+        assert_eq!(client.get_refund_percent(&id), 100);
+        client.refund(&contributor, &id);
+        assert_eq!(token_client.balance(&contributor), 10_000);
+        assert_eq!(client.get_contribution(&id, &contributor), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn test_refund_no_refund_within_60_days_active() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Still within the 60-day window — refund must panic.
+        set_time(&env, 1_000 + 60 * DAY);
+        client.refund(&contributor, &id);
+    }
+
+    #[test]
+    fn test_refund_tier2_partial_refund_after_90_days() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Campaign starts within 60 days (planter assigned), so tier 1 no
+        // longer applies at any later time.
+        let planter = Address::generate(&env);
+        set_time(&env, 1_000 + 30 * DAY);
+        client.assign_planter(&id, &planter);
+
+        // Between 60 and 90 days: started but nothing planted — no refund yet.
+        set_time(&env, 1_000 + 75 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+
+        // After 90 days with no planting: 50 % partial refund.
+        set_time(&env, 1_000 + 90 * DAY + 1);
+        assert_eq!(client.get_refund_percent(&id), 50);
+        client.refund(&contributor, &id);
+        assert_eq!(token_client.balance(&contributor), 10_000 - 1_500);
+        assert_eq!(client.get_contribution(&id, &contributor), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn test_refund_tier2_not_before_90_days() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        let planter = Address::generate(&env);
+        set_time(&env, 1_000 + 30 * DAY);
+        client.assign_planter(&id, &planter);
+
+        // Started, past 60 days, but within the 90-day planting window —
+        // refund must panic.
+        set_time(&env, 1_000 + 89 * DAY);
+        client.refund(&contributor, &id);
+    }
+
+    #[test]
+    fn test_refund_assign_planter_blocks_tier1() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Assign the planter within the 60-day window.
+        let planter = Address::generate(&env);
+        set_time(&env, 1_000 + 59 * DAY);
+        client.assign_planter(&id, &planter);
+        assert_eq!(
+            client.get_campaign(&id).planter,
+            OptionalAddress::Some(planter.clone())
+        );
+
+        // Past 60 days tier 1 no longer fires (planter assigned in time);
+        // past 90 days tier 2 fires instead (no trees planted).
+        set_time(&env, 1_000 + 61 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+        set_time(&env, 1_000 + 91 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 50);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #28)")]
+    fn test_assign_planter_duplicate_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+
+        let planter = Address::generate(&env);
+        client.assign_planter(&id, &planter);
+
+        // A second assignment must fail — the first assignment wins so the
+        // refund outcome cannot be changed retroactively.
+        let other = Address::generate(&env);
+        client.assign_planter(&id, &other);
+    }
+
+    #[test]
+    fn test_refund_zero_after_planting_recorded() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        let planter = Address::generate(&env);
+        set_time(&env, 1_000 + 30 * DAY);
+        client.assign_planter(&id, &planter);
+
+        // Trees planted within the 90-day window.
+        set_time(&env, 1_000 + 80 * DAY);
+        client.record_tree_planting(&id, &planter, &100);
+
+        // Past 90 days: no refund — trees were planted in time.
+        set_time(&env, 1_000 + 95 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn test_refund_zero_after_claimed() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &7_000);
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id); // → Successful
+        client.verify_campaign(&id); // → Verified
+        client.claim_funds(&id); // → Claimed
+
+        // Completed campaign — 0 % refund, must panic.
+        set_time(&env, 1_000 + 120 * DAY);
+        client.refund(&contributor, &id);
+    }
+
+    #[test]
+    fn test_get_refund_percent_tier_transitions() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Tier timeline without planter assignment:
+        // day 59 → 0 %, day 61 → 100 % (tier 1).
+        set_time(&env, 1_000 + 59 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+        set_time(&env, 1_000 + 61 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 100);
+
+        // A late planter assignment cannot retroactively shrink tier 1, but
+        // it does enable tier 2 from the 90-day boundary onward.
+        let planter = Address::generate(&env);
+        client.assign_planter(&id, &planter);
+        assert_eq!(client.get_refund_percent(&id), 100); // tier 1 already breached
+
+        set_time(&env, 1_000 + 90 * DAY + 1);
+        assert_eq!(client.get_refund_percent(&id), 50); // tier 2 now applies
     }
 
     // -----------------------------------------------------------------------
