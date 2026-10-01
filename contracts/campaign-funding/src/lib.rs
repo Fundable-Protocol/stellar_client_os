@@ -254,6 +254,19 @@ pub struct ContributionMadeEvent {
     pub total_raised: i128,
 }
 
+/// Contribution event used when a sponsor chooses anonymity on public surfaces.
+///
+/// The contributor address is deliberately omitted. Soroban ledger data and the
+/// transaction signer remain public, so this hides the sponsor from event-based
+/// campaign displays but is not cryptographic on-chain privacy.
+#[contracttype]
+#[derive(Clone)]
+pub struct AnonymousContributionMadeEvent {
+    pub campaign_id: u64,
+    pub amount: i128,
+    pub total_raised: i128,
+}
+
 /// Emitted when a campaign transitions lifecycle states.
 #[contracttype]
 #[derive(Clone)]
@@ -1098,6 +1111,29 @@ impl CampaignFundingContract {
     ///   above the hard cap.
     /// * [`Error::ArithmeticOverflow`] — internal overflow guard.
     pub fn contribute(env: Env, contributor: Address, campaign_id: u64, amount: i128) {
+        Self::contribute_internal(env, contributor, campaign_id, amount, false);
+    }
+
+    /// Contribute to a campaign without publishing the sponsor address in the
+    /// contribution event. The transaction signer and ledger storage remain
+    /// publicly inspectable; this only supports anonymous display in campaign
+    /// interfaces.
+    pub fn contribute_anonymously(
+        env: Env,
+        contributor: Address,
+        campaign_id: u64,
+        amount: i128,
+    ) {
+        Self::contribute_internal(env, contributor, campaign_id, amount, true);
+    }
+
+    fn contribute_internal(
+        env: Env,
+        contributor: Address,
+        campaign_id: u64,
+        amount: i128,
+        anonymous: bool,
+    ) {
         contributor.require_auth();
 
         let mut campaign = Self::load_campaign(&env, campaign_id);
@@ -1177,15 +1213,26 @@ impl CampaignFundingContract {
 
         Self::save_campaign(&env, campaign_id, &campaign);
 
-        env.events().publish(
-            ("ContributionMade", campaign_id),
-            ContributionMadeEvent {
-                campaign_id,
-                contributor,
-                amount,
-                total_raised: campaign.total_raised,
-            },
-        );
+        if anonymous {
+            env.events().publish(
+                ("AnonymousContributionMade", campaign_id),
+                AnonymousContributionMadeEvent {
+                    campaign_id,
+                    amount,
+                    total_raised: campaign.total_raised,
+                },
+            );
+        } else {
+            env.events().publish(
+                ("ContributionMade", campaign_id),
+                ContributionMadeEvent {
+                    campaign_id,
+                    contributor,
+                    amount,
+                    total_raised: campaign.total_raised,
+                },
+            );
+        }
     }
 
     /// Evaluate an `Active` campaign once its deadline has passed and
@@ -3263,6 +3310,44 @@ mod tests {
         assert_eq!(client.get_contribution(&id, &contributor), 3_000);
         // Tokens are now held by the contract.
         assert_eq!(token_client.balance(&contributor), 7_000);
+    }
+
+    #[test]
+    fn test_contribute_anonymously_hides_address_from_contribution_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (contract_id, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute_anonymously(&contributor, &id, &3_000);
+        let events = env.events().all();
+
+        assert_eq!(client.get_contribution(&id, &contributor), 3_000);
+        assert_eq!(client.get_campaign(&id).total_raised, 3_000);
+
+        let anonymous_event = AnonymousContributionMadeEvent {
+            campaign_id: id,
+            amount: 3_000,
+            total_raised: 3_000,
+        }
+        .to_xdr(&env, &contract_id);
+        let public_event = ContributionMadeEvent {
+            campaign_id: id,
+            contributor,
+            amount: 3_000,
+            total_raised: 3_000,
+        }
+        .to_xdr(&env, &contract_id);
+        assert!(events.events().iter().any(|event| *event == anonymous_event));
+        assert!(!events.events().iter().any(|event| *event == public_event));
     }
 
     #[test]

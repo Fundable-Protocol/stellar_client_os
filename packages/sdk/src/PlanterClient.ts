@@ -2,8 +2,8 @@ import { Client as ContractClient } from "./generated/planter/src/index.js";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
-  Address,
 } from "@stellar/stellar-sdk/contract";
+import { Address } from "@stellar/stellar-sdk";
 import {
   PlanterInfo,
   ReferralInfo,
@@ -49,11 +49,11 @@ export class PlanterClient {
     admin: AddressParam;
     rewardToken: AddressParam;
     rewardAmount: bigint;
-  }): Promise<AssembledTransaction> {
+  }): Promise<AssembledTransaction<null>> {
     const tx = await this.client.initialize({
-      admin: new Address(addressToString(params.admin)),
-      rewardToken: new Address(addressToString(params.rewardToken)),
-      rewardAmount: params.rewardAmount,
+      admin: addressToString(params.admin),
+      reward_token: addressToString(params.rewardToken),
+      reward_amount: params.rewardAmount,
     });
     return executeWithErrorHandling(tx, "initialize");
   }
@@ -66,11 +66,11 @@ export class PlanterClient {
   public async registerPlanter(params: {
     planter: AddressParam;
     referrer?: AddressParam;
-  }): Promise<AssembledTransaction> {
+  }): Promise<AssembledTransaction<null>> {
     const tx = await this.client.register_planter({
-      planter: new Address(addressToString(params.planter)),
+      planter: addressToString(params.planter),
       referrer: params.referrer
-        ? new Address(addressToString(params.referrer))
+        ? addressToString(params.referrer)
         : undefined,
     });
     return executeWithErrorHandling(tx, "register_planter");
@@ -83,9 +83,9 @@ export class PlanterClient {
    */
   public async completeJob(params: {
     planter: AddressParam;
-  }): Promise<AssembledTransaction> {
+  }): Promise<AssembledTransaction<null>> {
     const tx = await this.client.complete_job({
-      planter: new Address(addressToString(params.planter)),
+      planter: addressToString(params.planter),
     });
     return executeWithErrorHandling(tx, "complete_job");
   }
@@ -98,10 +98,10 @@ export class PlanterClient {
   public async claimReferralReward(params: {
     referrer: AddressParam;
     referredPlanter: AddressParam;
-  }): Promise<AssembledTransaction> {
+  }): Promise<AssembledTransaction<null>> {
     const tx = await this.client.claim_referral_reward({
-      referrer: new Address(addressToString(params.referrer)),
-      referred_planter: new Address(addressToString(params.referredPlanter)),
+      referrer: addressToString(params.referrer),
+      referred_planter: addressToString(params.referredPlanter),
     });
     return executeWithErrorHandling(tx, "claim_referral_reward");
   }
@@ -113,11 +113,10 @@ export class PlanterClient {
    */
   public async getPlanter(params: {
     planter: AddressParam;
-  }): Promise<PlanterInfo> {
-    const result = await this.client.get_planter({
-      planter: new Address(addressToString(params.planter)),
+  }): Promise<AssembledTransaction<PlanterInfo>> {
+    return this.client.get_planter({
+      planter: addressToString(params.planter),
     });
-    return result;
   }
 
   /**
@@ -127,20 +126,18 @@ export class PlanterClient {
    */
   public async getReferralInfo(params: {
     referrer: AddressParam;
-  }): Promise<ReferralInfo> {
-    const result = await this.client.get_referral_info({
-      referrer: new Address(addressToString(params.referrer)),
+  }): Promise<AssembledTransaction<ReferralInfo>> {
+    return this.client.get_referral_info({
+      referrer: addressToString(params.referrer),
     });
-    return result;
   }
 
   /**
    * Get current reward amount.
    * @returns Current reward amount in stroops.
    */
-  public async getRewardAmount(): Promise<bigint> {
-    const result = await this.client.get_reward_amount();
-    return result;
+  public async getRewardAmount(): Promise<AssembledTransaction<bigint>> {
+    return this.client.get_reward_amount();
   }
 
   /**
@@ -150,7 +147,7 @@ export class PlanterClient {
    */
   public async setRewardAmount(params: {
     newAmount: bigint;
-  }): Promise<AssembledTransaction> {
+  }): Promise<AssembledTransaction<null>> {
     const tx = await this.client.set_reward_amount({
       new_amount: params.newAmount,
     });

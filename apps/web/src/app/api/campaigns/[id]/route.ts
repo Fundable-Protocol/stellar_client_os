@@ -1,6 +1,8 @@
 import { getCampaign, transitionCampaignStatus } from "../../../../services/campaign.service";
 import {
   detectLanguage,
+  hasOnlySupportedTranslationLocales,
+  isSupportedTranslationLocale,
   isSupportedTranslationLocale,
   localizeCampaign,
   localeFromAcceptLanguage,
@@ -56,6 +58,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       countries?: string[];
       location?: string;
     };
+    if (body.language && !isSupportedTranslationLocale(body.language)) {
+      return noStore({ error: "language is not supported" }, { status: 400 });
+    }
+    if (body.translations && !hasOnlySupportedTranslationLocales(body.translations)) {
+      return noStore({ error: "translations contain an unsupported language" }, { status: 400 });
+    }
+    if (body.autoTranslate) {
+      return noStore(
+        { error: "Automatic translation is unavailable. Provide translations for the supported languages." },
+        { status: 501 },
+      );
     if (body.autoTranslate) {
       return noStore({ error: "Automatic translation is not configured; provide reviewed translations instead" }, { status: 501 });
     }
@@ -89,6 +102,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (!body.changedBy) return noStore({ error: "changedBy is required when changing status" }, { status: 400 });
       updated = await transitionCampaignStatus(campaign, body.status, body.changedBy, body.reason);
     }
+    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined) {
+      const language = body.language ?? updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
+      const translations = body.translations ?? updated.translations ?? {};
+      const description = body.description ?? updated.description ?? "";
+    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined) {
 if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined || body.countries !== undefined || body.location !== undefined) {
       const language = body.language ? normalizeTranslationLocale(body.language)! : updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
       const translations = { ...updated.translations, ...body.translations };

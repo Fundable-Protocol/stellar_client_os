@@ -1,4 +1,9 @@
 import { createCampaign, findDuplicateCampaigns, queryCampaigns } from "@/services/campaign.service";
+import {
+  detectLanguage,
+  hasOnlySupportedTranslationLocales,
+  isSupportedTranslationLocale,
+} from "@/lib/translation";
 import { listCreditListings, createCreditListing, purchaseCreditListing } from "@/services/carbon-credit-market.service";
 import {
   detectLanguage,
@@ -164,6 +169,17 @@ async function postCampaign(request: Request) {
     if (body.durationMs !== undefined && (!Number.isFinite(body.durationMs) || body.durationMs < 0)) {
       return Response.json({ error: "durationMs must be a non-negative number" }, { status: 400 });
     }
+    if (body.language && !isSupportedTranslationLocale(body.language)) {
+      return Response.json({ error: "language is not supported" }, { status: 400 });
+    }
+    if (body.translations && !hasOnlySupportedTranslationLocales(body.translations)) {
+      return Response.json({ error: "translations contain an unsupported language" }, { status: 400 });
+    }
+    if (body.autoTranslate) {
+      return Response.json(
+        { error: "Automatic translation is unavailable. Provide translations for the supported languages." },
+        { status: 501 },
+      );
     let nonprofitPartner: { legalName: string; registrationNumber: string; country: string } | undefined;
     if (body.nonprofitPartner !== undefined) {
       const partner = body.nonprofitPartner;
@@ -204,6 +220,9 @@ async function postCampaign(request: Request) {
       );
     }
 
+    const description = body.description ?? "";
+    const language = body.language ?? detectLanguage(description);
+    const translations = body.translations ?? {};
     // Language detection is metadata only; translations are supplied explicitly.
     const description = body.description ?? "";
     const language = body.language ? normalizeTranslationLocale(body.language)! : detectLanguage(description);

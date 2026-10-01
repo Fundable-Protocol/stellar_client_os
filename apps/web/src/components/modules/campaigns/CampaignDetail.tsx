@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import LiveTreeCounter from "./LiveTreeCounter";
 import AnimatedProgressBar from "./AnimatedProgressBar";
+import { CampaignData, CampaignStatus } from "@/types/campaign";
+import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 import { CampaignData } from "@/types/campaign";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
 
@@ -193,6 +195,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
   const sustainabilityScore = computeSustainabilityScore(sustainabilityInputs);
 
   return (
+    <div className="campaign-accessible w-full space-y-6">
     <main className="w-full space-y-6" aria-labelledby="campaign-detail-title">
       {/* Top Navigation Bar */}
       <div className="flex items-center justify-between">
@@ -205,6 +208,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
         </Link>
 
         <div className="flex items-center gap-3">
+          <CampaignAccessibilityControls />
           <button
             type="button"
             onClick={() => setIsCreatorMode((prev) => !prev)}
