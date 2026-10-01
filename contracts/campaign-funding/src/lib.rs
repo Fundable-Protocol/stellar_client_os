@@ -659,7 +659,7 @@ impl CampaignFundingContract {
         // a seasonal determination).
         let day_of_year = (days_since_epoch % 365) as u32;
         // Rainy season: day 90 (Apr 1) – day 303 (Oct 31) inclusive.
-        let co2_multiplier: u32 = if day_of_year >= 90 && day_of_year <= 303 { 2 } else { 1 };
+        let co2_multiplier: u32 = if day_of_year >= 90 && day_of_year <= 119 { 15 } else if day_of_year >= 120 && day_of_year <= 303 { 20 } else { 10 };
 
         let mut count: u64 = env
             .storage()
@@ -718,7 +718,7 @@ impl CampaignFundingContract {
 
         Self::save_campaign(&env, count, &campaign);
 
-        let co2_multiplier: u32 = 1;
+        
         env.events().publish(
             ("CampaignCreated", count),
             CampaignCreatedEvent {
@@ -1702,7 +1702,8 @@ impl CampaignFundingContract {
     /// * [`Error::CampaignNotFound`] — campaign does not exist.
     pub fn get_co2_multiplier(env: Env, campaign_id: u64) -> u32 {
         let campaign = Self::load_campaign(&env, campaign_id);
-        campaign.co2_multiplier.max(1)
+        let stored = campaign.co2_multiplier.max(1);
+        if stored <= 2 { stored * 10 } else { stored }
     }
 
     /// Configure the ERC-20–compatible carbon credit token contract for a campaign.
@@ -1800,10 +1801,12 @@ impl CampaignFundingContract {
             .get(&DataKey::VerifiedTreeCount(campaign_id))
             .unwrap_or(0);
 
-        let multiplier = campaign.co2_multiplier.max(1) as i128;
+        let stored = campaign.co2_multiplier.max(1);
+        let actual_multiplier = if stored <= 2 { stored * 10 } else { stored } as i128;
         let total_credits: i128 = (verified_trees as i128)
-            .checked_mul(multiplier)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+            .checked_mul(actual_multiplier)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow))
+            / 10;
 
         if total_credits <= 0 || contributors.is_empty() {
             // Nothing to mint — mark as done and return.
@@ -1903,7 +1906,7 @@ impl CampaignFundingContract {
             CarbonCreditsMintedEvent {
                 campaign_id,
                 total_minted: already_minted,
-                co2_multiplier: campaign.co2_multiplier.max(1),
+                co2_multiplier: if campaign.co2_multiplier.max(1) <= 2 { campaign.co2_multiplier.max(1) * 10 } else { campaign.co2_multiplier.max(1) },
                 verified_tree_count: verified_trees,
             },
         );
@@ -1940,7 +1943,7 @@ impl CampaignFundingContract {
 
         let verified_trees = Self::get_verified_tree_count(env.clone(), campaign_id);
         let multiplier = Self::get_co2_multiplier(env.clone(), campaign_id);
-        let total_credits = (verified_trees as i128).saturating_mul(multiplier as i128);
+        let total_credits = (verified_trees as i128).saturating_mul(multiplier as i128) / 10;
 
         // Sponsor credits = (sponsor_contrib * total_credits) / total_raised
         (sponsor_contrib.saturating_mul(total_credits)) / campaign.total_raised
@@ -3871,6 +3874,22 @@ mod tests {
         assert_eq!(client.get_dynamic_cost_per_tree(&id, &100), 100);
         client.contribute(&contributor, &id, &9_000);
         assert_eq!(client.get_dynamic_cost_per_tree(&id, &100), 125);
+        token_admin_client.mint(&contributor, &5_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.pause_campaign(&id);
+
+        // Must panic with CampaignPaused (#18)
+        client.contribute(&contributor, &id, &1_000);
+        // May 15, 2026 (rainy season -> 2x multiplier)
+        set_time(&env, 1_778_800_000);
+        let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000);
+        assert_eq!(client.get_co2_multiplier(&id_rainy), 20);
+
+        // January 15, 2026 (non-rainy season -> 1x multiplier)
+        set_time(&env, 1_768_400_000);
+        let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000);
+        assert_eq!(client.get_co2_multiplier(&id_dry), 10);
     }
 
     #[test]
@@ -3994,3 +4013,11 @@ mod tests {
         assert_eq!(allocation, 500);
     }
 }
+
+
+
+
+
+
+
+

@@ -293,10 +293,18 @@ export class GrantProgramService {
 
 /**
  * Derives underrepresented-community tags from the fields available on the
- * campaign indexer. Extend as richer creator metadata lands on-chain.
+ * campaign indexer. Merges the tags the creator declared at campaign creation
+ * (`campaign.underrepresentedTags`) with a location heuristic so the six
+ * criteria are all usable. Extend as richer creator metadata lands on-chain.
  */
 export function campaignTags(campaign: CampaignRecord): UnderrepresentedCriteria[] {
   const tags = new Set<UnderrepresentedCriteria>();
+  for (const declared of campaign.underrepresentedTags ?? []) {
+    const normalized = String(declared).trim().toUpperCase().replace(/-/g, "_");
+    if ((UNDERREPRESENTED_CRITERIA as readonly string[]).includes(normalized)) {
+      tags.add(normalized as UnderrepresentedCriteria);
+    }
+  }
   if (campaign.location) {
     const location = campaign.location.trim().toUpperCase();
     // Heuristic: common "Global South" regions declared on the gtl section.
@@ -304,6 +312,57 @@ export function campaignTags(campaign: CampaignRecord): UnderrepresentedCriteria
     if (globalSouth.some((code) => location.includes(code))) tags.add("REGION_SOUTH_GLOBAL");
   }
   return Array.from(tags);
+}
+
+/**
+ * Applies platform matching to a freshly recorded contribution.
+ *
+ * Scans every OPEN grant program the campaign qualifies for and allocates the
+ * matching funds this contribution unlocks (the first `matchPercentage`% of the
+ * campaign's total). Individual allocation failures — exhausted pools, capped
+ * campaigns, or a program that closed mid-flight — are skipped, so one tight
+ * fund never blocks a contributor's funds from being matched elsewhere.
+ *
+ * Called automatically after every recorded contribution; returns the matches
+ * that were allocated so callers can surface them (e.g. on a receipt).
+ */
+export async function applyAutomaticGrantMatches(
+  campaignId: string,
+  contribution: string,
+  allocatedBy = "platform",
+  dataSource?: CampaignDataSource,
+): Promise<GrantAllocation[]> {
+  const source = dataSource ?? getCampaignDataSource();
+  let contributionValue: bigint;
+  try {
+    contributionValue = parseAmount(contribution);
+  } catch {
+    // Non-integer bookkeeping values are not eligible for matching.
+    return [];
+  }
+  if (contributionValue <= 0n) return [];
+
+  const campaign = await getCampaign(campaignId, source);
+  if (!campaign) return [];
+
+  const service = getGrantProgramService(source);
+  const programs = await service.getEligiblePrograms(campaign);
+
+  const allocations: GrantAllocation[] = [];
+  for (const program of programs) {
+    try {
+      const allocation = await service.computeMatch(
+        program.id,
+        campaignId,
+        contributionValue.toString(),
+        allocatedBy,
+      );
+      if (allocation) allocations.push(allocation);
+    } catch {
+      // Best-effort only — see doc comment above.
+    }
+  }
+  return allocations;
 }
 
 let defaultService: GrantProgramService | null = null;

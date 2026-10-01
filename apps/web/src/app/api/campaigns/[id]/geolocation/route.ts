@@ -9,7 +9,7 @@ export async function GET(
     const campaignId = parseInt(params.id, 10);
     const mockSites: PlantingSite[] = [
       {
-        id: site--1,
+        id: 'site-1',
         campaignId,
         latitude: -1.2921,
         longitude: 36.8219,

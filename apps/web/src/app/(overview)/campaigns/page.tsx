@@ -103,6 +103,12 @@ export default function CampaignsDirectoryPage() {
             </Button>
           </Link>
 
+          <Link href="/campaigns/planting-sites">
+            <Button variant="outline" className="border-emerald-800 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-950/60 font-semibold shadow-lg text-xs">
+              <MapPin className="mr-1.5 h-3.5 w-3.5" /> Planting Sites Map
+            </Button>
+          </Link>
+
           <Link href="/campaigns/create">
             <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-xs text-white hover:from-purple-700 hover:to-blue-700 shadow-lg shadow-purple-900/30">
               <Plus className="mr-1.5 h-3.5 w-3.5" /> Create Campaign Wizard (#720)

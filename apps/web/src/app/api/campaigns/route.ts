@@ -11,6 +11,7 @@ import {
   validateLocalizedContentMap,
 } from "@/lib/translation";
 import { withCampaignApiRateLimit } from "@/middlewares/rate-limit.middleware";
+import { UNDERREPRESENTED_CRITERIA } from "@/services/grant-program.service";
 
 export const runtime = "nodejs";
 
@@ -69,6 +70,12 @@ async function postCampaign(request: Request) {
       countries?: string[];
       region?: string;
       treeSpecies?: string;
+      /** GPS coordinates of the planting site(s), validated and stored for the
+       * global planting-locations map (campaign geolocation, v1). */
+      gpsLocations?: Array<{ latitude: number; longitude: number }>;
+      /** Underrepresented-community tags qualifying the campaign for the
+       * platform's first-10% grant matching programs. */
+      underrepresentedTags?: string[];
       durationMs?: number;
       deadline?: number;
       goalAmount?: string;
@@ -112,6 +119,41 @@ async function postCampaign(request: Request) {
     }
     if (body.treeSpecies !== undefined && typeof body.treeSpecies !== "string") {
       return Response.json({ error: "treeSpecies must be a string" }, { status: 400 });
+    }
+    if (body.gpsLocations !== undefined) {
+      if (
+        !Array.isArray(body.gpsLocations) ||
+        body.gpsLocations.some(
+          (point) =>
+            !point ||
+            typeof point.latitude !== "number" ||
+            !Number.isFinite(point.latitude) ||
+            point.latitude < -90 ||
+            point.latitude > 90 ||
+            typeof point.longitude !== "number" ||
+            !Number.isFinite(point.longitude) ||
+            point.longitude < -180 ||
+            point.longitude > 180,
+        )
+      ) {
+        return Response.json(
+          { error: "gpsLocations must be an array of { latitude, longitude } coordinates within range" },
+          { status: 400 },
+        );
+      }
+    }
+    if (body.underrepresentedTags !== undefined) {
+      if (
+        !Array.isArray(body.underrepresentedTags) ||
+        body.underrepresentedTags.some(
+          (tag) => typeof tag !== "string" || !(UNDERREPRESENTED_CRITERIA as readonly string[]).includes(tag),
+        )
+      ) {
+        return Response.json(
+          { error: "underrepresentedTags must be an array of valid grant eligibility criteria" },
+          { status: 400 },
+        );
+      }
     }
     if (body.durationMs !== undefined && (!Number.isFinite(body.durationMs) || body.durationMs < 0)) {
       return Response.json({ error: "durationMs must be a non-negative number" }, { status: 400 });
@@ -169,6 +211,8 @@ async function postCampaign(request: Request) {
       countries: body.countries,
       region: body.region,
       treeSpecies: body.treeSpecies,
+      gpsLocations: body.gpsLocations,
+      underrepresentedTags: body.underrepresentedTags,
       durationMs,
       goalAmount: body.goalAmount,
       network: body.network,
