@@ -21,7 +21,7 @@ describe("TREE_SPECIES", () => {
 
 describe("calculateCo2Offset", () => {
   it("computes annual and 10-year projections from species and quantity", () => {
-    const result = calculateCo2Offset("oak", 10);
+    const result = calculateCo2Offset("oak", 10, new Date("2026-01-15T00:00:00Z"));
     expect(result.quantity).toBe(10);
     expect(result.co2PerYearKg).toBe(210); // 10 * 21
     expect(result.co2PerYearTonnes).toBeCloseTo(0.21);
@@ -41,7 +41,7 @@ describe("calculateCo2Offset", () => {
   });
 
   it("provides a car-km equivalence for the annual figure", () => {
-    const result = calculateCo2Offset("oak", 10);
+    const result = calculateCo2Offset("oak", 10, new Date("2026-01-15T00:00:00Z"));
     // 210 kg / 0.12 kg per km = 1750 km
     expect(result.carKmEquivalentPerYear).toBe(1750);
   });
