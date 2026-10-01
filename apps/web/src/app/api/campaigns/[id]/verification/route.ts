@@ -5,6 +5,7 @@ import {
   getVerificationAuditTrail,
   isVerificationEventType,
 } from "@/services/campaign-verification.service";
+import { sendCampaignMilestonePush } from "@/services/campaign-notification.service";
 
 const EventSchema = z.object({
   eventType: z.string().refine(isVerificationEventType, "Unsupported verification event type"),
@@ -29,7 +30,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const parsed = EventSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid verification event", details: parsed.error.flatten() }, { status: 400 });
   try {
-    const entry = await appendVerificationEvent((await params).id, parsed.data);
+    const campaignId = (await params).id;
+    const entry = await appendVerificationEvent(campaignId, parsed.data);
+    await sendCampaignMilestonePush(campaignId, parsed.data.eventType, entry);
     return NextResponse.json({ data: entry }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to append verification event";

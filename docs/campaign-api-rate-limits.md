@@ -19,6 +19,18 @@ Rate limits are evaluated per client IP address (or authenticated API key/Stella
 | **Execution & Submission Tier** | `POST /api/campaigns/creator-stats`, `POST /api/webhooks/subscriptions`, Payment operations | 10 requests / min | 2 req / 10s |
 | **Enterprise / Institutional Tier** | Custom provisioned endpoints & whitelisted API keys | Up to 5,000 requests / min | Custom |
 
+### Campaign Size & Funding Tiers (Issue #877)
+
+For campaign-scoped endpoints, rate limits scale dynamically based on campaign size and funding volume:
+
+| Tier | Funding Volume Threshold | Hourly Rate Limit | Description |
+| :--- | :--- | :--- | :--- |
+| **Basic** | `< $10,000` | 100 requests / hr | Entry campaigns, local community tree planting initiatives |
+| **Pro** | `$10,000 - $50,000` | 1,000 requests / hr | Mid-scale reforestation projects with active reporting |
+| **Enterprise** | `> $50,000` | 10,000 requests / hr | Institutional and ecosystem-level campaigns |
+
+Campaign tiers can be resolved automatically via the campaign's registered funding volume, or explicitly specified via the `x-campaign-tier` or `x-campaign-funding` headers.
+
 ---
 
 ## 🛠️ Throttling Strategy & Implementation

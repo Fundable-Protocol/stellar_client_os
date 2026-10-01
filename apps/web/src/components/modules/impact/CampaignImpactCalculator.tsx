@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import AppSelect from "@/components/molecules/AppSelect";
 import { Input } from "@/components/ui/input";
 import {
@@ -8,6 +8,7 @@ import {
   DEFAULT_SPECIES_ID,
   TREE_SPECIES,
 } from "@/lib/co2-impact";
+import { SPECIES_PROFILES } from "@/lib/tree-growth";
 import {
   LineChart,
   Line,
@@ -30,6 +31,19 @@ function formatNumber(value: number, digits = 0): string {
   });
 }
 
+/**
+ * Resolve a campaign tree type (e.g. "Mangrove", "Fruit Tree") to its CO2
+ * species id. Campaign types that already are species ids pass through;
+ * anything unknown falls back to the default species.
+ */
+function resolveCampaignSpeciesId(campaignSpeciesId?: string): string {
+  if (!campaignSpeciesId) return DEFAULT_SPECIES_ID;
+  const id = campaignSpeciesId.toLowerCase();
+  if (TREE_SPECIES.some((species) => species.id === id)) return id;
+  const profile = SPECIES_PROFILES[campaignSpeciesId];
+  return profile?.co2SpeciesId ?? DEFAULT_SPECIES_ID;
+}
+
 export interface CampaignImpactCalculatorProps {
   campaignSpeciesId?: string;
   campaignTreeCount?: number;
@@ -41,21 +55,25 @@ export function CampaignImpactCalculator({
   campaignTreeCount,
   readOnly,
 }: CampaignImpactCalculatorProps = {}) {
-  const [speciesId, setSpeciesId] = useState<string>(campaignSpeciesId || DEFAULT_SPECIES_ID);
+  const [speciesId, setSpeciesId] = useState<string>(resolveCampaignSpeciesId(campaignSpeciesId));
   const [quantity, setQuantity] = useState<string>(campaignTreeCount?.toString() || "10");
   const [growthRate, setGrowthRate] = useState<string>("1.0");
 
-  useEffect(() => {
-    if (campaignSpeciesId && TREE_SPECIES.find((s) => s.id === campaignSpeciesId.toLowerCase())) {
-      setSpeciesId(campaignSpeciesId.toLowerCase());
-    }
-  }, [campaignSpeciesId]);
+  // Keep the interactive inputs in sync with campaign values by adjusting
+  // state during render (the react.dev "adjusting state on prop change"
+  // pattern) instead of setState-in-effect, which the react-hooks lint
+  // rules flag as a cascading-render hazard.
+  const [lastSpeciesProp, setLastSpeciesProp] = useState(campaignSpeciesId);
+  if (campaignSpeciesId && campaignSpeciesId !== lastSpeciesProp) {
+    setLastSpeciesProp(campaignSpeciesId);
+    setSpeciesId(resolveCampaignSpeciesId(campaignSpeciesId));
+  }
 
-  useEffect(() => {
-    if (campaignTreeCount !== undefined) {
-      setQuantity(campaignTreeCount.toString());
-    }
-  }, [campaignTreeCount]);
+  const [lastTreeCountProp, setLastTreeCountProp] = useState(campaignTreeCount);
+  if (campaignTreeCount !== undefined && campaignTreeCount !== lastTreeCountProp) {
+    setLastTreeCountProp(campaignTreeCount);
+    setQuantity(campaignTreeCount.toString());
+  }
 
   const parsedQuantity = Number.parseInt(quantity, 10);
   const quantityValue = Number.isFinite(parsedQuantity) ? parsedQuantity : 0;
@@ -105,10 +123,10 @@ export function CampaignImpactCalculator({
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-white">
-          Real-Time CO2 Sequestration (v2)
+          Campaign Impact Calculator
         </h2>
         <p className="text-sm text-zinc-400">
-          Projected CO2 offset based on tree count, species, and estimated growth rate. Updates as contributions arrive.
+          Real-time CO2 sequestration based on tree count, species, and estimated growth rate. Updates as sponsors contribute.
         </p>
       </div>
 
@@ -167,26 +185,23 @@ export function CampaignImpactCalculator({
       )}
 
       {readOnly && (
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <div>
-            <p className="mb-1.5 ml-1 text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">
-              Est. Growth Rate Mult.
-            </p>
-            <Input
-              id="growth-rate-readonly"
-              type="number"
-              step="0.1"
-              min="0.1"
-              inputMode="decimal"
-              value={growthRate}
-              onChange={(event) => setGrowthRate(event.target.value)}
-              className="bg-zinc-900 border-zinc-700 text-white"
-            />
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+            <p className="text-xs text-zinc-500">Tree species</p>
+            <p className="text-sm font-semibold text-white">{result.speciesLabel}</p>
+          </div>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+            <p className="text-xs text-zinc-500">Trees funded</p>
+            <p className="text-sm font-semibold text-white">{result.quantity.toLocaleString()}</p>
+          </div>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+            <p className="text-xs text-zinc-500">Est. growth rate</p>
+            <p className="text-sm font-semibold text-white">{growthRateValue.toFixed(1)}×</p>
           </div>
         </div>
       )}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-live="polite">
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
           <p className="text-xs text-zinc-400">CO2 offset / year</p>
           <p className="mt-1 text-2xl font-bold text-emerald-300">
