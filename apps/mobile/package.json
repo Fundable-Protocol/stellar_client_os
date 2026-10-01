@@ -1,0 +1,15 @@
+{
+  "name": "@fundable/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fundable Protocol mobile client (Expo / React Native)",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "vitest": "^3.0.0"
+  }
+}
