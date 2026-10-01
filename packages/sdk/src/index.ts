@@ -30,14 +30,39 @@ export {
 
 // Export high-level clients
 export * from "./PaymentStreamClient.js";
-export * from "./DistributorClient.js";
-export * from "./PlanterClient.js";
+export {
+  DistributorClient,
+  type AddressParam as DistributorAddressParam,
+} from "./DistributorClient.js";
+export {
+  PlanterClient,
+  type AddressParam as PlanterAddressParam,
+} from "./PlanterClient.js";
+export {
+  CampaignFundingClient,
+  CampaignFundingErrors,
+  type AddressParam as CampaignFundingAddressParam,
+  type Campaign,
+  type CampaignStatus,
+} from "./CampaignFundingClient.js";
 export * from "./CarbonCreditClient.js";
 export * from "./ImpactNFTClient.js";
 export * from "./nft-milestone.js";
 
-// Export deployment module
-export * from "./deployer/index.js";
+// Export deployment module, disambiguating names also exported by generated bindings.
+export { ContractDeployer } from "./deployer/ContractDeployer.js";
+export * from "./deployer/errors.js";
+export {
+  type ContractDeployResult,
+  type Deployer,
+  type DeployerAccount,
+  type DeployerConfig,
+  type FeeEstimate,
+  type Signer as DeployerSigner,
+  type SigningCallback as DeployerSigningCallback,
+  type StellarNetwork,
+  type WasmUploadResult,
+} from "./deployer/types.js";
 
 // Export utility modules
 export * from "./utils/batchDistribution.js";
@@ -48,7 +73,16 @@ export * from "./utils/networkDetection.js";
 export * from "./utils/streamHistory.js";
 export * from "./utils/BalanceWatcher.js";
 export * from "./utils/transactions.js";
-export * from "./utils/GasEstimator.js";
+export {
+  GasEstimator,
+  estimateSorobanGas,
+  type GasEstimate,
+  type GasEstimatorOptions,
+  type GasEstimatorRpc,
+  type GasPriceRecommendation,
+  type GasResourceLimits,
+  type CongestionLevel as GasEstimatorCongestionLevel,
+} from "./utils/GasEstimator.js";
 export * from "./utils/rpcConnectionOptions.js";
 
 // Export tax reporting utilities (issue #792)

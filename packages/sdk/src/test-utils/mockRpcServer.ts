@@ -225,31 +225,33 @@ export const DEFAULT_FEE_STATS: MockFeeStats = {
 const mock = {
   // ── Core RPC methods ────────────────────────────────────────────────────
   /** Fetch account details (sequence number, balances, etc.). */
-  getAccount: vi.fn<[string], Promise<MockAccount>>(),
+  getAccount: vi.fn<(...args: [string]) => Promise<MockAccount>>(),
 
   /** Simulate a Soroban transaction to get fee/resource estimates. */
-  simulateTransaction: vi.fn<[unknown], Promise<MockSimulationSuccess | MockSimulationError>>(),
+  simulateTransaction: vi.fn<
+    (...args: [unknown]) => Promise<MockSimulationSuccess | MockSimulationError>
+  >(),
 
   /** Submit a signed transaction to the network. */
-  sendTransaction: vi.fn<[unknown], Promise<MockSendTransactionResponse>>(),
+  sendTransaction: vi.fn<(...args: [unknown]) => Promise<MockSendTransactionResponse>>(),
 
   /** Poll for the result of a submitted transaction. */
-  getTransaction: vi.fn<[string], Promise<MockGetTransactionResponse>>(),
+  getTransaction: vi.fn<(...args: [string]) => Promise<MockGetTransactionResponse>>(),
 
   /** Retrieve the network passphrase and protocol version. */
-  getNetwork: vi.fn<[], Promise<MockNetworkInfo>>(),
+  getNetwork: vi.fn<() => Promise<MockNetworkInfo>>(),
 
   /** Fetch the latest closed ledger metadata. */
-  getLatestLedger: vi.fn<[], Promise<MockLatestLedger>>(),
+  getLatestLedger: vi.fn<() => Promise<MockLatestLedger>>(),
 
   /** Fetch metadata for a specific ledger by sequence number. */
-  getLedger: vi.fn<[{ sequence: number }], Promise<MockLedgerInfo>>(),
+  getLedger: vi.fn<(...args: [{ sequence: number }]) => Promise<MockLedgerInfo>>(),
 
   /** Fetch fee statistics from recent ledgers. */
-  getFeeStats: vi.fn<[], Promise<MockFeeStats>>(),
+  getFeeStats: vi.fn<() => Promise<MockFeeStats>>(),
 
   /** Fetch contract events with optional filters and pagination. */
-  getEvents: vi.fn<[unknown], Promise<MockGetEventsResponse>>(),
+  getEvents: vi.fn<(...args: [unknown]) => Promise<MockGetEventsResponse>>(),
 
   // ── Scenario helpers ────────────────────────────────────────────────────
   /**
@@ -443,7 +445,7 @@ export function createMockRpcServer(): MockRpcServer {
  */
 export function resetMockRpcServer(): void {
   (Object.values(mock) as unknown[]).forEach((value) => {
-    if (value !== null && typeof value === 'object' && !('scenarios' in (value as object))) {
+    if (typeof value === 'function') {
       const fn = value as { mockReset?: () => void };
       if (typeof fn.mockReset === 'function') {
         fn.mockReset();
@@ -460,7 +462,7 @@ export function resetMockRpcServer(): void {
 //
 // Two paths are mocked:
 //  1. `@stellar/stellar-sdk/rpc`  — used by ContractDeployer, GasEstimator,
-//     soroban-transaction-helper, and transactions.ts (via SorobanRpc alias).
+//     soroban-transaction-helper, and transactions.ts.
 //  2. `@stellar/stellar-sdk`      — used by BalanceWatcher (rpc.Server) and
 //     streamHistory (StellarSdk.rpc.Server).
 // ---------------------------------------------------------------------------
@@ -501,14 +503,14 @@ vi.mock('@stellar/stellar-sdk/rpc', () => ({
 /**
  * Mock for `@stellar/stellar-sdk` (the umbrella package).
  *
- * Only the `rpc` sub-namespace and the `SorobanRpc` alias are replaced here;
+ * Only the `rpc` sub-namespace is replaced here;
  * everything else (`Keypair`, `Networks`, `xdr`, `Address`, etc.) is kept as
  * the real implementation so XDR encoding / key derivation works correctly in
  * tests that need it.
  *
  * Covers imports of the form:
  *   import * as StellarSdk from '@stellar/stellar-sdk';
- *   import { SorobanRpc }   from '@stellar/stellar-sdk';
+ *   import { rpc }          from '@stellar/stellar-sdk';
  */
 vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@stellar/stellar-sdk')>();
@@ -535,14 +537,6 @@ vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
       ...(actual.rpc ?? {}),
       Server: MockServer,
       Api: mockApi,
-      EventFilter: actual.rpc?.EventFilter,
-    },
-    // Legacy `SorobanRpc` alias (used by transactions.ts)
-    SorobanRpc: {
-      ...(actual.SorobanRpc ?? {}),
-      Server: MockServer,
-      Api: mockApi,
-      GetTransactionStatus: mockApi.GetTransactionStatus,
     },
   };
 });

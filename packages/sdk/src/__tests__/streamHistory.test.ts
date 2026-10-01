@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { getStreamHistory, getAllStreamHistory } from "../utils/streamHistory.js";
 
 // ---------------------------------------------------------------------------
-// Mock SorobanRpc.Server
+// Mock the RPC server without replacing the rest of the SDK exports.
 // ---------------------------------------------------------------------------
 const mockGetEvents = vi.fn();
 
@@ -10,8 +10,8 @@ vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
   return {
     ...actual,
-    SorobanRpc: {
-      ...actual.SorobanRpc,
+    rpc: {
+      ...actual.rpc,
       Server: vi.fn().mockImplementation(() => ({ getEvents: mockGetEvents })),
     },
   };
@@ -32,7 +32,7 @@ const BASE_OPTIONS = {
 /** Build a minimal RPC event that parses as a StreamDeposit for STREAM_ID */
 function makeDepositEvent(pagingToken: string, streamId = STREAM_ID) {
   return {
-    pagingToken,
+    id: pagingToken,
     topic: ["StreamDeposit"],
     value: { stream_id: streamId, amount: 100n },
   };

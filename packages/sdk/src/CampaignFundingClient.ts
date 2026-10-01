@@ -1,9 +1,9 @@
 import {
   AssembledTransaction,
-  Client as ContractClient,
   ClientOptions as ContractClientOptions,
 } from "@stellar/stellar-sdk/contract";
 import { Address } from "@stellar/stellar-sdk";
+import { Client as ContractClient } from "./generated/campaign-funding/src/index.js";
 import { executeWithErrorHandling } from "./utils/errors.js";
 
 /**

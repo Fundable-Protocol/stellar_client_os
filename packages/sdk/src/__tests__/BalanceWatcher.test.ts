@@ -5,9 +5,15 @@ import type { Stream } from '../generated/payment-stream/src/index.js';
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
-const mockSimulateTransaction = vi.fn();
-const mockGetNetwork = vi.fn();
-const mockScValToNative = vi.fn();
+const {
+  mockSimulateTransaction,
+  mockGetNetwork,
+  mockScValToNative,
+} = vi.hoisted(() => ({
+  mockSimulateTransaction: vi.fn(),
+  mockGetNetwork: vi.fn(),
+  mockScValToNative: vi.fn(),
+}));
 
 vi.mock('@stellar/stellar-sdk', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('@stellar/stellar-sdk');
@@ -94,7 +100,11 @@ function poll(watcher: BalanceWatcher): Promise<void> {
 // Setup / teardown
 // ---------------------------------------------------------------------------
 beforeEach(() => {
-  vi.clearAllMocks();
+  mockSimulateTransaction.mockReset();
+  mockGetNetwork.mockReset();
+  mockScValToNative.mockReset();
+  mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
+  mockScValToNative.mockReturnValue(0n);
   mockGetNetwork.mockResolvedValue({ passphrase: PASSPHRASE });
 });
 
@@ -654,11 +664,8 @@ describe('BalanceWatcher lifecycle', () => {
     const cb = vi.fn();
     watcher.watch(ADDRESS, TOKEN, cb);
 
-    // Initial poll fires synchronously via start()
-    await vi.runAllTimersAsync();
-    // Advance by two more intervals
-    vi.advanceTimersByTime(2_000);
-    await vi.runAllTimersAsync();
+    await poll(watcher);
+    await vi.advanceTimersByTimeAsync(2_000);
 
     expect(cb.mock.calls.length).toBeGreaterThanOrEqual(2);
     watcher.clear();

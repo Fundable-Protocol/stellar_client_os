@@ -269,25 +269,25 @@ export class PaymentStreamClient {
    */
   public async setDelegate(
     streamId: bigint,
-    delegate: string,
+    delegate: AddressParam,
   ): Promise<AssembledTransaction<null>>;
   public async setDelegate(params: {
     streamId: bigint;
-    delegate: string;
+    delegate: AddressParam;
   }): Promise<AssembledTransaction<null>>;
   public async setDelegate(
-    streamId: bigint | { streamId: bigint; delegate: string },
-    delegate?: string,
+    streamId: bigint | { streamId: bigint; delegate: AddressParam },
+    delegate?: AddressParam,
   ): Promise<AssembledTransaction<null>> {
     let actualStreamId: bigint;
     let actualDelegate: string;
 
     if (typeof streamId === "object") {
       actualStreamId = streamId.streamId;
-      actualDelegate = streamId.delegate;
+      actualDelegate = addressToString(streamId.delegate);
     } else {
       actualStreamId = streamId;
-      actualDelegate = delegate!;
+      actualDelegate = addressToString(delegate!);
     }
 
     return executeWithErrorHandling(

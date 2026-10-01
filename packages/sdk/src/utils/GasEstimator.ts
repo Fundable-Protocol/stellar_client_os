@@ -31,8 +31,6 @@ export interface GasEstimatorOptions {
   congestionBuffer?: number;
   /** Multiplier applied to fee recommendations under high/severe congestion. Defaults to 1.35. */
   highCongestionBuffer?: number;
-  /** Opt in to plain HTTP for local loopback RPC URLs. Defaults to false. */
-  allowHttp?: boolean;
 }
 
 export type CongestionLevel =
@@ -228,12 +226,12 @@ function extractResourceLimits(
     const data =
       typeof transactionData === "string"
         ? xdr.SorobanTransactionData.fromXDR(transactionData, "base64")
-        : transactionData;
-    const resources = (data as xdr.SorobanTransactionData).resources();
+        : transactionData.build();
+    const resources = data.resources();
 
     return {
       instructions: resources.instructions(),
-      readBytes: resources.readBytes(),
+      readBytes: resources.diskReadBytes(),
       writeBytes: resources.writeBytes(),
       readEntries: resources.footprint().readOnly().length,
       writeEntries: resources.footprint().readWrite().length,

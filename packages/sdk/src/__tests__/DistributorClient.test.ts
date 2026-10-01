@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DistributorClient } from "../DistributorClient.js";
-import { Address } from "@stellar/stellar-sdk";
+import { Address, Keypair } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
 // Mock the generated distributor contract client
@@ -40,8 +40,8 @@ const VALID_OPTIONS = {
 
 const SENDER = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TOKEN = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
-const RECIPIENT_A = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
-const RECIPIENT_B = "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+const RECIPIENT_A = Keypair.random().publicKey();
+const RECIPIENT_B = Keypair.random().publicKey();
 
 // ---------------------------------------------------------------------------
 // Tests

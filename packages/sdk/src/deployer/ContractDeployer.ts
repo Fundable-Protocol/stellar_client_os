@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import {
   Keypair,
   TransactionBuilder,
@@ -17,7 +16,6 @@ import type {
   ContractDeployResult, 
   FeeEstimate,
   Deployer,
-  Signer,
   DeployerAccount,
 } from './types.js';
 import {
@@ -73,25 +71,21 @@ export class ContractDeployer {
   private passphrasePromise: Promise<string> | undefined;
 
   constructor(config: DeployerConfig) {
-    this.rpc = new Server(
-      config.rpcUrl,
-      resolveRpcServerOptions(config.rpcUrl, { allowHttp: config.allowHttp })
-    );
+    let serverOptions: { allowHttp: boolean };
+    try {
+      serverOptions = resolveRpcServerOptions(config.rpcUrl, {
+        allowHttp: config.allowHttp,
+      });
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        throw error;
+      }
+      throw new DeployerError(error.message, 'UNSAFE_RPC_URL', error);
+    }
+    this.rpc = new Server(config.rpcUrl, serverOptions);
     this.networkPassphrase = config.networkPassphrase;
     this.baseFee = config.baseFee ?? DEFAULT_BASE_FEE;
     this.timeoutSeconds = config.timeoutSeconds ?? DEFAULT_TIMEOUT;
-  }
-
-  private getAllowHttp(rpcUrl: string, allowHttp?: boolean): boolean {
-    try {
-      return shouldAllowLocalHttp(rpcUrl, allowHttp);
-    } catch (error) {
-      throw new DeployerError(
-        (error as Error).message,
-        'UNSAFE_HTTP_RPC_URL',
-        error as Error
-      );
-    }
   }
 
   // ─── Async factory ─────────────────────────────────────────────────────────
@@ -307,17 +301,12 @@ export class ContractDeployer {
 
   private async buildUploadTx(
     wasm: Buffer | Uint8Array,
-    account: { id: string; sequenceNumber: () => string },
+    account: Awaited<ReturnType<Server["getAccount"]>>,
     fee = this.baseFee,
   ) {
     const passphrase = await this.resolveNetworkPassphrase();
-    const sourceAccount = {
-      accountId: () => account.id,
-      sequenceNumber: () => account.sequenceNumber(),
-      incrementSequenceNumber: () => {},
-    };
 
-    return new TransactionBuilder(sourceAccount as Parameters<typeof TransactionBuilder>[0], {
+    return new TransactionBuilder(account, {
       fee,
       networkPassphrase: passphrase,
     })
@@ -331,18 +320,13 @@ export class ContractDeployer {
   private async buildDeployTx(
     wasmHash: string,
     deployerAddress: string,
-    account: { id: string; sequenceNumber: () => string },
+    account: Awaited<ReturnType<Server["getAccount"]>>,
     salt: Buffer,
     fee = this.baseFee,
   ) {
     const passphrase = await this.resolveNetworkPassphrase();
-    const sourceAccount = {
-      accountId: () => account.id,
-      sequenceNumber: () => account.sequenceNumber(),
-      incrementSequenceNumber: () => {},
-    };
 
-    return new TransactionBuilder(sourceAccount as Parameters<typeof TransactionBuilder>[0], {
+    return new TransactionBuilder(account, {
       fee,
       networkPassphrase: passphrase,
     })
@@ -359,7 +343,9 @@ export class ContractDeployer {
 
   // ─── Private: simulation ───────────────────────────────────────────────────
 
-  private async simulate(tx: ReturnType<TransactionBuilder['build']>): Promise<FeeEstimate> {
+  private async simulate(
+    tx: ReturnType<InstanceType<typeof TransactionBuilder>["build"]>,
+  ): Promise<FeeEstimate> {
     let simulation: Awaited<ReturnType<Server['simulateTransaction']>>;
     try {
       simulation = await this.rpc.simulateTransaction(tx);
@@ -386,11 +372,14 @@ export class ContractDeployer {
     let resources = { instructions: 0, readBytes: 0, writeBytes: 0, readEntries: 0, writeEntries: 0 };
     try {
       if (sorobanData) {
-        const data = xdr.SorobanTransactionData.fromXDR(sorobanData, 'base64');
+        const data =
+          typeof sorobanData === 'string'
+            ? xdr.SorobanTransactionData.fromXDR(sorobanData, 'base64')
+            : sorobanData.build();
         const footprint = data.resources();
         resources = {
           instructions: footprint.instructions(),
-          readBytes: footprint.readBytes(),
+          readBytes: footprint.diskReadBytes(),
           writeBytes: footprint.writeBytes(),
           readEntries: footprint.footprint().readOnly().length,
           writeEntries: footprint.footprint().readWrite().length,
@@ -458,8 +447,8 @@ export class ContractDeployer {
     if ('signers' in deployer) {
       const { signers } = deployer;
       for (const signer of signers) {
-        if (signer instanceof Keypair || (typeof signer === 'object' && 'sign' in signer && typeof signer.sign === 'function')) {
-          tx.sign(signer as Keypair);
+        if (signer instanceof Keypair) {
+          tx.sign(signer);
         } else if (typeof signer === 'function') {
           const signed = await signer(tx);
           if (signed !== tx) {
@@ -473,8 +462,11 @@ export class ContractDeployer {
   }
 
   private getDeployerAddress(deployer: Deployer): string {
-    if (deployer instanceof Keypair || (typeof deployer === 'object' && 'publicKey' in deployer && typeof deployer.publicKey === 'function')) {
-      return (deployer as Keypair).publicKey();
+    if (deployer instanceof Keypair) {
+      return deployer.publicKey();
+    }
+    if ('publicKey' in deployer && typeof deployer.publicKey === 'function') {
+      return deployer.publicKey();
     }
     return (deployer as DeployerAccount).address;
   }

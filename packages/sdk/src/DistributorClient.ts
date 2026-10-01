@@ -223,24 +223,31 @@ export class DistributorClient {
    * @throws {FundableStellarError} If operation fails with a human-readable error message
    */
   public async setProtocolFee(
-    admin: string,
+    admin: AddressParam,
     newFeePercent: number,
   ): Promise<AssembledTransaction<null>>;
   public async setProtocolFee(
-    params: { admin: string; newFeePercent: number },
+    params: { admin: AddressParam; newFeePercent: number },
   ): Promise<AssembledTransaction<null>>;
   public async setProtocolFee(
-    admin: string | { admin: string; newFeePercent: number },
+    params: { admin: AddressParam; new_fee_percent: number },
+  ): Promise<AssembledTransaction<null>>;
+  public async setProtocolFee(
+    admin:
+      | AddressParam
+      | { admin: AddressParam; newFeePercent: number }
+      | { admin: AddressParam; new_fee_percent: number },
     newFeePercent?: number,
   ): Promise<AssembledTransaction<null>> {
     let actualAdmin: string;
     let actualNewFeePercent: number;
 
-    if (typeof admin === "object") {
-      actualAdmin = admin.admin;
-      actualNewFeePercent = admin.newFeePercent;
+    if (typeof admin === "object" && "admin" in admin) {
+      actualAdmin = addressToString(admin.admin);
+      actualNewFeePercent =
+        "newFeePercent" in admin ? admin.newFeePercent : admin.new_fee_percent;
     } else {
-      actualAdmin = admin;
+      actualAdmin = addressToString(admin);
       actualNewFeePercent = newFeePercent!;
     }
 
