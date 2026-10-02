@@ -1,4 +1,7 @@
 #![no_std]
+pub mod checked_math;
+pub use checked_math::CheckedMath;
+
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
     Address, Bytes, BytesN, Env, String, Vec,
@@ -3064,6 +3067,22 @@ impl CampaignFundingContract {
             .persistent()
             .get(&DataKey::SpeciesProof(campaign_id, planting_id))
             .unwrap_or_else(|| panic_with_error!(&env, Error::ProofNotFound))
+    // Campaign Amount Validation & Checked Math (Issue #850)
+    // -----------------------------------------------------------------------
+
+    /// Validate that a campaign monetary amount is strictly positive and within safe bounds.
+    pub fn validate_campaign_amount(_env: Env, amount: i128) -> bool {
+        CheckedMath::validate_positive_amount(amount).is_ok()
+    }
+
+    /// Calculate fee safely using checked arithmetic, preventing intermediate overflow.
+    pub fn calculate_safe_fee(_env: Env, gross: i128, fee_rate_bps: u32) -> i128 {
+        CheckedMath::mul_bps(gross, fee_rate_bps).unwrap_or(0)
+    }
+
+    /// Safe checked addition for campaign contributions.
+    pub fn safe_add_amounts(env: Env, a: i128, b: i128) -> i128 {
+        CheckedMath::add(a, b).unwrap_or_else(|_| panic_with_error!(&env, Error::ArithmeticOverflow))
         if !found {
             species_list.push_back(species_code.clone());
             env.storage().persistent().set(&DataKey::CampaignSpeciesList(campaign_id), &species_list);
@@ -5432,6 +5451,36 @@ mod tests {
         // Allocation: 50% of 1,000 trees * 1x multiplier = 500 carbon credit tokens
         let allocation = client.get_sponsor_carbon_credit_allocation(&id, &sponsor);
         assert_eq!(allocation, 500);
+    // Campaign Checked Math & Amount Validation Tests (Issue #850)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_checked_math_and_amount_validation() {
+        let env = Env::default();
+        let (_, client, _, _) = setup_contract(&env);
+
+        // Positive amounts valid
+        assert_eq!(client.validate_campaign_amount(&1_000), true);
+        assert_eq!(client.validate_campaign_amount(&0), false);
+        assert_eq!(client.validate_campaign_amount(&-50), false);
+
+        // Safe fee calculations
+        let fee = client.calculate_safe_fee(&10_000, &500); // 5% of 10,000 = 500
+        assert_eq!(fee, 500);
+
+        // Safe addition
+        let sum = client.safe_add_amounts(&5_000, &7_000);
+        assert_eq!(sum, 12_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #15)")]
+    fn test_checked_math_overflow_protection() {
+        let env = Env::default();
+        let (_, client, _, _) = setup_contract(&env);
+
+        // Adding to i128::MAX must panic with ArithmeticOverflow (#15)
+        client.safe_add_amounts(&i128::MAX, &1);
         let token = Address::generate(&env);
 
         let id = client.create_campaign(&creator, &token, &100_000, &50_000, &10_000);
