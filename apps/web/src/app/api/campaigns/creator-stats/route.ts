@@ -26,3 +26,8 @@ export const GET = withRateLimit(
   },
   { limit: 30, windowMs: 60_000, keyPrefix: "rl:creator-stats" }
 );
+
+export const dynamic = "force-dynamic";
+  },
+  { limit: 30, windowMs: 60_000, keyPrefix: "rl:creator-stats" }
+);

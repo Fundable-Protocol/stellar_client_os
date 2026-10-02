@@ -3,7 +3,7 @@ import {
   createBatches,
   prepareBatchEqualDistribution,
   prepareBatchWeightedDistribution,
-} from '../utils/batchDistribution';
+} from '../utils/batchDistribution.js';
 
 const mockDistributeEqual = vi.fn();
 const mockDistributeWeighted = vi.fn();

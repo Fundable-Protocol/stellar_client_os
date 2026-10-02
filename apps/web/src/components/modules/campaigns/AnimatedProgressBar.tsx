@@ -80,7 +80,15 @@ export const AnimatedProgressBar: React.FC<AnimatedProgressBarProps> = ({
 
       {/* Progress Track */}
       <div className="relative my-6">
-        <div className="h-4 w-full rounded-full bg-zinc-800/90 p-0.5 overflow-hidden border border-zinc-700/40 relative">
+        <div
+          role="progressbar"
+          aria-valuenow={percentage}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Campaign funding progress"
+          aria-valuetext={`${percentage}% funded, ${totalRaised.toLocaleString()} of ${targetAmount.toLocaleString()} ${currencySymbol}`}
+          className="h-4 w-full rounded-full bg-zinc-800/90 p-0.5 overflow-hidden border border-zinc-700/40 relative"
+        >
           {/* Animated Fill Bar */}
           <div
             className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-1000 ease-out shadow-lg shadow-emerald-500/30"

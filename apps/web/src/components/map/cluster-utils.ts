@@ -33,7 +33,7 @@ export function getStatusColor(status: string): string {
 export function clusterStreams(streams: FundableStream[]): StreamCluster[] {
   if (streams.length === 0) return [];
 
-  const stridSize = 2;
+  const gridSize = 2;
   const buckets = new Map<string, FundableStream[]>();
 
   for (const stream of streams) {
@@ -46,7 +46,6 @@ export function clusterStreams(streams: FundableStream[]): StreamCluster[] {
   }
 
   return Array.from(buckets.entries()).map(([key, items]) => {
-    const [latStr, lngStr] = key.split(",");
     return {
       id: `cluster-${key}`,
       latitude: items.reduce((s, i) => s + i.location.lat, 0) / items.length,
@@ -105,8 +104,8 @@ export function sortStreams(
   switch (sortBy) {
     case "pay": {
       sorted.sort((a, b) => {
-        const aPay = a.payRate ?? parseFloat(a.amount) || 0;
-        const bPay = b.payRate ?? parseFloat(b.amount) || 0;
+        const aPay = a.payRate ?? (parseFloat(a.amount) || 0);
+        const bPay = b.payRate ?? (parseFloat(b.amount) || 0);
         return bPay - aPay;
       });
       break;

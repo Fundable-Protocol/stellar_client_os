@@ -27,6 +27,7 @@ export interface CampaignSponsorshipImpactRecord {
   discountBps: number;
   selectedTreeIds: string[];
   recordedAt: number;
+  isAnonymous?: boolean;
 }
 
 export function recordCampaignSponsorshipImpact(

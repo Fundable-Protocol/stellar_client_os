@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { BalanceWatcher } from '../utils/BalanceWatcher';
-import type { Stream } from '../generated/payment-stream/src/index';
+import { BalanceWatcher } from '../utils/BalanceWatcher.js';
+import type { Stream } from '../generated/payment-stream/src/index.js';
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
-const mockSimulateTransaction = vi.fn();
-const mockGetNetwork = vi.fn();
+const {
+  mockSimulateTransaction,
+  mockGetNetwork,
+  mockScValToNative,
+} = vi.hoisted(() => ({
+  mockSimulateTransaction: vi.fn(),
+  mockGetNetwork: vi.fn(),
+  mockScValToNative: vi.fn(),
+}));
 
 vi.mock('@stellar/stellar-sdk', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('@stellar/stellar-sdk');
@@ -47,7 +54,7 @@ vi.mock('@stellar/stellar-sdk', async () => {
     Address: vi.fn().mockImplementation(() => ({
       toScVal: vi.fn(() => ({ switch: () => ({ name: 'scvAddress' }) })),
     })),
-    scValToNative: vi.fn(),
+    scValToNative: mockScValToNative,
     nativeToScVal: vi.fn(),
     Networks: (actual as Record<string, unknown>).Networks,
   };
@@ -80,9 +87,8 @@ function makeWatcher(opts?: Partial<ConstructorParameters<typeof BalanceWatcher>
 
 /** Wire up the SDK mocks so that fetchBalance(ADDRESS, TOKEN) returns `balance`. */
 function mockBalanceSuccess(balance: bigint) {
-  const { scValToNative } = require('@stellar/stellar-sdk');
   mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
-  (scValToNative as ReturnType<typeof vi.fn>).mockReturnValue(balance);
+  mockScValToNative.mockReturnValue(balance);
 }
 
 /** Shorthand: manually invoke the private pollBalances method. */
@@ -94,7 +100,11 @@ function poll(watcher: BalanceWatcher): Promise<void> {
 // Setup / teardown
 // ---------------------------------------------------------------------------
 beforeEach(() => {
-  vi.clearAllMocks();
+  mockSimulateTransaction.mockReset();
+  mockGetNetwork.mockReset();
+  mockScValToNative.mockReset();
+  mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
+  mockScValToNative.mockReturnValue(0n);
   mockGetNetwork.mockResolvedValue({ passphrase: PASSPHRASE });
 });
 
@@ -142,9 +152,8 @@ describe('BalanceWatcher.fetchBalance', () => {
   });
 
   it('throws when scValToNative returns a non-bigint', async () => {
-    const { scValToNative } = require('@stellar/stellar-sdk');
     mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
-    (scValToNative as ReturnType<typeof vi.fn>).mockReturnValue(42); // number
+    mockScValToNative.mockReturnValue(42); // number
     const watcher = makeWatcher();
     await expect(watcher.fetchBalance(ADDRESS, TOKEN)).rejects.toThrow(
       'Unexpected balance type',
@@ -187,9 +196,8 @@ describe('BalanceWatcher.fetchBalance', () => {
 // ===========================================================================
 describe('BalanceWatcher.fetchBalances', () => {
   it('returns balances for all requested pairs', async () => {
-    const { scValToNative } = require('@stellar/stellar-sdk');
     mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
-    (scValToNative as ReturnType<typeof vi.fn>)
+    mockScValToNative
       .mockReturnValueOnce(100n)
       .mockReturnValueOnce(200n);
 
@@ -205,12 +213,11 @@ describe('BalanceWatcher.fetchBalances', () => {
   });
 
   it('captures errors per-pair without aborting the batch', async () => {
-    const { scValToNative } = require('@stellar/stellar-sdk');
     // First pair succeeds
     mockSimulateTransaction
       .mockResolvedValueOnce({ result: { retval: {} } })
       .mockRejectedValueOnce(new Error('RPC timeout'));
-    (scValToNative as ReturnType<typeof vi.fn>).mockReturnValueOnce(50n);
+    mockScValToNative.mockReturnValueOnce(50n);
 
     const watcher = makeWatcher();
     const results = await watcher.fetchBalances([
@@ -273,9 +280,8 @@ describe('BalanceWatcher.getLastKnownBalance', () => {
   });
 
   it('reflects the most recent balance after multiple polls', async () => {
-    const { scValToNative } = require('@stellar/stellar-sdk');
     mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
-    (scValToNative as ReturnType<typeof vi.fn>)
+    mockScValToNative
       .mockReturnValueOnce(100n)
       .mockReturnValueOnce(200n);
 
@@ -317,9 +323,8 @@ describe('BalanceWatcher.watch', () => {
   });
 
   it('calls the callback again when balance changes on a subsequent poll', async () => {
-    const { scValToNative } = require('@stellar/stellar-sdk');
     mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
-    (scValToNative as ReturnType<typeof vi.fn>)
+    mockScValToNative
       .mockReturnValueOnce(100n)
       .mockReturnValueOnce(200n);
 
@@ -349,9 +354,8 @@ describe('BalanceWatcher.watch', () => {
   });
 
   it('supports watching different address/token pairs independently', async () => {
-    const { scValToNative } = require('@stellar/stellar-sdk');
     mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
-    (scValToNative as ReturnType<typeof vi.fn>)
+    mockScValToNative
       .mockReturnValueOnce(10n)  // ADDRESS / TOKEN
       .mockReturnValueOnce(20n); // ADDRESS_B / TOKEN
 
@@ -445,9 +449,8 @@ describe('BalanceWatcher.watchStream', () => {
   });
 
   it('notifies callback for sender balance change', async () => {
-    const { scValToNative } = require('@stellar/stellar-sdk');
     mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
-    (scValToNative as ReturnType<typeof vi.fn>)
+    mockScValToNative
       .mockReturnValueOnce(100n)  // sender
       .mockReturnValueOnce(200n); // recipient
 
@@ -463,9 +466,8 @@ describe('BalanceWatcher.watchStream', () => {
   });
 
   it('notifies callback for recipient balance change', async () => {
-    const { scValToNative } = require('@stellar/stellar-sdk');
     mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
-    (scValToNative as ReturnType<typeof vi.fn>)
+    mockScValToNative
       .mockReturnValueOnce(100n)  // sender
       .mockReturnValueOnce(200n); // recipient
 
@@ -549,11 +551,10 @@ describe('BalanceWatcher onError option', () => {
   });
 
   it('poll errors for one pair do not stop other pairs from being polled', async () => {
-    const { scValToNative } = require('@stellar/stellar-sdk');
     mockSimulateTransaction
       .mockRejectedValueOnce(new Error('fail A'))         // ADDRESS / TOKEN fails
       .mockResolvedValueOnce({ result: { retval: {} } }); // ADDRESS_B / TOKEN succeeds
-    (scValToNative as ReturnType<typeof vi.fn>).mockReturnValue(88n);
+    mockScValToNative.mockReturnValue(88n);
 
     const onError = vi.fn();
     const cbB = vi.fn();
@@ -649,9 +650,8 @@ describe('BalanceWatcher lifecycle', () => {
 
   it('polling loop triggers callbacks at the configured interval', async () => {
     vi.useFakeTimers();
-    const { scValToNative } = require('@stellar/stellar-sdk');
     mockSimulateTransaction.mockResolvedValue({ result: { retval: {} } });
-    (scValToNative as ReturnType<typeof vi.fn>)
+    mockScValToNative
       .mockReturnValueOnce(1n)
       .mockReturnValueOnce(2n)
       .mockReturnValueOnce(3n);
@@ -664,11 +664,8 @@ describe('BalanceWatcher lifecycle', () => {
     const cb = vi.fn();
     watcher.watch(ADDRESS, TOKEN, cb);
 
-    // Initial poll fires synchronously via start()
-    await vi.runAllTimersAsync();
-    // Advance by two more intervals
-    vi.advanceTimersByTime(2_000);
-    await vi.runAllTimersAsync();
+    await poll(watcher);
+    await vi.advanceTimersByTimeAsync(2_000);
 
     expect(cb.mock.calls.length).toBeGreaterThanOrEqual(2);
     watcher.clear();

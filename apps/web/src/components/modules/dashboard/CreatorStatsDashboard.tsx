@@ -1,15 +1,16 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreatorStats } from "@/services/creator-stats.service";
-import { TrendingUp, Trees, Users, DollarSign, Award, CheckCircle2 } from "lucide-react";
+import { TrendingUp, Trees, Users, DollarSign, Award, CheckCircle2, Share2, Check } from "lucide-react";
 
 export const CreatorStatsDashboard: React.FC = () => {
   const { address } = useWallet();
   const effectiveAddress = address || "GBREAKER1";
+  const [copied, setCopied] = useState(false);
 
   const { data: stats, isLoading, isError } = useQuery<CreatorStats>({
     queryKey: ["creator-stats", effectiveAddress],
@@ -21,6 +22,21 @@ export const CreatorStatsDashboard: React.FC = () => {
     },
     enabled: !!effectiveAddress,
   });
+
+  const profileUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/creators/${effectiveAddress}`
+      : `/creators/${effectiveAddress}`;
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(profileUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -90,6 +106,24 @@ export const CreatorStatsDashboard: React.FC = () => {
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
           <span>Success Rate: <strong className="text-white">{stats.successRate}%</strong></span>
         </div>
+        <button
+          type="button"
+          onClick={handleShare}
+          aria-label="Copy shareable creator profile link"
+          className="flex items-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 px-3 py-1.5 rounded-full text-xs font-medium text-emerald-300 transition-colors"
+        >
+          {copied ? (
+            <>
+              <Check className="w-4 h-4" />
+              <span>Link Copied</span>
+            </>
+          ) : (
+            <>
+              <Share2 className="w-4 h-4" />
+              <span>Share Profile</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Metrics Grid */}
