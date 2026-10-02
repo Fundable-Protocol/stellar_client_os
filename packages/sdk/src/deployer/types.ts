@@ -145,14 +145,6 @@ export interface DeployerConfig {
    */
   timeoutSeconds?: number;
 
-  /**
-   * Opt in to plain HTTP for local loopback RPC URLs (e.g. `http://localhost:8000`).
-   *
-   * Defaults to `false`. Remote `http://` URLs are always rejected regardless of this flag.
-   *
-   * @default false
-   */
-  allowHttp?: boolean;
 }
 
 /**

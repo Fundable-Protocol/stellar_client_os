@@ -7,6 +7,9 @@ import {
   getTierConfig,
   RATE_LIMIT_TIERS,
   resolveTier,
+  CAMPAIGN_API_RATE_LIMIT_TIERS,
+  resolveCampaignApiTier,
+  resolveCampaignApiTierByFunding,
   type RateLimitResult,
 } from "./rate-limit";
 
@@ -235,5 +238,47 @@ describe("RATE_LIMIT_TIERS & tier resolver", () => {
     expect(resolveTier("pk_live_t2_secret456").id).toBe("tier2");
     expect(resolveTier("tier2_key_xyz").id).toBe("tier2");
     expect(resolveTier("invalid_key").id).toBe("free");
+  });
+});
+
+describe("Campaign API Rate Limiting by Campaign Size & Funding Tier (Issue #877)", () => {
+  it("defines standard campaign API rate limit tiers", () => {
+    expect(CAMPAIGN_API_RATE_LIMIT_TIERS.basic.hourlyLimit).toBe(100);
+    expect(CAMPAIGN_API_RATE_LIMIT_TIERS.basic.windowMs).toBe(3_600_000);
+    expect(CAMPAIGN_API_RATE_LIMIT_TIERS.pro.hourlyLimit).toBe(1000);
+    expect(CAMPAIGN_API_RATE_LIMIT_TIERS.pro.windowMs).toBe(3_600_000);
+    expect(CAMPAIGN_API_RATE_LIMIT_TIERS.enterprise.hourlyLimit).toBe(10000);
+    expect(CAMPAIGN_API_RATE_LIMIT_TIERS.enterprise.windowMs).toBe(3_600_000);
+  });
+
+  it("resolves basic tier for campaigns with under $10,000 funding", () => {
+    expect(resolveCampaignApiTierByFunding(0).id).toBe("basic");
+    expect(resolveCampaignApiTierByFunding(500).id).toBe("basic");
+    expect(resolveCampaignApiTierByFunding(9999).id).toBe("basic");
+    expect(resolveCampaignApiTierByFunding(9999).hourlyLimit).toBe(100);
+  });
+
+  it("resolves pro tier for campaigns with $10,000 to $50,000 funding", () => {
+    expect(resolveCampaignApiTierByFunding(10000).id).toBe("pro");
+    expect(resolveCampaignApiTierByFunding(25000).id).toBe("pro");
+    expect(resolveCampaignApiTierByFunding(49999).id).toBe("pro");
+    expect(resolveCampaignApiTierByFunding(25000).hourlyLimit).toBe(1000);
+  });
+
+  it("resolves enterprise tier for campaigns with $50,000+ funding", () => {
+    expect(resolveCampaignApiTierByFunding(50000).id).toBe("enterprise");
+    expect(resolveCampaignApiTierByFunding(100000).id).toBe("enterprise");
+    expect(resolveCampaignApiTierByFunding(500000).id).toBe("enterprise");
+    expect(resolveCampaignApiTierByFunding(100000).hourlyLimit).toBe(10000);
+  });
+
+  it("resolves tier by explicit tier name or funding amount", () => {
+    expect(resolveCampaignApiTier("basic").id).toBe("basic");
+    expect(resolveCampaignApiTier("pro").id).toBe("pro");
+    expect(resolveCampaignApiTier("enterprise").id).toBe("enterprise");
+    expect(resolveCampaignApiTier(null, 75000).id).toBe("enterprise");
+    expect(resolveCampaignApiTier(null, 15000).id).toBe("pro");
+    expect(resolveCampaignApiTier(null, 2000).id).toBe("basic");
+    expect(resolveCampaignApiTier(null, null).id).toBe("basic");
   });
 });

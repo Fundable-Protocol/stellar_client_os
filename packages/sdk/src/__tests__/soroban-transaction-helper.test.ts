@@ -7,7 +7,7 @@ import {
   type TransactionEstimate,
   type NetworkMetrics,
   type ResourceUsage,
-} from '../utils/soroban-transaction-helper';
+} from '../utils/soroban-transaction-helper.js';
 import { Server, Api } from '@stellar/stellar-sdk/rpc';
 import { TransactionBuilder, Networks, Keypair } from '@stellar/stellar-sdk';
 
@@ -167,14 +167,16 @@ describe('soroban transaction helper', () => {
 
   describe('analyzeNetworkCongestion', () => {
     it('analyzes network congestion from recent ledgers', async () => {
+      const ledger = (baseFee: number) => ({
+        headerXdr: { header: () => ({ baseFee: () => baseFee }) },
+      });
       const mockRpc = {
         getLatestLedger: vi.fn().mockResolvedValue({
           sequence: '100',
         }),
-        getLedger: vi.fn()
-          .mockResolvedValueOnce({ baseFeeInStroops: '100' })
-          .mockResolvedValueOnce({ baseFeeInStroops: '150' })
-          .mockResolvedValueOnce({ baseFeeInStroops: '200' }),
+        getLedgers: vi.fn().mockResolvedValue({
+          ledgers: [ledger(100), ledger(150), ledger(200)],
+        }),
       } as unknown as Server;
 
       const metrics = await analyzeNetworkCongestion(mockRpc, 3);
@@ -199,11 +201,14 @@ describe('soroban transaction helper', () => {
     });
 
     it('determines low congestion when fees are minimal', async () => {
+      const ledger = {
+        headerXdr: { header: () => ({ baseFee: () => 100 }) },
+      };
       const mockRpc = {
         getLatestLedger: vi.fn().mockResolvedValue({
           sequence: '100',
         }),
-        getLedger: vi.fn().mockResolvedValue({ baseFeeInStroops: '100' }),
+        getLedgers: vi.fn().mockResolvedValue({ ledgers: [ledger] }),
       } as unknown as Server;
 
       const metrics = await analyzeNetworkCongestion(mockRpc, 5);
@@ -212,14 +217,16 @@ describe('soroban transaction helper', () => {
     });
 
     it('handles missing ledger data gracefully', async () => {
+      const ledger = (baseFee: number) => ({
+        headerXdr: { header: () => ({ baseFee: () => baseFee }) },
+      });
       const mockRpc = {
         getLatestLedger: vi.fn().mockResolvedValue({
           sequence: '100',
         }),
-        getLedger: vi.fn()
-          .mockResolvedValueOnce({ baseFeeInStroops: '100' })
-          .mockRejectedValueOnce(new Error('Ledger not found'))
-          .mockResolvedValueOnce({ baseFeeInStroops: '150' }),
+        getLedgers: vi.fn().mockResolvedValue({
+          ledgers: [ledger(100), ledger(150)],
+        }),
       } as unknown as Server;
 
       const metrics = await analyzeNetworkCongestion(mockRpc, 3);

@@ -3,7 +3,7 @@ import {
   GasEstimator,
   estimateSorobanGas,
   type GasEstimatorRpc,
-} from "../utils/GasEstimator";
+} from "../utils/GasEstimator.js";
 
 function createRpc(overrides: Partial<GasEstimatorRpc> = {}): GasEstimatorRpc {
   return {
@@ -76,7 +76,7 @@ describe("GasEstimator", () => {
   it("buffers resource limits parsed from Soroban transaction data", async () => {
     const resources = {
       instructions: () => 10,
-      readBytes: () => 20,
+      diskReadBytes: () => 20,
       writeBytes: () => 30,
       footprint: () => ({
         readOnly: () => ["a", "b"],
@@ -84,7 +84,9 @@ describe("GasEstimator", () => {
       }),
     };
     const transactionData = {
-      resources: () => resources,
+      build: () => ({
+        resources: () => resources,
+      }),
     };
     const rpc = createRpc({
       simulateTransaction: vi.fn().mockResolvedValue({

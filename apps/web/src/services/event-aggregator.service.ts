@@ -46,8 +46,8 @@ export class EventAggregatorService {
     try {
       const data = await fs.readFile(this.eventsPath, 'utf-8');
       return JSON.parse(data) as SponsorEvent[];
-    } catch (err: any) {
-      if (err.code === 'ENOENT') return [];
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'ENOENT') return [];
       throw err;
     }
   }
@@ -76,8 +76,8 @@ export class EventAggregatorService {
     try {
       const data = await fs.readFile(this.timezonesPath, 'utf-8');
       return JSON.parse(data) as SponsorTimezone[];
-    } catch (err: any) {
-      if (err.code === 'ENOENT') return [];
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'ENOENT') return [];
       throw err;
     }
   }

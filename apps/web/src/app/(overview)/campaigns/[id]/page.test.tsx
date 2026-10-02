@@ -40,6 +40,16 @@ const openBackersTab = async () => {
 };
 
 describe("Campaign detail page — top backers tab", () => {
+  it("translates campaign content into Arabic and sets right-to-left layout", () => {
+    const { container } = renderPage();
+    fireEvent.change(screen.getByLabelText("Translate campaign description"), {
+      target: { value: "ar" },
+    });
+
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("أنقذوا");
+    expect(container.querySelector('[dir="rtl"]')).toBeTruthy();
+  });
+
   it("exposes a Top Backers tab that renders the ranked leaderboard", async () => {
     renderPage();
     await openBackersTab();
@@ -109,3 +119,4 @@ describe("Campaign detail page — top backers tab", () => {
     expect(container.querySelectorAll('a[href*="openstreetmap.org"]')).toHaveLength(3);
   });
 });
+
