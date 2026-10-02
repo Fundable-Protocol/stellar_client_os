@@ -86,6 +86,10 @@ pub enum DataKey {
     CarbonCreditsMinted(u64),
     /// Stored CO₂ multiplier for a campaign (1 = dry season, 2 = rainy season).
     Co2Multiplier(u64),
+    /// Declared tree species list required for campaign verification.
+    DeclaredSpeciesList(u64),
+    /// Species verification proof keyed by (campaign_id, planting_id).
+    SpeciesProof(u64, u64),
     /// Number of group sponsorships created for a campaign.
     GroupSponsorshipCount(u64),
     /// Group sponsorship details keyed by campaign and group ID.
@@ -271,6 +275,49 @@ pub struct ContributionMadeEvent {
     pub total_raised: i128,
 }
 
+/// Declared species configuration for a campaign (Issue #838).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeclaredSpecies {
+    pub species_name: soroban_sdk::String,
+    pub species_code: BytesN<32>,
+    pub target_count: u64,
+}
+
+/// Photographic species proof record for a planting batch.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpeciesVerificationProof {
+    pub planting_id: u64,
+    pub species_code: BytesN<32>,
+    pub photo_ipfs_cid: soroban_sdk::String,
+    pub photo_hash: BytesN<32>,
+    pub is_verified: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpeciesDeclaredEvent {
+    pub campaign_id: u64,
+    pub species_code: BytesN<32>,
+    pub target_count: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpeciesProofSubmittedEvent {
+    pub campaign_id: u64,
+    pub planting_id: u64,
+    pub species_code: BytesN<32>,
+    pub photo_ipfs_cid: soroban_sdk::String,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SpeciesProofVerifiedEvent {
+    pub campaign_id: u64,
+    pub planting_id: u64,
+    pub species_code: BytesN<32>,
 /// Contribution event used when a sponsor chooses anonymity on public surfaces.
 ///
 /// The contributor address is deliberately omitted. Soroban ledger data and the
@@ -609,6 +656,10 @@ pub enum Error {
     GroupNameEmpty = 36,
     /// A group sponsorship name exceeds the 64-byte limit.
     GroupNameTooLong = 37,
+    /// Uploaded photo proof does not match declared tree species.
+    SpeciesMismatch = 38,
+    /// Tree species proof has not been submitted for this planting batch.
+    ProofNotFound = 39,
 }
 
 // ---------------------------------------------------------------------------
@@ -2829,6 +2880,147 @@ impl CampaignFundingContract {
     }
 
     // -----------------------------------------------------------------------
+    // Campaign Tree Species Verification & Proof (Issue #838)
+    // -----------------------------------------------------------------------
+
+    /// Declare a required tree species that must be planted and proven during verification.
+    pub fn declare_campaign_species(
+        env: Env,
+        campaign_id: u64,
+        species_name: soroban_sdk::String,
+        species_code: BytesN<32>,
+        target_count: u64,
+    ) {
+        Self::assert_initialized(&env);
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        if target_count == 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
+        let mut list: Vec<DeclaredSpecies> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::DeclaredSpeciesList(campaign_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let entry = DeclaredSpecies {
+            species_name,
+            species_code: species_code.clone(),
+            target_count,
+        };
+        list.push_back(entry);
+        env.storage().persistent().set(&DataKey::DeclaredSpeciesList(campaign_id), &list);
+
+        env.events().publish(
+            ("SpeciesDeclared", campaign_id),
+            SpeciesDeclaredEvent {
+                campaign_id,
+                species_code,
+                target_count,
+            },
+        );
+    }
+
+    /// Retrieve all declared species required for campaign verification.
+    pub fn get_declared_species(env: Env, campaign_id: u64) -> Vec<DeclaredSpecies> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::DeclaredSpeciesList(campaign_id))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Submit photographic verification proof matching a declared tree species.
+    pub fn submit_species_verification_proof(
+        env: Env,
+        campaign_id: u64,
+        planting_id: u64,
+        species_code: BytesN<32>,
+        photo_ipfs_cid: soroban_sdk::String,
+        photo_hash: BytesN<32>,
+    ) {
+        Self::assert_initialized(&env);
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        // Validate that species was declared in campaign specification
+        let declared = Self::get_declared_species(env.clone(), campaign_id);
+        let mut matches_declaration = false;
+        for i in 0..declared.len() {
+            if declared.get(i).unwrap().species_code == species_code {
+                matches_declaration = true;
+                break;
+            }
+        }
+
+        if !matches_declaration && declared.len() > 0 {
+            panic_with_error!(&env, Error::SpeciesMismatch);
+        }
+
+        let proof = SpeciesVerificationProof {
+            planting_id,
+            species_code: species_code.clone(),
+            photo_ipfs_cid: photo_ipfs_cid.clone(),
+            photo_hash,
+            is_verified: false,
+        };
+
+        env.storage().persistent().set(&DataKey::SpeciesProof(campaign_id, planting_id), &proof);
+
+        env.events().publish(
+            ("SpeciesProofSubmitted", campaign_id),
+            SpeciesProofSubmittedEvent {
+                campaign_id,
+                planting_id,
+                species_code,
+                photo_ipfs_cid,
+            },
+        );
+    }
+
+    /// Verify species proof for a planting batch.
+    pub fn verify_species_proof(env: Env, campaign_id: u64, planting_id: u64) {
+        Self::assert_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        let mut proof: SpeciesVerificationProof = env
+            .storage()
+            .persistent()
+            .get(&DataKey::SpeciesProof(campaign_id, planting_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ProofNotFound));
+
+        proof.is_verified = true;
+        env.storage().persistent().set(&DataKey::SpeciesProof(campaign_id, planting_id), &proof);
+
+        env.events().publish(
+            ("SpeciesProofVerified", campaign_id),
+            SpeciesProofVerifiedEvent {
+                campaign_id,
+                planting_id,
+                species_code: proof.species_code,
+            },
+        );
+    }
+
+    /// Retrieve species verification proof for a planting batch.
+    pub fn get_species_verification_proof(
+        env: Env,
+        campaign_id: u64,
+        planting_id: u64,
+    ) -> SpeciesVerificationProof {
+        env.storage()
+            .persistent()
+            .get(&DataKey::SpeciesProof(campaign_id, planting_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ProofNotFound))
+    }
+
+    // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
 
@@ -4993,11 +5185,62 @@ mod tests {
 
     #[test]
     fn test_carbon_credit_getters_and_sponsor_allocation() {
+    // Tree Species Verification Proof Tests (Issue #838)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_species_declaration_and_proof_verification() {
         let env = Env::default();
         env.mock_all_auths();
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+
+        // 1. Creator declares required tree species (e.g. Baobab)
+        let species_code = BytesN::from_array(&env, &[9u8; 32]);
+        let species_name = soroban_sdk::String::from_str(&env, "Baobab");
+        client.declare_campaign_species(&id, &species_name, &species_code, &500);
+
+        let declared = client.get_declared_species(&id);
+        assert_eq!(declared.len(), 1);
+        assert_eq!(declared.get(0).unwrap().target_count, 500);
+
+        // 2. Submit matching photo verification proof
+        let cid = soroban_sdk::String::from_str(&env, "ipfs://bafybeibaobabproof123");
+        let hash = BytesN::from_array(&env, &[8u8; 32]);
+        client.submit_species_verification_proof(&id, &1, &species_code, &cid, &hash);
+
+        let proof = client.get_species_verification_proof(&id, &1);
+        assert_eq!(proof.is_verified, false);
+
+        // 3. Admin verifies species proof
+        client.verify_species_proof(&id, &1);
+        let proof_verified = client.get_species_verification_proof(&id, &1);
+        assert_eq!(proof_verified.is_verified, true);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #38)")]
+    fn test_undeclared_species_proof_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let species_code = BytesN::from_array(&env, &[9u8; 32]);
+        client.declare_campaign_species(&id, &soroban_sdk::String::from_str(&env, "Baobab"), &species_code, &500);
+
+        // Submitting proof for a fake/mismatched species (e.g. array of 7s) panics with SpeciesMismatch (#35)
+        let fake_code = BytesN::from_array(&env, &[7u8; 32]);
+        let cid = soroban_sdk::String::from_str(&env, "ipfs://fake");
+        let hash = BytesN::from_array(&env, &[0u8; 32]);
+        client.submit_species_verification_proof(&id, &1, &fake_code, &cid, &hash);
         let sponsor = Address::generate(&env);
         let token = Address::generate(&env);
         let carbon_token = Address::generate(&env);
