@@ -16,7 +16,7 @@ import {
   FundableStellarError,
   executeWithErrorHandling,
   CONTRACT_ERRORS,
-} from '../utils/errors';
+} from '../utils/errors.js';
 
 // ---------------------------------------------------------------------------
 // parseContractError — boundary / unusual inputs

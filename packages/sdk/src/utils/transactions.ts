@@ -6,11 +6,8 @@
  */
 
 import { AssembledTransaction } from "@stellar/stellar-sdk/contract";
-import {
-  SorobanRpc,
-  AnalogSignaturePayload,
-} from "@stellar/stellar-sdk";
-import { parseContractError, FundableStellarError } from "./errors";
+import { rpc } from "@stellar/stellar-sdk";
+import { parseContractError, FundableStellarError } from "./errors.js";
 
 /**
  * Configuration options for waiting on a transaction
@@ -86,29 +83,21 @@ export async function waitForTransaction<T = unknown>(
   } = options;
 
   // Ensure the transaction has been sent
-  if (!tx.hash) {
+  const txHash = tx.signed?.hash().toString("hex");
+  if (!txHash) {
     throw new Error(
       "Transaction has not been signed and sent. " +
       "Call signAndSend() first before waiting for confirmation.",
     );
   }
 
-  const rpc = new SorobanRpc.Server(rpcUrl);
+  const server = new rpc.Server(rpcUrl);
   const startTime = Date.now();
   let attempt = 0;
 
-  while (true) {
+  while (Date.now() - startTime <= timeout) {
     attempt++;
     const elapsedMs = Date.now() - startTime;
-
-    // Check timeout
-    if (elapsedMs > timeout) {
-      const timeoutError = parseContractError(
-        `Transaction confirmation timeout after ${timeout}ms. Hash: ${tx.hash}`,
-        "Transaction confirmation"
-      );
-      throw new FundableStellarError(timeoutError);
-    }
 
     try {
       // Invoke callback if provided
@@ -117,17 +106,17 @@ export async function waitForTransaction<T = unknown>(
       }
 
       // Poll for transaction status
-      const response = await rpc.getTransaction(tx.hash);
+      const response = await server.getTransaction(txHash);
 
-      if (response.status === SorobanRpc.GetTransactionStatus.SUCCESS) {
+      if (response.status === rpc.Api.GetTransactionStatus.SUCCESS) {
         return {
-          hash: tx.hash,
+          hash: txHash,
           ledger: response.ledger,
           result: tx.result,
         };
       }
 
-      if (response.status === SorobanRpc.GetTransactionStatus.FAILED) {
+      if (response.status === rpc.Api.GetTransactionStatus.FAILED) {
         // Parse the failed transaction result for better error messages
         const error = parseContractError(
           {
@@ -145,6 +134,10 @@ export async function waitForTransaction<T = unknown>(
     } catch (rpcError) {
       // Handle RPC errors
       if (rpcError instanceof Error) {
+        if (rpcError instanceof FundableStellarError) {
+          throw rpcError;
+        }
+
         // If it's our custom error, re-throw
         if (
           rpcError.message.includes("Transaction confirmation timeout") ||
@@ -169,6 +162,12 @@ export async function waitForTransaction<T = unknown>(
       throw new FundableStellarError(parsedError);
     }
   }
+
+  const timeoutError = parseContractError(
+    `Transaction confirmation timeout after ${timeout}ms. Hash: ${txHash}`,
+    "Transaction confirmation"
+  );
+  throw new FundableStellarError(timeoutError);
 }
 
 /**

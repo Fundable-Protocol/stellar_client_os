@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { ContractDeployer } from '../../ContractDeployer';
-import { TEST_CONFIG } from './setup';
+import { TEST_CONFIG } from './setup.js';
 
 describe('Deployer Integration (Soroban)', () => {
   let deployer: ContractDeployer;

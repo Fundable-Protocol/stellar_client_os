@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
-    Address, Env, Vec,
+    Address, Bytes, BytesN, Env, String, Vec,
 };
 
 /// Optional `Address` wrapper suitable for use inside `#[contracttype]` structs.
@@ -47,7 +47,8 @@ pub enum DataKey {
     Contribution(u64, Address),
     /// Campaign metadata IPFS CID or hex hash keyed by campaign ID.
     CampaignIpfsHash(u64),
-    /// Total count of tree planting records.
+    /// Total count of tree planting records. A non-zero count also serves as
+    /// the "trees planted" marker for the tiered refund policy.
     PlantingCount(u64),
     /// Tree planting verification SLA record keyed by `(campaign_id, planting_id)`.
     PlantingSla(u64, u64),
@@ -85,6 +86,10 @@ pub enum DataKey {
     CarbonCreditsMinted(u64),
     /// Stored CO₂ multiplier for a campaign (1 = dry season, 2 = rainy season).
     Co2Multiplier(u64),
+    /// Number of group sponsorships created for a campaign.
+    GroupSponsorshipCount(u64),
+    /// Group sponsorship details keyed by campaign and group ID.
+    GroupSponsorship(u64, u64),
     /// Campaign escrow record holding funds until verification approval.
     CampaignEscrow(u64),
 }
@@ -210,6 +215,22 @@ pub struct TeamMember {
     pub percentage_bps: u32,
 }
 
+/// A named group of sponsors funding a campaign together.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GroupSponsorship {
+    /// Campaign receiving the group's contributions.
+    pub campaign_id: u64,
+    /// Unique identifier within the campaign.
+    pub group_id: u64,
+    /// Public recognition name for the group.
+    pub name: soroban_sdk::String,
+    /// Address that created the group.
+    pub organizer: Address,
+    /// Sum of direct contributions made by the group's members.
+    pub total_contributed: i128,
+}
+
 // ---------------------------------------------------------------------------
 // Event types
 // ---------------------------------------------------------------------------
@@ -231,6 +252,28 @@ pub struct CampaignCreatedEvent {
     /// Unix timestamp deadline for contributions.
     pub deadline: u64,
     pub co2_multiplier: u32,
+    pub tree_species: soroban_sdk::String,
+}
+
+/// Emitted when a group sponsorship is created.
+#[contracttype]
+#[derive(Clone)]
+pub struct GroupSponsorshipCreatedEvent {
+    pub campaign_id: u64,
+    pub group_id: u64,
+    pub name: soroban_sdk::String,
+    pub organizer: Address,
+}
+
+/// Emitted when a sponsor contributes through a group sponsorship.
+#[contracttype]
+#[derive(Clone)]
+pub struct GroupContributionMadeEvent {
+    pub campaign_id: u64,
+    pub group_id: u64,
+    pub contributor: Address,
+    pub amount: i128,
+    pub group_total: i128,
 }
 
 /// Emitted each time a contributor adds tokens to a campaign.
@@ -286,6 +329,17 @@ pub struct EscrowFundsReleasedEvent {
 pub struct EscrowDisputedEvent {
     pub campaign_id: u64,
     pub disputed_by: Address,
+/// Contribution event used when a sponsor chooses anonymity on public surfaces.
+///
+/// The contributor address is deliberately omitted. Soroban ledger data and the
+/// transaction signer remain public, so this hides the sponsor from event-based
+/// campaign displays but is not cryptographic on-chain privacy.
+#[contracttype]
+#[derive(Clone)]
+pub struct AnonymousContributionMadeEvent {
+    pub campaign_id: u64,
+    pub amount: i128,
+    pub total_raised: i128,
 }
 
 /// Emitted when a campaign transitions lifecycle states.
@@ -298,6 +352,19 @@ pub struct CampaignStatusChangedEvent {
     pub new_status: CampaignStatus,
 }
 
+/// Emitted when a planter is assigned to a campaign, marking the campaign as
+/// started for the tiered refund policy (issue #889).
+#[contracttype]
+#[derive(Clone)]
+pub struct PlanterAssignedEvent {
+    /// Identifier of the campaign the planter was assigned to.
+    pub campaign_id: u64,
+    /// Address of the assigned planter.
+    pub planter: Address,
+    /// Unix timestamp (seconds) when the assignment happened.
+    pub assigned_at: u64,
+}
+
 /// Emitted when the campaign creator claims the raised funds.
 #[contracttype]
 #[derive(Clone)]
@@ -308,6 +375,16 @@ pub struct FundsClaimedEvent {
     pub creator: Address,
     /// Net amount transferred to creator after protocol fee deduction.
     pub amount: i128,
+}
+
+/// Emitted when the verifier approves a campaign's escrow for payout.
+#[contracttype]
+#[derive(Clone)]
+pub struct CampaignVerificationApprovedEvent {
+    /// Identifier of the approved campaign.
+    pub campaign_id: u64,
+    /// Unix timestamp when the approval was recorded.
+    pub approved_at: u64,
 }
 
 /// Emitted each time a contributor successfully claims a refund.
@@ -363,6 +440,37 @@ pub struct TreePlantingVerifiedEvent {
     pub campaign_id: u64,
     pub planting_id: u64,
     pub verified_at: u64,
+}
+
+/// Proof of tree species planted, linking uploaded photo hash to declared species.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SpeciesPhotoProof {
+    /// SHA-256 or IPFS digest of the uploaded proof photo.
+    pub photo_hash: BytesN<32>,
+    /// Declared tree species shown in the photo.
+    pub species: String,
+    /// Tree count verified by this photo.
+    pub tree_count: u32,
+}
+
+/// Emitted when campaign creator specifies or declares tree species.
+#[contracttype]
+#[derive(Clone)]
+pub struct SpeciesDeclaredEvent {
+    pub campaign_id: u64,
+    pub species: Vec<String>,
+}
+
+/// Emitted when tree planting photo proof matching declared species is verified.
+#[contracttype]
+#[derive(Clone)]
+pub struct SpeciesProofVerifiedEvent {
+    pub campaign_id: u64,
+    pub planting_id: u64,
+    pub photo_hash: BytesN<32>,
+    pub species: String,
+    pub tree_count: u32,
 }
 
 /// Entitlement unlocked by a campaign's verified tree count.
@@ -553,18 +661,24 @@ pub enum Error {
     CarbonTokenNotSet = 33,
     /// Carbon credit tokens have already been minted for this campaign.
     CarbonCreditsAlreadyMinted = 34,
+    /// The requested group sponsorship does not exist.
+    GroupSponsorshipNotFound = 35,
+    /// A group sponsorship name must not be empty.
+    GroupNameEmpty = 36,
+    /// A group sponsorship name exceeds the 64-byte limit.
+    GroupNameTooLong = 37,
     /// Escrow account has not been initialized for this campaign.
-    EscrowNotInitialized = 35,
+    EscrowNotInitialized = 38,
     /// Escrow account has already been initialized for this campaign.
-    EscrowAlreadyInitialized = 36,
+    EscrowAlreadyInitialized = 39,
     /// Escrow funds cannot be released before trees are verified planted.
-    EscrowNotVerified = 37,
+    EscrowNotVerified = 40,
     /// Escrow funds have already been released.
-    EscrowAlreadyReleased = 38,
+    EscrowAlreadyReleased = 41,
     /// Caller is not the authorized verifier for this campaign escrow.
-    UnauthorizedVerifier = 39,
+    UnauthorizedVerifier = 42,
     /// Escrow account is currently disputed.
-    EscrowDisputed = 40,
+    EscrowDisputed = 43,
 }
 
 // ---------------------------------------------------------------------------
@@ -583,6 +697,21 @@ const LEDGER_BUMP: u32 = 535_680;
 const MAX_CAMPAIGN_DURATION_SECONDS: u64 = 180 * 24 * 60 * 60;
 /// 30-day Tree Verification SLA duration in seconds (30 * 24 * 60 * 60).
 const VERIFICATION_SLA_SECONDS: u64 = 2_592_000;
+/// Refund tier 1 window: a campaign must start (planter assigned) within 60
+/// days of creation (60 * 24 * 60 * 60 seconds) or sponsors are entitled to a
+/// full refund.
+const REFUND_TIER_START_SECONDS: u64 = 60 * 24 * 60 * 60;
+/// Refund tier 2 window: trees must be planted within 90 days of creation
+/// (90 * 24 * 60 * 60 seconds) or sponsors are entitled to a half refund.
+const REFUND_TIER_PLANTING_SECONDS: u64 = 90 * 24 * 60 * 60;
+/// Full refund percentage: the campaign never started within 60 days.
+const REFUND_PERCENT_FULL: u32 = 100;
+/// Partial refund percentage: the campaign started but no trees were planted
+/// within 90 days.
+const REFUND_PERCENT_PARTIAL: u32 = 50;
+/// No refund percentage: the campaign completed (funds claimed) or trees were
+/// planted within the 90-day window.
+const REFUND_PERCENT_NONE: u32 = 0;
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -683,6 +812,7 @@ impl CampaignFundingContract {
         min_target: i128,
         deadline: u64,
         insurance_fee: i128,
+        tree_species: soroban_sdk::String,
     ) -> u64 {
         let mut creators = Vec::new(&env);
         creators.push_back(creator);
@@ -697,6 +827,7 @@ impl CampaignFundingContract {
             min_target,
             deadline,
             insurance_fee,
+            tree_species,
         )
     }
 
@@ -711,6 +842,7 @@ impl CampaignFundingContract {
         min_target: i128,
         deadline: u64,
         insurance_fee: i128,
+        tree_species: soroban_sdk::String,
     ) -> u64 {
         Self::assert_initialized(&env);
         Self::validate_creators(&env, &creators, &revenue_shares);
@@ -747,7 +879,7 @@ impl CampaignFundingContract {
         // a seasonal determination).
         let day_of_year = (days_since_epoch % 365) as u32;
         // Rainy season: day 90 (Apr 1) – day 303 (Oct 31) inclusive.
-        let co2_multiplier: u32 = if day_of_year >= 90 && day_of_year <= 303 { 2 } else { 1 };
+        let co2_multiplier: u32 = if day_of_year >= 90 && day_of_year <= 119 { 15 } else if day_of_year >= 120 && day_of_year <= 303 { 20 } else { 10 };
 
         let mut count: u64 = env
             .storage()
@@ -806,7 +938,7 @@ impl CampaignFundingContract {
         Self::save_campaign(&env, count, &campaign);
         Self::record_status_change(&env, count, CampaignStatus::Active);
 
-        let co2_multiplier: u32 = 1;
+        
         env.events().publish(
             ("CampaignCreated", count),
             CampaignCreatedEvent {
@@ -817,6 +949,7 @@ impl CampaignFundingContract {
                 min_target,
                 deadline,
                 co2_multiplier,
+                tree_species,
             },
         );
 
@@ -863,6 +996,53 @@ impl CampaignFundingContract {
             CampaignStatusChangedEvent {
                 campaign_id,
                 new_status: CampaignStatus::Verified,
+            },
+        );
+    }
+
+    /// Assign a planter to a campaign, marking it as started.
+    ///
+    /// This anchors the tiered refund policy to an explicit on-chain action:
+    /// the 60-day full-refund window only applies while no planter has been
+    /// assigned. Assignment is permanent — the first assignment wins and any
+    /// later attempt fails with [`Error::PlanterAlreadyAssigned`], so the
+    /// refund outcome can never be changed retroactively.
+    ///
+    /// Only the contract admin can call this.
+    ///
+    /// # Arguments
+    /// * `campaign_id` — ID of the campaign to assign the planter to.
+    /// * `planter`     — Address of the planter responsible for planting.
+    ///
+    /// # Errors
+    /// * [`Error::NotInitialized`]        — contract not initialised.
+    /// * [`Error::Unauthorized`]          — caller is not the admin.
+    /// * [`Error::CampaignNotFound`]      — campaign does not exist.
+    /// * [`Error::PlanterAlreadyAssigned`] — campaign already has a planter.
+    pub fn assign_planter(env: Env, campaign_id: u64, planter: Address) {
+        Self::assert_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        let mut campaign = Self::load_campaign(&env, campaign_id);
+
+        if campaign.planter != OptionalAddress::None {
+            panic_with_error!(&env, Error::PlanterAlreadyAssigned);
+        }
+
+        campaign.planter = OptionalAddress::Some(planter.clone());
+        Self::save_campaign(&env, campaign_id, &campaign);
+
+        env.events().publish(
+            ("PlanterAssigned", campaign_id),
+            PlanterAssignedEvent {
+                campaign_id,
+                planter,
+                assigned_at: env.ledger().timestamp(),
             },
         );
     }
@@ -975,6 +1155,105 @@ impl CampaignFundingContract {
         );
     }
 
+    /// Create a named group sponsorship for an active campaign.
+    ///
+    /// Members contribute individually through [`contribute_to_group`], so
+    /// their existing refund and reward records remain tied to their wallets.
+    /// Names are limited to 64 UTF-8 bytes and need not be unique.
+    pub fn create_group_sponsorship(
+        env: Env,
+        organizer: Address,
+        campaign_id: u64,
+        name: soroban_sdk::String,
+    ) -> u64 {
+        organizer.require_auth();
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if campaign.status == CampaignStatus::Paused {
+            panic_with_error!(&env, Error::CampaignPaused);
+        }
+        if campaign.status != CampaignStatus::Active
+            || env.ledger().timestamp() >= campaign.deadline
+        {
+            panic_with_error!(&env, Error::CampaignNotActive);
+        }
+        if name.len() == 0 {
+            panic_with_error!(&env, Error::GroupNameEmpty);
+        }
+        if name.len() > 64 {
+            panic_with_error!(&env, Error::GroupNameTooLong);
+        }
+
+        let count_key = DataKey::GroupSponsorshipCount(campaign_id);
+        let previous_count: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        let group_id = previous_count
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ContractFull));
+        let group = GroupSponsorship {
+            campaign_id,
+            group_id,
+            name: name.clone(),
+            organizer: organizer.clone(),
+            total_contributed: 0,
+        };
+        let group_key = DataKey::GroupSponsorship(campaign_id, group_id);
+        env.storage().persistent().set(&group_key, &group);
+        env.storage().persistent().set(&count_key, &group_id);
+        env.storage()
+            .persistent()
+            .extend_ttl(&group_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .persistent()
+            .extend_ttl(&count_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.events().publish(
+            ("GroupSponsorshipCreated", campaign_id),
+            GroupSponsorshipCreatedEvent {
+                campaign_id,
+                group_id,
+                name,
+                organizer,
+            },
+        );
+        group_id
+    }
+
+    /// Contribute individually to a campaign through a named group.
+    pub fn contribute_to_group(
+        env: Env,
+        contributor: Address,
+        campaign_id: u64,
+        group_id: u64,
+        amount: i128,
+    ) {
+        contributor.require_auth();
+        let group_key = DataKey::GroupSponsorship(campaign_id, group_id);
+        let mut group: GroupSponsorship = env
+            .storage()
+            .persistent()
+            .get(&group_key)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::GroupSponsorshipNotFound));
+
+        Self::contribute(env.clone(), contributor.clone(), campaign_id, amount);
+
+        group.total_contributed = group
+            .total_contributed
+            .checked_add(amount)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        env.storage().persistent().set(&group_key, &group);
+        env.storage()
+            .persistent()
+            .extend_ttl(&group_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.events().publish(
+            ("GroupContributionMade", campaign_id),
+            GroupContributionMadeEvent {
+                campaign_id,
+                group_id,
+                contributor,
+                amount,
+                group_total: group.total_contributed,
+            },
+        );
+    }
+
     /// Contribute tokens to a campaign.
     ///
     /// The full `amount` is transferred into contract escrow immediately.
@@ -994,6 +1273,29 @@ impl CampaignFundingContract {
     ///   above the hard cap.
     /// * [`Error::ArithmeticOverflow`] — internal overflow guard.
     pub fn contribute(env: Env, contributor: Address, campaign_id: u64, amount: i128) {
+        Self::contribute_internal(env, contributor, campaign_id, amount, false);
+    }
+
+    /// Contribute to a campaign without publishing the sponsor address in the
+    /// contribution event. The transaction signer and ledger storage remain
+    /// publicly inspectable; this only supports anonymous display in campaign
+    /// interfaces.
+    pub fn contribute_anonymously(
+        env: Env,
+        contributor: Address,
+        campaign_id: u64,
+        amount: i128,
+    ) {
+        Self::contribute_internal(env, contributor, campaign_id, amount, true);
+    }
+
+    fn contribute_internal(
+        env: Env,
+        contributor: Address,
+        campaign_id: u64,
+        amount: i128,
+        anonymous: bool,
+    ) {
         contributor.require_auth();
 
         let mut campaign = Self::load_campaign(&env, campaign_id);
@@ -1073,15 +1375,26 @@ impl CampaignFundingContract {
 
         Self::save_campaign(&env, campaign_id, &campaign);
 
-        env.events().publish(
-            ("ContributionMade", campaign_id),
-            ContributionMadeEvent {
-                campaign_id,
-                contributor,
-                amount,
-                total_raised: campaign.total_raised,
-            },
-        );
+        if anonymous {
+            env.events().publish(
+                ("AnonymousContributionMade", campaign_id),
+                AnonymousContributionMadeEvent {
+                    campaign_id,
+                    amount,
+                    total_raised: campaign.total_raised,
+                },
+            );
+        } else {
+            env.events().publish(
+                ("ContributionMade", campaign_id),
+                ContributionMadeEvent {
+                    campaign_id,
+                    contributor,
+                    amount,
+                    total_raised: campaign.total_raised,
+                },
+            );
+        }
     }
 
     /// Evaluate an `Active` campaign once its deadline has passed and
@@ -1147,6 +1460,8 @@ impl CampaignFundingContract {
     /// * [`Error::CampaignNotSuccessful`] — campaign is not `Successful`.
     /// * [`Error::AlreadyClaimed`]        — funds were already claimed.
     /// * [`Error::Unauthorized`]          — the creator group did not authorise.
+    /// * [`Error::VerificationNotApproved`] — the verifier has not approved
+    ///   the campaign's planting records.
     pub fn claim_funds(env: Env, campaign_id: u64) {
         let mut campaign = Self::load_campaign(&env, campaign_id);
 
@@ -1158,6 +1473,14 @@ impl CampaignFundingContract {
         }
         if campaign.status != CampaignStatus::Verified {
             panic_with_error!(&env, Error::CampaignNotVerified);
+        }
+        if !env
+            .storage()
+            .persistent()
+            .get(&DataKey::VerificationApproved(campaign_id))
+            .unwrap_or(false)
+        {
+            panic_with_error!(&env, Error::VerificationNotApproved);
         }
 
         let gross = campaign.total_raised;
@@ -1216,6 +1539,58 @@ impl CampaignFundingContract {
                 campaign_id,
                 creator: campaign.creator,
                 amount: distributable,
+            },
+        );
+    }
+
+    /// Approve a successful campaign for payout after all recorded planting
+    /// batches have been verified by the contract admin.
+    pub fn approve_campaign_verification(env: Env, campaign_id: u64) {
+        Self::assert_initialized(&env);
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
+        admin.require_auth();
+
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if campaign.status != CampaignStatus::Successful {
+            panic_with_error!(&env, Error::CampaignNotSuccessful);
+        }
+
+        let planting_count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PlantingCount(campaign_id))
+            .unwrap_or(0);
+        if planting_count == 0 {
+            panic_with_error!(&env, Error::PlantingNotFound);
+        }
+
+        for planting_id in 1..=planting_count {
+            let record: PlantingSlaRecord = env
+                .storage()
+                .persistent()
+                .get(&DataKey::PlantingSla(campaign_id, planting_id))
+                .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound));
+            if !record.is_verified {
+                panic_with_error!(&env, Error::VerificationNotApproved);
+            }
+        }
+
+        let approval_key = DataKey::VerificationApproved(campaign_id);
+        env.storage().persistent().set(&approval_key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&approval_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        let approved_at = env.ledger().timestamp();
+        env.events().publish(
+            ("CampaignVerificationApproved", campaign_id),
+            CampaignVerificationApprovedEvent {
+                campaign_id,
+                approved_at,
             },
         );
     }
@@ -1297,47 +1672,107 @@ impl CampaignFundingContract {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
-    /// Claim a full refund after a failed campaign.
+    /// Compute the refund percentage a contributor is entitled to.
     ///
-    /// Each contributor calls this individually to recover exactly the amount
-    /// they contributed.  The contribution record is cleared before the
+    /// Implements the tiered refund policy (issue #889):
+    ///
+    /// | Tier | Condition | Refund |
+    /// |------|-----------|--------|
+    /// | 1 | Campaign never started (no planter assigned) within 60 days of creation | 100 % |
+    /// | 2 | Campaign started but no trees planted within 90 days of creation | 50 % |
+    /// | 3 | Campaign completed (`Claimed` / `VerificationFailed`) or trees planted within the 90-day window | 0 % |
+    ///
+    /// A campaign that reached its deadline without meeting `min_target`
+    /// (`Failed` status) always refunds in full regardless of these windows.
+    ///
+    /// # Arguments
+    /// * `campaign`    — The campaign to evaluate.
+    /// * `campaign_id` — ID of the campaign (used to look up planting state).
+    ///
+    /// # Returns
+    /// The refund percentage: 100, 50, or 0.
+    fn compute_refund_percent(env: &Env, campaign: &Campaign, campaign_id: u64) -> u32 {
+        let now = env.ledger().timestamp();
+
+        // Completed campaigns (funds claimed) and insurance-refund states are
+        // terminal: nothing is refundable through this entry point.
+        if campaign.status == CampaignStatus::Claimed
+            || campaign.status == CampaignStatus::VerificationFailed
+        {
+            return REFUND_PERCENT_NONE;
+        }
+
+        // A campaign that failed its funding target refunds in full.
+        if campaign.status == CampaignStatus::Failed {
+            return REFUND_PERCENT_FULL;
+        }
+
+        // Tier 1 — the campaign never started within 60 days.
+        if campaign.planter == OptionalAddress::None
+            && now > campaign.created_at + REFUND_TIER_START_SECONDS
+        {
+            return REFUND_PERCENT_FULL;
+        }
+
+        // Tier 2 — started but no trees planted within 90 days.
+        let planting_count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PlantingCount(campaign_id))
+            .unwrap_or(0);
+        if planting_count == 0 && now > campaign.created_at + REFUND_TIER_PLANTING_SECONDS {
+            return REFUND_PERCENT_PARTIAL;
+        }
+
+        REFUND_PERCENT_NONE
+    }
+
+    /// Return the refund tier a contributor currently falls into.
+    ///
+    /// * `100` — full refund (campaign failed, or never started within 60 days)
+    /// * `50`  — partial refund (started but no trees planted within 90 days)
+    /// * `0`   — no refund (completed campaign, or trees planted in time)
+    ///
+    /// # Errors
+    /// * [`Error::CampaignNotFound`] — campaign does not exist.
+    pub fn get_refund_percent(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        Self::compute_refund_percent(&env, &campaign, campaign_id)
+    }
+
+    /// Claim a refund according to the tiered refund policy (issue #889).
+    ///
+    /// Each contributor calls this individually to recover their share of the
+    /// escrowed contribution:
+    ///
+    /// * **100 %** — campaign failed its funding target, or never started
+    ///   (no planter assigned) within 60 days of creation.
+    /// * **50 %** — campaign started but no trees were planted within 90 days
+    ///   of creation. The remaining 50 % stays escrowed for the planter who
+    ///   ultimately fulfils the commitment.
+    /// * **0 %** — the campaign completed (`Claimed`) or entered
+    ///   `VerificationFailed`; refunds are handled by the insurance flow
+    ///   instead.
+    ///
+    /// The refunded portion of the contribution record is cleared before the
     /// transfer executes (check-effects-interactions pattern) to prevent
-    /// double-refunds.
+    /// double-refunds. A 50 % refund clears the record entirely — the
+    /// contributor cannot claim the remaining half later.
     ///
     /// # Arguments
     /// * `contributor`  — The address reclaiming their contribution.
-    /// * `campaign_id`  — The failed campaign to refund from.
+    /// * `campaign_id`  — The campaign to refund from.
     ///
     /// # Errors
-    /// * [`Error::CampaignNotFailed`]    — campaign is not in `Failed` state.
+    /// * [`Error::CampaignNotFailed`]    — refund percentage is 0 % (campaign
+    ///   completed or still within all refund windows).
     /// * [`Error::NoContributionFound`]  — caller has no recorded contribution.
     pub fn refund(env: Env, contributor: Address, campaign_id: u64) {
         contributor.require_auth();
 
         let campaign = Self::load_campaign(&env, campaign_id);
 
-        let now = env.ledger().timestamp();
-        let sixty_days = 60 * 24 * 60 * 60;
-        let ninety_days = 90 * 24 * 60 * 60;
-
-        let mut refund_percent = 0;
-
-        if campaign.status == CampaignStatus::Failed {
-            refund_percent = 100;
-        } else if campaign.planter == OptionalAddress::None && now > campaign.created_at + sixty_days {
-            refund_percent = 100;
-        } else {
-            let count_key = DataKey::PlantingCount(campaign_id);
-            let planting_count: u64 = env.storage().instance().get(&count_key).unwrap_or(0);
-            if planting_count == 0 && now > campaign.created_at + ninety_days {
-                refund_percent = 50;
-            }
-        }
-
-        if campaign.status == CampaignStatus::Claimed || campaign.status == CampaignStatus::VerificationFailed {
-            refund_percent = 0;
-        }
-
+        let refund_percent = Self::compute_refund_percent(&env, &campaign, campaign_id);
         if refund_percent == 0 {
             panic_with_error!(&env, Error::CampaignNotFailed);
         }
@@ -1570,6 +2005,42 @@ impl CampaignFundingContract {
         Self::load_campaign(&env, campaign_id).revenue_shares
     }
 
+    /// Return one group's sponsorship record and cumulative contribution.
+    pub fn get_group_sponsorship(
+        env: Env,
+        campaign_id: u64,
+        group_id: u64,
+    ) -> GroupSponsorship {
+        Self::load_campaign(&env, campaign_id);
+        env.storage()
+            .persistent()
+            .get(&DataKey::GroupSponsorship(campaign_id, group_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::GroupSponsorshipNotFound))
+    }
+
+    /// Return all group sponsorships for a campaign in creation order.
+    pub fn get_group_sponsorships(env: Env, campaign_id: u64) -> Vec<GroupSponsorship> {
+        Self::load_campaign(&env, campaign_id);
+        let count: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::GroupSponsorshipCount(campaign_id))
+            .unwrap_or(0);
+        let mut groups = Vec::new(&env);
+        let mut group_id = 1;
+        while group_id <= count {
+            if let Some(group) = env
+                .storage()
+                .persistent()
+                .get(&DataKey::GroupSponsorship(campaign_id, group_id))
+            {
+                groups.push_back(group);
+            }
+            group_id += 1;
+        }
+        groups
+    }
+
     /// Return the total amount contributed by `contributor` to `campaign_id`.
     ///
     /// Returns `0` if the contributor has no record (including after a
@@ -1674,7 +2145,8 @@ impl CampaignFundingContract {
     /// * [`Error::CampaignNotFound`] — campaign does not exist.
     pub fn get_co2_multiplier(env: Env, campaign_id: u64) -> u32 {
         let campaign = Self::load_campaign(&env, campaign_id);
-        campaign.co2_multiplier.max(1)
+        let stored = campaign.co2_multiplier.max(1);
+        if stored <= 2 { stored * 10 } else { stored }
     }
 
     /// Configure the ERC-20–compatible carbon credit token contract for a campaign.
@@ -1772,10 +2244,12 @@ impl CampaignFundingContract {
             .get(&DataKey::VerifiedTreeCount(campaign_id))
             .unwrap_or(0);
 
-        let multiplier = campaign.co2_multiplier.max(1) as i128;
+        let stored = campaign.co2_multiplier.max(1);
+        let actual_multiplier = if stored <= 2 { stored * 10 } else { stored } as i128;
         let total_credits: i128 = (verified_trees as i128)
-            .checked_mul(multiplier)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+            .checked_mul(actual_multiplier)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow))
+            / 10;
 
         if total_credits <= 0 || contributors.is_empty() {
             // Nothing to mint — mark as done and return.
@@ -1875,10 +2349,47 @@ impl CampaignFundingContract {
             CarbonCreditsMintedEvent {
                 campaign_id,
                 total_minted: already_minted,
-                co2_multiplier: campaign.co2_multiplier.max(1),
+                co2_multiplier: if campaign.co2_multiplier.max(1) <= 2 { campaign.co2_multiplier.max(1) * 10 } else { campaign.co2_multiplier.max(1) },
                 verified_tree_count: verified_trees,
             },
         );
+    }
+
+    /// Retrieve the configured carbon credit token contract address for a campaign.
+    pub fn get_carbon_token(env: Env, campaign_id: u64) -> Option<Address> {
+        let key = DataKey::CarbonToken(campaign_id);
+        env.storage().persistent().get(&key)
+    }
+
+    /// Check if carbon credit tokens have already been minted for a campaign.
+    pub fn is_carbon_credit_minted(env: Env, campaign_id: u64) -> bool {
+        let minted_key = DataKey::CarbonCreditsMinted(campaign_id);
+        env.storage().persistent().get(&minted_key).unwrap_or(false)
+    }
+
+    /// Calculate the carbon credit token allocation (1 token = 1 ton CO2 eq) for a sponsor.
+    pub fn get_sponsor_carbon_credit_allocation(
+        env: Env,
+        campaign_id: u64,
+        sponsor: Address,
+    ) -> i128 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if campaign.total_raised == 0 {
+            return 0;
+        }
+
+        let contribution_key = DataKey::Contribution(campaign_id, sponsor);
+        let sponsor_contrib: i128 = env.storage().persistent().get(&contribution_key).unwrap_or(0);
+        if sponsor_contrib <= 0 {
+            return 0;
+        }
+
+        let verified_trees = Self::get_verified_tree_count(env.clone(), campaign_id);
+        let multiplier = Self::get_co2_multiplier(env.clone(), campaign_id);
+        let total_credits = (verified_trees as i128).saturating_mul(multiplier as i128) / 10;
+
+        // Sponsor credits = (sponsor_contrib * total_credits) / total_raised
+        (sponsor_contrib.saturating_mul(total_credits)) / campaign.total_raised
     }
 
     // -----------------------------------------------------------------------
@@ -1994,7 +2505,24 @@ impl CampaignFundingContract {
         tree_count: u32,
     ) -> u64 {
         planter.require_auth();
-        let _campaign = Self::load_campaign(&env, campaign_id);
+        let mut campaign = Self::load_campaign(&env, campaign_id);
+
+        // The first recorded planting permanently marks the campaign as
+        // started and anchors the refund tiers to real on-chain activity
+        // (issue #889). Later plantings are attributed to the same planter.
+        if campaign.planter == OptionalAddress::None {
+            campaign.planter = OptionalAddress::Some(planter.clone());
+            Self::save_campaign(&env, campaign_id, &campaign);
+
+            env.events().publish(
+                ("PlanterAssigned", campaign_id),
+                PlanterAssignedEvent {
+                    campaign_id,
+                    planter: planter.clone(),
+                    assigned_at: env.ledger().timestamp(),
+                },
+            );
+        }
 
         let count_key = DataKey::PlantingCount(campaign_id);
         let mut planting_count: u64 = env
@@ -2040,10 +2568,15 @@ impl CampaignFundingContract {
     }
 
     /// Mark a tree planting batch as verified on-chain.
-    pub fn verify_tree_planting(env: Env, campaign_id: u64, planting_id: u64) {
+    pub fn verify_tree_planting(env: Env, campaign_id: u64, planting_id: u64, photo_species: soroban_sdk::String) {
         Self::assert_initialized(&env);
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
+
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if campaign.tree_species != photo_species {
+            panic_with_error!(&env, Error::SpeciesMismatch);
+        }
 
         let key = DataKey::PlantingSla(campaign_id, planting_id);
         let mut record: PlantingSlaRecord = env
@@ -2070,6 +2603,202 @@ impl CampaignFundingContract {
                 verified_at: record.verified_at,
             },
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Tree Species Declaration & Verification (Issue #906)
+    // -----------------------------------------------------------------------
+
+    /// Specify and declare tree species for a campaign.
+    ///
+    /// Requires the campaign creator's authorization. Prevents fraud by binding
+    /// the campaign to specific tree species that must be proven during verification.
+    pub fn declare_tree_species(env: Env, campaign_id: u64, species: Vec<String>) {
+        Self::assert_initialized(&env);
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        if species.len() == 0 {
+            panic_with_error!(&env, Error::EmptySpeciesList);
+        }
+
+        // Validate each species name
+        for s in species.iter() {
+            let len = s.len();
+            if len == 0 || len > 64 {
+                panic_with_error!(&env, Error::InvalidSpeciesName);
+            }
+        }
+
+        let key = DataKey::CampaignSpecies(campaign_id);
+        env.storage().persistent().set(&key, &species);
+        env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.events().publish(
+            ("SpeciesDeclared", campaign_id),
+            SpeciesDeclaredEvent {
+                campaign_id,
+                species,
+            },
+        );
+    }
+
+    /// Retrieve the declared tree species for a campaign.
+    pub fn get_declared_species(env: Env, campaign_id: u64) -> Vec<String> {
+        let key = DataKey::CampaignSpecies(campaign_id);
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Create a campaign with required tree species declaration in a single call.
+    pub fn create_campaign_with_species(
+        env: Env,
+        creator: Address,
+        token: Address,
+        target_amount: i128,
+        min_target: i128,
+        deadline: u64,
+        insurance_fee: i128,
+        species: Vec<String>,
+    ) -> u64 {
+        let campaign_id = Self::create_campaign(
+            env.clone(),
+            creator,
+            token,
+            target_amount,
+            min_target,
+            deadline,
+            insurance_fee,
+        );
+        Self::declare_tree_species(env, campaign_id, species);
+        campaign_id
+    }
+
+    /// Verify a tree planting batch requiring uploaded photo proof to match declared species.
+    ///
+    /// Fraud prevention: Verifies that uploaded proof photos strictly match the tree
+    /// species specified by the campaign creator. Rejects any proof whose species does
+    /// not match the declared list.
+    pub fn verify_tree_planting_with_species_proof(
+        env: Env,
+        campaign_id: u64,
+        planting_id: u64,
+        proofs: Vec<SpeciesPhotoProof>,
+    ) {
+        Self::assert_initialized(&env);
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        if proofs.len() == 0 {
+            panic_with_error!(&env, Error::SpeciesProofRequired);
+        }
+
+        let declared_species = Self::get_declared_species(env.clone(), campaign_id);
+        if declared_species.len() == 0 {
+            panic_with_error!(&env, Error::SpeciesNotDeclared);
+        }
+
+        // Validate that every photo proof matches one of the declared species
+        for proof in proofs.iter() {
+            let mut matched = false;
+            for declared in declared_species.iter() {
+                if Self::species_matches(&declared, &proof.species) {
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                // Fraud detected: photo species does not match declared campaign species!
+                panic_with_error!(&env, Error::SpeciesMismatch);
+            }
+        }
+
+        // Proceed to verify the planting SLA record
+        let sla_key = DataKey::PlantingSla(campaign_id, planting_id);
+        let mut record: PlantingSlaRecord = env
+            .storage()
+            .persistent()
+            .get(&sla_key)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::PlantingNotFound));
+
+        if record.is_verified {
+            panic_with_error!(&env, Error::AlreadyVerified);
+        }
+
+        record.is_verified = true;
+        record.verified_at = env.ledger().timestamp();
+        env.storage().persistent().set(&sla_key, &record);
+
+        // Store verified photo proofs for audit trail
+        let proof_key = DataKey::PlantingSpeciesProof(campaign_id, planting_id);
+        env.storage().persistent().set(&proof_key, &proofs);
+        env.storage().persistent().extend_ttl(&proof_key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        Self::update_tree_rewards(&env, campaign_id, record.tree_count);
+
+        for proof in proofs.iter() {
+            env.events().publish(
+                ("SpeciesProofVerified", campaign_id),
+                SpeciesProofVerifiedEvent {
+                    campaign_id,
+                    planting_id,
+                    photo_hash: proof.photo_hash,
+                    species: proof.species,
+                    tree_count: proof.tree_count,
+                },
+            );
+        }
+
+        env.events().publish(
+            ("TreePlantingVerified", campaign_id),
+            TreePlantingVerifiedEvent {
+                campaign_id,
+                planting_id,
+                verified_at: record.verified_at,
+            },
+        );
+    }
+
+    /// Retrieve verified species photo proofs for a planting batch.
+    pub fn get_planting_species_proofs(
+        env: Env,
+        campaign_id: u64,
+        planting_id: u64,
+    ) -> Vec<SpeciesPhotoProof> {
+        let key = DataKey::PlantingSpeciesProof(campaign_id, planting_id);
+        env.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Case-insensitive ASCII comparison between two Soroban strings.
+    fn species_matches(s1: &String, s2: &String) -> bool {
+        let len1 = s1.len();
+        let len2 = s2.len();
+        if len1 != len2 {
+            return false;
+        }
+        let b1 = s1.to_bytes();
+        let b2 = s2.to_bytes();
+        let mut i = 0u32;
+        while i < len1 {
+            let mut byte1 = b1.get_unchecked(i);
+            let mut byte2 = b2.get_unchecked(i);
+            if byte1 >= b'A' && byte1 <= b'Z' {
+                byte1 += b'a' - b'A';
+            }
+            if byte2 >= b'A' && byte2 <= b'Z' {
+                byte2 += b'a' - b'A';
+            }
+            if byte1 != byte2 {
+                return false;
+            }
+            i += 1;
+        }
+        true
     }
 
     /// Claim SLA auto-refund if 30-day verification deadline passes without proof verification.
@@ -2833,7 +3562,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         assert_eq!(id, 1);
         assert_eq!(client.get_campaign_count(), 1);
 
@@ -2877,8 +3606,8 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &1_000);
 
-        let id1 = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
-        let id2 = client.create_campaign(&creator, &token, &20_000, &10_000, &3_000, &500);
+        let id1 = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
+        let id2 = client.create_campaign(&creator, &token, &20_000, &10_000, &3_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
         assert_eq!(client.get_campaign_count(), 2);
@@ -2902,7 +3631,7 @@ mod tests {
                 .set(&DataKey::CampaignCount, &u64::MAX);
         });
 
-        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
     }
 
     #[test]
@@ -2915,7 +3644,7 @@ mod tests {
         let client = CampaignFundingContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
     }
 
     #[test]
@@ -2927,7 +3656,7 @@ mod tests {
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        client.create_campaign(&creator, &token, &0, &0, &2_000, &500);
+        client.create_campaign(&creator, &token, &0, &0, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
     }
 
     #[test]
@@ -2940,7 +3669,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
         // min_target (6_000) > target_amount (5_000)
-        client.create_campaign(&creator, &token, &5_000, &6_000, &2_000, &500);
+        client.create_campaign(&creator, &token, &5_000, &6_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
     }
 
     #[test]
@@ -2952,7 +3681,7 @@ mod tests {
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        client.create_campaign(&creator, &token, &10_000, &0, &2_000, &500);
+        client.create_campaign(&creator, &token, &10_000, &0, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
     }
 
     #[test]
@@ -2965,7 +3694,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
         // deadline (2_000) < current time (5_000)
-        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
     }
 
     #[test]
@@ -2979,7 +3708,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
         let deadline = 1_000 + (90 * 24 * 60 * 60);
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         assert_eq!(id, 1);
     }
 
@@ -2994,7 +3723,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
         let deadline = 1_000 + MAX_CAMPAIGN_DURATION_SECONDS;
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         assert_eq!(id, 1);
     }
 
@@ -3008,7 +3737,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
         let deadline = 1_000 + MAX_CAMPAIGN_DURATION_SECONDS + 1;
-        client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500, &soroban_sdk::String::from_str(&env, "Oak"));
     }
 
     // -----------------------------------------------------------------------
@@ -3030,7 +3759,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &3_000);
 
         let campaign = client.get_campaign(&id);
@@ -3039,6 +3768,44 @@ mod tests {
         assert_eq!(client.get_contribution(&id, &contributor), 3_000);
         // Tokens are now held by the contract.
         assert_eq!(token_client.balance(&contributor), 7_000);
+    }
+
+    #[test]
+    fn test_contribute_anonymously_hides_address_from_contribution_event() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (contract_id, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute_anonymously(&contributor, &id, &3_000);
+        let events = env.events().all();
+
+        assert_eq!(client.get_contribution(&id, &contributor), 3_000);
+        assert_eq!(client.get_campaign(&id).total_raised, 3_000);
+
+        let anonymous_event = AnonymousContributionMadeEvent {
+            campaign_id: id,
+            amount: 3_000,
+            total_raised: 3_000,
+        }
+        .to_xdr(&env, &contract_id);
+        let public_event = ContributionMadeEvent {
+            campaign_id: id,
+            contributor,
+            amount: 3_000,
+            total_raised: 3_000,
+        }
+        .to_xdr(&env, &contract_id);
+        assert!(events.events().iter().any(|event| *event == anonymous_event));
+        assert!(!events.events().iter().any(|event| *event == public_event));
     }
 
     #[test]
@@ -3055,7 +3822,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &1_000);
         client.contribute(&contributor, &id, &2_000);
 
@@ -3079,7 +3846,7 @@ mod tests {
         token_admin_client.mint(&contrib1, &5_000);
         token_admin_client.mint(&contrib2, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contrib1, &id, &3_000);
         client.contribute(&contrib2, &id, &2_000);
 
@@ -3103,7 +3870,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
 
         // Advance past deadline.
         set_time(&env, 3_000);
@@ -3124,7 +3891,7 @@ mod tests {
         let contributor = Address::generate(&env);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &0);
     }
 
@@ -3143,7 +3910,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &20_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         // 11_000 > target_amount (10_000)
         client.contribute(&contributor, &id, &11_000);
     }
@@ -3178,7 +3945,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         // Contribute the full hard cap in one shot.
         client.contribute(&contributor, &id, &10_000);
 
@@ -3205,7 +3972,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &6_000); // > min_target
 
         // Advance past deadline.
@@ -3229,7 +3996,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &3_000); // < min_target
 
         set_time(&env, 3_000);
@@ -3249,7 +4016,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
 
@@ -3268,7 +4035,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         // Still before deadline — must panic.
         client.trigger_expiry(&id);
     }
@@ -3288,7 +4055,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &3_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // First call → Failed
@@ -3308,7 +4075,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         set_time(&env, 3_000);
         // Called with no auth mocking — just default env.
         client.trigger_expiry(&id);
@@ -3333,7 +4100,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &8_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3365,7 +4132,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3388,7 +4155,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.claim_funds(&id); // Still Active — must panic.
     }
 
@@ -3404,7 +4171,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
         client.claim_funds(&id); // Must panic.
@@ -3425,7 +4192,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3452,7 +4219,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &3_000); // < min_target
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
@@ -3483,14 +4250,14 @@ mod tests {
         token_admin_client.mint(&contrib2, &1_500);
         token_admin_client.mint(&contrib3, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contrib1, &id, &3_000);
         client.contribute(&contrib2, &id, &1_500);
         client.contribute(&contrib3, &id, &500); // total = 5_000 == min_target
 
         // Bring total below min_target by using a campaign where min > raised.
         // (For simplicity create a new campaign with higher min_target.)
-        let id2 = client.create_campaign(&creator, &token_addr, &10_000, &6_000, &2_000, &500);
+        let id2 = client.create_campaign(&creator, &token_addr, &10_000, &6_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         let contrib4 = Address::generate(&env);
         token_admin_client.mint(&contrib4, &4_000);
         client.contribute(&contrib4, &id2, &4_000); // 4_000 < 6_000 (min)
@@ -3517,7 +4284,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &1_000);
         // Campaign still Active — refund must panic.
         client.refund(&contributor, &id);
@@ -3538,7 +4305,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &7_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Successful
@@ -3558,7 +4325,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         let outsider = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
                                     // `outsider` never contributed — must panic.
@@ -3580,12 +4347,344 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &2_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
         client.refund(&contributor, &id); // First refund — OK.
         client.refund(&contributor, &id); // Second refund — must panic.
+    }
+
+    // -----------------------------------------------------------------------
+    // Tiered refund policy (issue #889)
+    //
+    // 100 % — campaign never started (no planter) within 60 days of creation
+    //  50 % — started but no trees planted within 90 days of creation
+    //   0 % — completed campaign, or trees planted within the 90-day window
+    // -----------------------------------------------------------------------
+
+    const DAY: u64 = 24 * 60 * 60;
+
+    #[test]
+    fn test_refund_tier1_full_refund_after_60_days_no_planter() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        // Far-future deadline so the campaign stays Active past the 60-day
+        // tier boundary.
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Before 60 days: no refund available yet.
+        set_time(&env, 1_000 + 60 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+
+        // After 60 days with no planter assigned: full refund.
+        set_time(&env, 1_000 + 60 * DAY + 1);
+        assert_eq!(client.get_refund_percent(&id), 100);
+        client.refund(&contributor, &id);
+        assert_eq!(token_client.balance(&contributor), 10_000);
+        assert_eq!(client.get_contribution(&id, &contributor), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn test_refund_no_refund_within_60_days_active() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Still within the 60-day window — refund must panic.
+        set_time(&env, 1_000 + 60 * DAY);
+        client.refund(&contributor, &id);
+    }
+
+    #[test]
+    fn test_refund_tier2_partial_refund_after_90_days() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Campaign starts within 60 days (planter assigned), so tier 1 no
+        // longer applies at any later time.
+        let planter = Address::generate(&env);
+        set_time(&env, 1_000 + 30 * DAY);
+        client.assign_planter(&id, &planter);
+
+        // Between 60 and 90 days: started but nothing planted — no refund yet.
+        set_time(&env, 1_000 + 75 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+
+        // After 90 days with no planting: 50 % partial refund.
+        set_time(&env, 1_000 + 90 * DAY + 1);
+        assert_eq!(client.get_refund_percent(&id), 50);
+        client.refund(&contributor, &id);
+        assert_eq!(token_client.balance(&contributor), 10_000 - 1_500);
+        assert_eq!(client.get_contribution(&id, &contributor), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn test_refund_tier2_not_before_90_days() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        let planter = Address::generate(&env);
+        set_time(&env, 1_000 + 30 * DAY);
+        client.assign_planter(&id, &planter);
+
+        // Started, past 60 days, but within the 90-day planting window —
+        // refund must panic.
+        set_time(&env, 1_000 + 89 * DAY);
+        client.refund(&contributor, &id);
+    }
+
+    #[test]
+    fn test_refund_assign_planter_blocks_tier1() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Assign the planter within the 60-day window.
+        let planter = Address::generate(&env);
+        set_time(&env, 1_000 + 59 * DAY);
+        client.assign_planter(&id, &planter);
+        assert_eq!(
+            client.get_campaign(&id).planter,
+            OptionalAddress::Some(planter.clone())
+        );
+
+        // Past 60 days tier 1 no longer fires (planter assigned in time);
+        // past 90 days tier 2 fires instead (no trees planted).
+        set_time(&env, 1_000 + 61 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+        set_time(&env, 1_000 + 91 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 50);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #28)")]
+    fn test_assign_planter_duplicate_rejected() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+
+        let planter = Address::generate(&env);
+        client.assign_planter(&id, &planter);
+
+        // A second assignment must fail — the first assignment wins so the
+        // refund outcome cannot be changed retroactively.
+        let other = Address::generate(&env);
+        client.assign_planter(&id, &other);
+    }
+
+    #[test]
+    fn test_refund_zero_after_planting_recorded() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        let planter = Address::generate(&env);
+        set_time(&env, 1_000 + 30 * DAY);
+        client.assign_planter(&id, &planter);
+
+        // Trees planted within the 90-day window.
+        set_time(&env, 1_000 + 80 * DAY);
+        client.record_tree_planting(&id, &planter, &100);
+
+        // Past 90 days: no refund — trees were planted in time.
+        set_time(&env, 1_000 + 95 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn test_refund_zero_after_claimed() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &7_000);
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id); // → Successful
+        client.verify_campaign(&id); // → Verified
+        client.claim_funds(&id); // → Claimed
+
+        // Completed campaign — 0 % refund, must panic.
+        set_time(&env, 1_000 + 120 * DAY);
+        client.refund(&contributor, &id);
+    }
+
+    #[test]
+    fn test_get_refund_percent_tier_transitions() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &(1_000 + 180 * DAY),
+            &500,
+        );
+        client.contribute(&contributor, &id, &3_000);
+
+        // Tier timeline without planter assignment:
+        // day 59 → 0 %, day 61 → 100 % (tier 1).
+        set_time(&env, 1_000 + 59 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 0);
+        set_time(&env, 1_000 + 61 * DAY);
+        assert_eq!(client.get_refund_percent(&id), 100);
+
+        // A late planter assignment cannot retroactively shrink tier 1, but
+        // it does enable tier 2 from the 90-day boundary onward.
+        let planter = Address::generate(&env);
+        client.assign_planter(&id, &planter);
+        assert_eq!(client.get_refund_percent(&id), 100); // tier 1 already breached
+
+        set_time(&env, 1_000 + 90 * DAY + 1);
+        assert_eq!(client.get_refund_percent(&id), 50); // tier 2 now applies
     }
 
     // -----------------------------------------------------------------------
@@ -3645,7 +4744,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &9_999);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3670,7 +4769,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &soroban_sdk::String::from_str(&env, "Oak"));
 
         let history = client.get_status_history(&id);
         assert_eq!(history.len(), 1);
@@ -3709,7 +4808,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &soroban_sdk::String::from_str(&env, "Oak"));
         set_time(&env, 1_500);
         client.contribute(&contributor, &id, &10_000); // Auto-succeed
 
@@ -3734,7 +4833,7 @@ mod tests {
         let contributor = Address::generate(&env);
         token_admin_client.mint(&contributor, &3_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &3_000); // Below min_target
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
@@ -3760,7 +4859,7 @@ mod tests {
         let contributor = Address::generate(&env);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &10_000); // Auto-succeed
         set_time(&env, 3_000);
         client.verify_campaign(&id);
@@ -3781,7 +4880,7 @@ mod tests {
 
         let history = client.get_status_history(&99);
         assert_eq!(history.len(), 0);
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &8_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3821,7 +4920,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3861,7 +4960,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &2_000); // 20 % < 25 %
 
         assert_eq!(client.get_milestones_reached(&id).len(), 0);
@@ -3881,7 +4980,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &3_000); // 30 % -> 25 % milestone
 
         // env.events() reflects only the last external call, so capture it
@@ -3918,7 +5017,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         // A single 6_000 contribution crosses both the 25 % and 50 % marks.
         client.contribute(&contributor, &id, &6_000);
 
@@ -3957,7 +5056,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &10_000); // reaches the hard cap
 
         assert_eq!(client.get_campaign(&id).status, CampaignStatus::Successful);
@@ -3983,7 +5082,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &3_000); // 30 % -> crosses 25 %
 
         // Capture events after the first contribution to assert the 25 % event.
@@ -4039,7 +5138,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &soroban_sdk::String::from_str(&env, "Oak"));
         client.contribute(&contributor, &id, &3_000); // crosses 25 %
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // 3_000 < 5_000 min -> Failed
@@ -4062,7 +5161,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &soroban_sdk::String::from_str(&env, "Oak"));
         assert_eq!(client.get_campaign(&id).status, CampaignStatus::Active);
 
         // Pause campaign
@@ -4088,7 +5187,7 @@ mod tests {
         let contributor = Address::generate(&env);
         token_admin_client.mint(&contributor, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &soroban_sdk::String::from_str(&env, "Oak"));
         client.pause_campaign(&id);
 
         // Must panic with CampaignPaused (#18)
@@ -4096,12 +5195,12 @@ mod tests {
         // May 15, 2026 (rainy season -> 2x multiplier)
         set_time(&env, 1_778_800_000);
         let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000);
-        assert_eq!(client.get_co2_multiplier(&id_rainy), 2);
+        assert_eq!(client.get_co2_multiplier(&id_rainy), 20);
 
         // January 15, 2026 (non-rainy season -> 1x multiplier)
         set_time(&env, 1_768_400_000);
         let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000);
-        assert_eq!(client.get_co2_multiplier(&id_dry), 1);
+        assert_eq!(client.get_co2_multiplier(&id_dry), 10);
     }
 
     #[test]
@@ -4183,6 +5282,11 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // Carbon Credit Token Minting Tests (Issue #845)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_carbon_credit_getters_and_sponsor_allocation() {
     // Campaign Escrow Tests (Issue #864)
     // -----------------------------------------------------------------------
 
@@ -4232,7 +5336,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #37)")]
+    #[should_panic(expected = "Error(Contract, #40)")]
     fn test_escrow_release_fails_if_unverified() {
         let env = Env::default();
         env.mock_all_auths();
@@ -4251,5 +5355,39 @@ mod tests {
 
         // Cannot release funds before verification! (Panics with EscrowNotVerified #37)
         client.release_escrow_to_creator(&id);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+        let token = Address::generate(&env);
+        let carbon_token = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+
+        // Initially no carbon token configured
+        assert_eq!(client.get_carbon_token(&id), None);
+        assert_eq!(client.is_carbon_credit_minted(&id), false);
+
+        // Configure carbon token
+        client.set_carbon_token(&id, &carbon_token);
+        assert_eq!(client.get_carbon_token(&id), Some(carbon_token));
+
+        // Sponsor contributes 5,000 out of 10,000 (50%)
+        client.contribute(&sponsor, &id, &5_000);
+
+        // Plant and verify 1,000 trees
+        let planter = Address::generate(&env);
+        client.record_tree_planting(&id, &planter, &1_000);
+        client.verify_tree_planting(&id, &0);
+
+        // Allocation: 50% of 1,000 trees * 1x multiplier = 500 carbon credit tokens
+        let allocation = client.get_sponsor_carbon_credit_allocation(&id, &sponsor);
+        assert_eq!(allocation, 500);
     }
 }
+
+
+
+
+
+
+
+

@@ -99,7 +99,7 @@ export class CampaignAnalyticsService {
     }
   }
 
-  private generateCampaignData(camp: { id: string; name: string; region: string; projectType: string; startYear: number; totalTrees: number }): CampaignHistoricalData {
+  private generateCampaignData(camp: { id: string; name: string; region: string; projectType: string; startYear: number; totalTrees: number }, includeSimilar = true): CampaignHistoricalData {
     const currentYear = new Date().getFullYear();
     const years = currentYear - camp.startYear + 1;
     const dataPoints: HistoricalDataPoint[] = [];
@@ -139,7 +139,7 @@ export class CampaignAnalyticsService {
       campaignName: camp.name,
       dataPoints,
       baselineModel: this.generateBaselineModel(camp.projectType),
-      similarCampaigns: this.generateSimilarCampaigns(camp),
+      similarCampaigns: includeSimilar ? this.generateSimilarCampaigns(camp) : [],
     };
   }
 
@@ -197,8 +197,11 @@ export class CampaignAnalyticsService {
     ];
 
     return similar.map((s, i) => ({
-      ...s,
-      dataPoints: this.generateCampaignData({ ...camp, id: s.id, name: s.name, region: s.region, totalTrees: camp.totalTrees + (i * 10000 - 15000) }).dataPoints,
+      campaignId: s.id,
+      campaignName: s.name,
+      region: s.region,
+      projectType: s.projectType,
+      dataPoints: this.generateCampaignData({ ...camp, id: s.id, name: s.name, region: s.region, totalTrees: camp.totalTrees + (i * 10000 - 15000) }, false).dataPoints,
       similarityScore: 0.9 - i * 0.1,
     }));
   }

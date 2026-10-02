@@ -1,13 +1,25 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import AppSelect from "@/components/molecules/AppSelect";
 import { Input } from "@/components/ui/input";
 import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  calculateCo2Forecast,
   calculateCo2Offset,
   DEFAULT_SPECIES_ID,
+  FORECAST_HORIZON_YEARS,
   TREE_SPECIES,
 } from "@/lib/co2-impact";
+import { SPECIES_PROFILES } from "@/lib/tree-growth";
 import {
   LineChart,
   Line,
@@ -30,6 +42,19 @@ function formatNumber(value: number, digits = 0): string {
   });
 }
 
+/**
+ * Resolve a campaign tree type (e.g. "Mangrove", "Fruit Tree") to its CO2
+ * species id. Campaign types that already are species ids pass through;
+ * anything unknown falls back to the default species.
+ */
+function resolveCampaignSpeciesId(campaignSpeciesId?: string): string {
+  if (!campaignSpeciesId) return DEFAULT_SPECIES_ID;
+  const id = campaignSpeciesId.toLowerCase();
+  if (TREE_SPECIES.some((species) => species.id === id)) return id;
+  const profile = SPECIES_PROFILES[campaignSpeciesId];
+  return profile?.co2SpeciesId ?? DEFAULT_SPECIES_ID;
+}
+
 export interface CampaignImpactCalculatorProps {
   campaignSpeciesId?: string;
   campaignTreeCount?: number;
@@ -41,21 +66,25 @@ export function CampaignImpactCalculator({
   campaignTreeCount,
   readOnly,
 }: CampaignImpactCalculatorProps = {}) {
-  const [speciesId, setSpeciesId] = useState<string>(campaignSpeciesId || DEFAULT_SPECIES_ID);
+  const [speciesId, setSpeciesId] = useState<string>(resolveCampaignSpeciesId(campaignSpeciesId));
   const [quantity, setQuantity] = useState<string>(campaignTreeCount?.toString() || "10");
   const [growthRate, setGrowthRate] = useState<string>("1.0");
 
-  useEffect(() => {
-    if (campaignSpeciesId && TREE_SPECIES.find((s) => s.id === campaignSpeciesId.toLowerCase())) {
-      setSpeciesId(campaignSpeciesId.toLowerCase());
-    }
-  }, [campaignSpeciesId]);
+  // Keep the interactive inputs in sync with campaign values by adjusting
+  // state during render (the react.dev "adjusting state on prop change"
+  // pattern) instead of setState-in-effect, which the react-hooks lint
+  // rules flag as a cascading-render hazard.
+  const [lastSpeciesProp, setLastSpeciesProp] = useState(campaignSpeciesId);
+  if (campaignSpeciesId && campaignSpeciesId !== lastSpeciesProp) {
+    setLastSpeciesProp(campaignSpeciesId);
+    setSpeciesId(resolveCampaignSpeciesId(campaignSpeciesId));
+  }
 
-  useEffect(() => {
-    if (campaignTreeCount !== undefined) {
-      setQuantity(campaignTreeCount.toString());
-    }
-  }, [campaignTreeCount]);
+  const [lastTreeCountProp, setLastTreeCountProp] = useState(campaignTreeCount);
+  if (campaignTreeCount !== undefined && campaignTreeCount !== lastTreeCountProp) {
+    setLastTreeCountProp(campaignTreeCount);
+    setQuantity(campaignTreeCount.toString());
+  }
 
   const parsedQuantity = Number.parseInt(quantity, 10);
   const quantityValue = Number.isFinite(parsedQuantity) ? parsedQuantity : 0;
@@ -67,6 +96,11 @@ export function CampaignImpactCalculator({
     () => calculateCo2Offset(speciesId, quantityValue, undefined, growthRateValue),
     [speciesId, quantityValue, growthRateValue],
   );
+  const forecast = useMemo(
+    () => calculateCo2Forecast(speciesId, quantityValue),
+    [speciesId, quantityValue],
+  );
+  const finalForecast = forecast[forecast.length - 1];
 
   const chartData = useMemo(() => {
     const data = [];
@@ -105,10 +139,10 @@ export function CampaignImpactCalculator({
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
       <div className="space-y-1">
         <h2 className="text-lg font-semibold text-white">
-          Real-Time CO2 Sequestration (v2)
+          Campaign Impact Calculator
         </h2>
         <p className="text-sm text-zinc-400">
-          Projected CO2 offset based on tree count, species, and estimated growth rate. Updates as contributions arrive.
+          Real-time CO2 sequestration based on tree count, species, and estimated growth rate. Updates as sponsors contribute.
         </p>
       </div>
 
@@ -167,26 +201,23 @@ export function CampaignImpactCalculator({
       )}
 
       {readOnly && (
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <div>
-            <p className="mb-1.5 ml-1 text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">
-              Est. Growth Rate Mult.
-            </p>
-            <Input
-              id="growth-rate-readonly"
-              type="number"
-              step="0.1"
-              min="0.1"
-              inputMode="decimal"
-              value={growthRate}
-              onChange={(event) => setGrowthRate(event.target.value)}
-              className="bg-zinc-900 border-zinc-700 text-white"
-            />
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+            <p className="text-xs text-zinc-500">Tree species</p>
+            <p className="text-sm font-semibold text-white">{result.speciesLabel}</p>
+          </div>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+            <p className="text-xs text-zinc-500">Trees funded</p>
+            <p className="text-sm font-semibold text-white">{result.quantity.toLocaleString()}</p>
+          </div>
+          <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 px-3 py-2">
+            <p className="text-xs text-zinc-500">Est. growth rate</p>
+            <p className="text-sm font-semibold text-white">{growthRateValue.toFixed(1)}×</p>
           </div>
         </div>
       )}
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-live="polite">
         <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-3">
           <p className="text-xs text-zinc-400">CO2 offset / year</p>
           <p className="mt-1 text-2xl font-bold text-emerald-300">
@@ -220,6 +251,92 @@ export function CampaignImpactCalculator({
         </div>
       </div>
 
+      <section
+        aria-labelledby="campaign-impact-forecast-heading"
+        className="mt-6 rounded-xl border border-zinc-800 bg-zinc-950/70 p-4"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h3
+              id="campaign-impact-forecast-heading"
+              className="text-base font-semibold text-white"
+            >
+              {FORECAST_HORIZON_YEARS}-year CO2 sequestration forecast
+            </h3>
+            <p className="mt-1 text-xs text-zinc-400">
+              Model estimate accounts for species growth, annual tree mortality,
+              and a climate adjustment factor.
+            </p>
+          </div>
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
+            <p className="text-xs text-zinc-300">
+              Year {finalForecast.year} cumulative estimate
+            </p>
+            <p className="mt-1 text-xl font-bold text-emerald-200">
+              {formatNumber(finalForecast.expectedCumulativeKg)} kg
+            </p>
+            <p className="text-xs text-zinc-300">
+              95% confidence interval: {formatNumber(finalForecast.lower95Kg)}–
+              {formatNumber(finalForecast.upper95Kg)} kg
+            </p>
+          </div>
+        </div>
+
+        <div
+          aria-label="Twenty-year cumulative CO2 forecast with 95% confidence interval"
+          className="mt-5 h-64 w-full"
+          role="img"
+        >
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={forecast} margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
+              <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="year"
+                stroke="#a1a1aa"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(year: number) => `${year}y`}
+              />
+              <YAxis
+                stroke="#a1a1aa"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value: number) => formatNumber(value)}
+                width={56}
+              />
+              <Tooltip
+                formatter={(value, name) => [
+                  `${formatNumber(Number(value))} kg`,
+                  String(name),
+                ]}
+                labelFormatter={(year) => `Year ${year}`}
+                contentStyle={{ backgroundColor: "#09090b", borderColor: "#3f3f46" }}
+              />
+              <Line
+                dataKey="lower95Kg"
+                name="95% lower bound"
+                stroke="#67e8f9"
+                strokeDasharray="5 4"
+                dot={false}
+                isAnimationActive={false}
+              />
+              <Line
+                dataKey="expectedCumulativeKg"
+                name="Expected cumulative CO2"
+                stroke="#34d399"
+                strokeWidth={2}
+                dot={false}
+                isAnimationActive={false}
+              />
+              <Line
+                dataKey="upper95Kg"
+                name="95% upper bound"
+                stroke="#fbbf24"
+                strokeDasharray="5 4"
+                dot={false}
+                isAnimationActive={false}
       <div className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-white">Historical CO2 Sequestration</h3>
@@ -265,6 +382,46 @@ export function CampaignImpactCalculator({
             </LineChart>
           </ResponsiveContainer>
         </div>
+
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-medium text-zinc-200">
+            View annual forecast data
+          </summary>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[34rem] text-left text-xs">
+              <caption className="sr-only">
+                Annual cumulative CO2 sequestration estimate and 95% confidence
+                interval in kilograms
+              </caption>
+              <thead className="text-zinc-300">
+                <tr>
+                  <th scope="col" className="px-3 py-2">Year</th>
+                  <th scope="col" className="px-3 py-2">95% lower (kg)</th>
+                  <th scope="col" className="px-3 py-2">Expected (kg)</th>
+                  <th scope="col" className="px-3 py-2">95% upper (kg)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800 text-zinc-200">
+                {forecast.map((point) => (
+                  <tr key={point.year}>
+                    <th scope="row" className="px-3 py-2 font-medium">
+                      {point.year}
+                    </th>
+                    <td className="px-3 py-2">{formatNumber(point.lower95Kg)}</td>
+                    <td className="px-3 py-2">{formatNumber(point.expectedCumulativeKg)}</td>
+                    <td className="px-3 py-2">{formatNumber(point.upper95Kg)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <p className="mt-3 text-xs text-zinc-400">
+          Estimates use independent normal uncertainty assumptions for growth,
+          mortality, and climate factors. They are planning estimates, not
+          verified carbon credits or a guarantee of field outcomes.
+        </p>
+      </section>
       </div>
     </section>
   );
