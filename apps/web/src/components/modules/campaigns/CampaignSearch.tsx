@@ -19,7 +19,7 @@ import {
 import { CampaignData, CampaignFilterOptions, CampaignStatus, TreeType, Region } from "@/types/campaign";
 
 // Sample initial campaign records for demonstration & discovery
-const INITIAL_CAMPAIGNS: CampaignData[] = [
+export const INITIAL_CAMPAIGNS: CampaignData[] = [
   {
     id: "1",
     title: "Amazon Rainforest Reforestation Initiative",

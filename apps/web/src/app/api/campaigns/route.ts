@@ -1,12 +1,34 @@
 import { createCampaign, findDuplicateCampaigns, queryCampaigns } from "@/services/campaign.service";
+import {
+  detectLanguage,
+  hasOnlySupportedTranslationLocales,
+  isSupportedTranslationLocale,
+} from "@/lib/translation";
 import { listCreditListings, createCreditListing, purchaseCreditListing } from "@/services/carbon-credit-market.service";
-import { autoTranslate, detectLanguage, SUPPORTED_TRANSLATION_LOCALES } from "@/lib/translation";
+import {
+  detectLanguage,
+  isSupportedTranslationLocale,
+  localizeCampaign,
+  localeFromAcceptLanguage,
+  normalizeTranslationLocale,
+  SUPPORTED_TRANSLATION_LOCALES,
+  validateDescriptionTranslations,
+  validateLocalizedContentMap,
+} from "@/lib/translation";
 import { withCampaignApiRateLimit } from "@/middlewares/rate-limit.middleware";
+import { UNDERREPRESENTED_CRITERIA } from "@/services/grant-program.service";
 
 export const runtime = "nodejs";
 
 async function getCampaigns(request: Request) {
   const url = new URL(request.url);
+  const hasLanguageParameter = url.searchParams.has("language");
+  const requestedLanguage = hasLanguageParameter
+    ? normalizeTranslationLocale(url.searchParams.get("language") ?? "")
+    : localeFromAcceptLanguage(request.headers.get("accept-language"));
+  if (hasLanguageParameter && !requestedLanguage) {
+    return Response.json({ error: "Unsupported or invalid language code", supportedLanguages: SUPPORTED_TRANSLATION_LOCALES }, { status: 400 });
+  }
   const status = url.searchParams.get("status") as never;
   const creator = url.searchParams.get("creator") ?? undefined;
   const search = url.searchParams.get("search") ?? undefined;
@@ -20,23 +42,28 @@ async function getCampaigns(request: Request) {
     offset: Number.isFinite(offset) ? offset : 0,
     network: (url.searchParams.get("network") as "testnet" | "mainnet" | null) ?? undefined,
   });
+  const responseCampaigns = requestedLanguage
+    ? campaigns.map((campaign) => localizeCampaign(campaign, requestedLanguage))
+    : campaigns;
   if (includeStats && creator) {
-    const totalTrees = campaigns.reduce((sum, campaign) => sum + (Number(campaign.treesPlanted) || 0), 0);
-    const totalSponsors = campaigns.reduce((sum, campaign) => sum + (Number(campaign.sponsorCount) || 0), 0);
-    const totalCo2 = campaigns.reduce((sum, campaign) => sum + (Number(campaign.co2Sequestered) || 0), 0);
+const totalTrees = responseCampaigns.reduce((sum, campaign) => sum + (Number(campaign.treesPlanted) || 0), 0);
+    const totalSponsors = responseCampaigns.reduce((sum, campaign) => sum + (Number(campaign.sponsorCount) || 0), 0);
+    const totalCo2 = responseCampaigns.reduce((sum, campaign) => sum + (Number(campaign.co2Sequestered) || 0), 0);
+    const diverseCampaigns = responseCampaigns.filter((campaign) => campaign.geographicDiversity?.bonusApplied).length;
     return Response.json({
-      data: campaigns,
-      pagination: { limit, offset, count: campaigns.length },
+      data: responseCampaigns,
+      pagination: { limit, offset, count: responseCampaigns.length },
       stats: {
         totalCampaigns: campaigns.length,
         totalTrees,
         totalSponsors,
         totalCo2,
+        diverseCampaigns,
         profileUrl: `/creators/${encodeURIComponent(creator)}`,
       },
     });
   }
-  return Response.json({ data: campaigns, pagination: { limit, offset, count: campaigns.length } });
+  return Response.json({ data: responseCampaigns, pagination: { limit, offset, count: responseCampaigns.length } });
 }
 
 async function postCampaign(request: Request) {
@@ -48,14 +75,22 @@ async function postCampaign(request: Request) {
       description?: string;
       location?: string;
       countries?: string[];
+      speciesTags?: string[];
       region?: string;
       treeSpecies?: string;
+      /** GPS coordinates of the planting site(s), validated and stored for the
+       * global planting-locations map (campaign geolocation, v1). */
+      gpsLocations?: Array<{ latitude: number; longitude: number }>;
+      /** Underrepresented-community tags qualifying the campaign for the
+       * platform's first-10% grant matching programs. */
+      underrepresentedTags?: string[];
       durationMs?: number;
       deadline?: number;
       goalAmount?: string;
       network?: "testnet" | "mainnet";
       language?: string;
       translations?: Record<string, string>;
+      localizedContent?: Record<string, { name?: string; title?: string; description?: string; location?: string; treeSpecies?: string; region?: string }>;
       autoTranslate?: boolean;
       nonprofitPartner?: {
         legalName?: unknown;
@@ -63,6 +98,9 @@ async function postCampaign(request: Request) {
         country?: unknown;
       };
     };
+    if (body.autoTranslate) {
+      return Response.json({ error: "Automatic translation is not configured; provide reviewed translations instead" }, { status: 501 });
+    }
     if (!body.creator || !body.name || !body.goalAmount) {
       return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
     }
@@ -72,8 +110,20 @@ async function postCampaign(request: Request) {
     if (body.location !== undefined && typeof body.location !== "string") {
       return Response.json({ error: "location must be a string" }, { status: 400 });
     }
+    if (body.language !== undefined && !isSupportedTranslationLocale(body.language)) {
+      return Response.json({ error: "language must be a supported ISO 639-1 code", supportedLanguages: SUPPORTED_TRANSLATION_LOCALES }, { status: 400 });
+    }
+    if (body.translations !== undefined && !validateDescriptionTranslations(body.translations)) {
+      return Response.json({ error: "translations must map supported language codes to non-empty descriptions" }, { status: 400 });
+    }
+    if (body.localizedContent !== undefined && !validateLocalizedContentMap(body.localizedContent)) {
+      return Response.json({ error: "localizedContent must map supported language codes to non-empty campaign fields" }, { status: 400 });
+    }
     if (body.countries !== undefined && (!Array.isArray(body.countries) || body.countries.some((c) => typeof c !== "string"))) {
       return Response.json({ error: "countries must be an array of strings" }, { status: 400 });
+    }
+    if (body.speciesTags !== undefined && (!Array.isArray(body.speciesTags) || body.speciesTags.some((tag) => typeof tag !== "string"))) {
+      return Response.json({ error: "speciesTags must be an array of strings" }, { status: 400 });
     }
     if (body.region !== undefined && typeof body.region !== "string") {
       return Response.json({ error: "region must be a string" }, { status: 400 });
@@ -81,9 +131,55 @@ async function postCampaign(request: Request) {
     if (body.treeSpecies !== undefined && typeof body.treeSpecies !== "string") {
       return Response.json({ error: "treeSpecies must be a string" }, { status: 400 });
     }
+    if (body.gpsLocations !== undefined) {
+      if (
+        !Array.isArray(body.gpsLocations) ||
+        body.gpsLocations.some(
+          (point) =>
+            !point ||
+            typeof point.latitude !== "number" ||
+            !Number.isFinite(point.latitude) ||
+            point.latitude < -90 ||
+            point.latitude > 90 ||
+            typeof point.longitude !== "number" ||
+            !Number.isFinite(point.longitude) ||
+            point.longitude < -180 ||
+            point.longitude > 180,
+        )
+      ) {
+        return Response.json(
+          { error: "gpsLocations must be an array of { latitude, longitude } coordinates within range" },
+          { status: 400 },
+        );
+      }
+    }
+    if (body.underrepresentedTags !== undefined) {
+      if (
+        !Array.isArray(body.underrepresentedTags) ||
+        body.underrepresentedTags.some(
+          (tag) => typeof tag !== "string" || !(UNDERREPRESENTED_CRITERIA as readonly string[]).includes(tag),
+        )
+      ) {
+        return Response.json(
+          { error: "underrepresentedTags must be an array of valid grant eligibility criteria" },
+          { status: 400 },
+        );
+      }
+    }
     if (body.durationMs !== undefined && (!Number.isFinite(body.durationMs) || body.durationMs < 0)) {
       return Response.json({ error: "durationMs must be a non-negative number" }, { status: 400 });
     }
+    if (body.language && !isSupportedTranslationLocale(body.language)) {
+      return Response.json({ error: "language is not supported" }, { status: 400 });
+    }
+    if (body.translations && !hasOnlySupportedTranslationLocales(body.translations)) {
+      return Response.json({ error: "translations contain an unsupported language" }, { status: 400 });
+    }
+    if (body.autoTranslate) {
+      return Response.json(
+        { error: "Automatic translation is unavailable. Provide translations for the supported languages." },
+        { status: 501 },
+      );
     let nonprofitPartner: { legalName: string; registrationNumber: string; country: string } | undefined;
     if (body.nonprofitPartner !== undefined) {
       const partner = body.nonprofitPartner;
@@ -124,16 +220,12 @@ async function postCampaign(request: Request) {
       );
     }
 
-    // Language detection and auto-translation
     const description = body.description ?? "";
     const language = body.language ?? detectLanguage(description);
-    let translations = body.translations ?? {};
-    if (body.autoTranslate) {
-      translations = {
-        ...autoTranslate(description, SUPPORTED_TRANSLATION_LOCALES),
-        ...translations,
-      };
-    }
+    const translations = body.translations ?? {};
+    // Language detection is metadata only; translations are supplied explicitly.
+    const description = body.description ?? "";
+    const language = body.language ? normalizeTranslationLocale(body.language)! : detectLanguage(description);
 
     const campaign = await createCampaign({
       creator: body.creator,
@@ -142,14 +234,18 @@ async function postCampaign(request: Request) {
       description,
       location: body.location,
       countries: body.countries,
+      speciesTags: body.speciesTags,
       region: body.region,
       treeSpecies: body.treeSpecies,
+      gpsLocations: body.gpsLocations,
+      underrepresentedTags: body.underrepresentedTags,
       durationMs,
       goalAmount: body.goalAmount,
       network: body.network,
       nonprofitPartner,
       language,
-      translations,
+      translations: body.translations,
+      localizedContent: body.localizedContent,
     });
     return Response.json(campaign, { status: 201 });
   } catch {

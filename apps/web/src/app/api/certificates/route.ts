@@ -19,7 +19,7 @@ import {
  *   200 — `application/pdf` binary stream with headers:
  *     - `Content-Disposition: attachment; filename="fundable-receipt-<id>.pdf"`
  *     - `X-Certificate-Id: <uuid>`
- *     - `X-Generated-At: <iso8601>`
+ *     - `X-Generated-At: <iso8601>`"
  *   400 — `{ error: string }` — invalid input
  *   500 — `{ error: string }` — generation failure
  *

@@ -76,13 +76,17 @@ stellar_client/
 ├── contracts/               # Soroban smart contracts (Rust)
 │   ├── payment-stream/      # Payment streaming contract
 │   ├── distributor/         # Token distribution contract
-│   ├── campaign/            # Campaign fundraising contract
+│   ├── campaign-funding/    # Campaign escrow & funding contract
+│   ├── campaign-verification-audit/ # Immutable on-chain verification audit log
+│   ├── planter/             # Planter performance & metrics contract
 │   └── Cargo.toml           # Rust workspace config
 │
 ├── docs/                      # Project documentation
 │   ├── architecture.md
 │   ├── getting-started.md     # Project setup documentation
 │   ├── webhooks.md            # Webhook system documentation
+│   ├── openapi.yaml           # OpenAPI specification
+│   ├── rate-limits.md         # API rate limiting documentation
 │   ├── contracts/             # Contracts documentation
 │   │   ├── distributor.md
 │   │   └── payment-stream.md
@@ -102,6 +106,8 @@ stellar_client/
 - **Token Distribution** - Efficiently distribute tokens to multiple recipients
 - **Campaign Funding** - Launch and manage on-chain fundraising campaigns with milestones
 - **Multi-Asset Support** - USDC, XLM, and other Stellar assets
+- **Campaign Milestone Push Notifications** - Real-time mobile push updates for trees planted, verification complete, campaign finished, and impact achieved
+- **Campaign Verification Audit Trail** - Immutable blockchain log of all verification activities (submitted for review, verifier comments, photo uploaded, approved/rejected)
 - **Offramp Integration** - Convert crypto to fiat currencies
 
 ## 🛠️ Tech Stack

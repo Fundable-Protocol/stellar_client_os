@@ -17,7 +17,7 @@ export const TreeMilestoneTimeline: React.FC = () => {
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 mb-8">
       <div className="mb-6">
         <h3 className="text-lg font-semibold text-white">Tree Lifecycle Timeline</h3>
-        <p className="text-sm text-zinc-400">Track your sponsored tree's journey.</p>
+        <p className="text-sm text-zinc-400">Track your sponsored tree&apos;s journey.</p>
       </div>
       <div className="relative">
         <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-zinc-800" />

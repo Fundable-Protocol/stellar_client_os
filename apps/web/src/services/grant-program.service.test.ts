@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   GrantProgramService,
+  applyAutomaticGrantMatches,
   campaignTags,
   getGrantProgramService,
   resetGrantProgramService,
@@ -8,7 +9,12 @@ import {
   type GrantAllocation,
   type GrantProgram,
 } from "./grant-program.service";
-import { InMemoryCampaignDataSource, createCampaign, type CampaignRecord } from "./campaign.service";
+import {
+  InMemoryCampaignDataSource,
+  createCampaign,
+  recordCampaignContribution,
+  type CampaignRecord,
+} from "./campaign.service";
 
 async function fixtureCampaign(source: InMemoryCampaignDataSource, overrides: Partial<CampaignRecord> = {}) {
   const campaign = await createCampaign(
@@ -147,6 +153,79 @@ describe("grant program service", () => {
     const allocations = await service.getCampaignAllocations(campaign.id);
     expect(allocations).toHaveLength(1);
     expect(allocations[0].matchedAmount).toBe("500");
+  });
+
+  it("merges creator-declared tags with the location heuristic", () => {
+    expect(
+      campaignTags({ ...campaign, underrepresentedTags: ["GENDER_MARGINALIZED", "gender-marginalized"] }),
+    ).toEqual(["GENDER_MARGINALIZED", "REGION_SOUTH_GLOBAL"]);
+    expect(
+      campaignTags({ ...campaign, location: "Ontario", underrepresentedTags: ["INDIGENOUS"] }),
+    ).toEqual(["INDIGENOUS"]);
+    expect(
+      campaignTags({ ...campaign, underrepresentedTags: ["not-a-criteria"] }),
+    ).toEqual(["REGION_SOUTH_GLOBAL"]);
+  });
+
+  it("automatically matches contributions for eligible campaigns", async () => {
+    seedGrantPrograms([
+      {
+        id: "grant_auto",
+        name: "Auto Match Fund",
+        matchPercentage: 10,
+        perCampaignCap: "0",
+        totalPool: "100000",
+        allocated: "0",
+        eligibilityCriteria: ["REGION_SOUTH_GLOBAL"],
+        status: "OPEN",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    const allocations = await applyAutomaticGrantMatches(campaign.id, "5000", "platform", source);
+    expect(allocations).toHaveLength(1);
+    expect(allocations[0].matchedAmount).toBe("500");
+  });
+
+  it("matches across every eligible open program", async () => {
+    seedGrantPrograms([
+      { id: "grant_a", name: "Fund A", matchPercentage: 10, perCampaignCap: "0", totalPool: "10000", allocated: "0", eligibilityCriteria: ["REGION_SOUTH_GLOBAL"], status: "OPEN", createdAt: 1, updatedAt: 1 },
+      { id: "grant_b", name: "Fund B", matchPercentage: 10, perCampaignCap: "0", totalPool: "10000", allocated: "0", eligibilityCriteria: ["REGION_SOUTH_GLOBAL"], status: "OPEN", createdAt: 2, updatedAt: 2 },
+    ]);
+    const allocations = await applyAutomaticGrantMatches(campaign.id, "2000", "platform", source);
+    expect(allocations).toHaveLength(2);
+    expect(allocations.map((a) => a.matchedAmount)).toEqual(["200", "200"]);
+  });
+
+  it("qualifies a campaign through declared tags alone", async () => {
+    await createCampaign(
+      { id: "tagged-camp", creator: "creator-x", name: "Tagged", location: "Ontario", underrepresentedTags: ["GENDER_MARGINALIZED"], goalAmount: "1000" },
+      source,
+    );
+    seedGrantPrograms([
+      { id: "grant_gm", name: "Marginalized Creators Fund", matchPercentage: 10, perCampaignCap: "0", totalPool: "10000", allocated: "0", eligibilityCriteria: ["GENDER_MARGINALIZED"], status: "OPEN", createdAt: 1, updatedAt: 1 },
+    ]);
+    const allocations = await applyAutomaticGrantMatches("tagged-camp", "1000", "platform", source);
+    expect(allocations).toHaveLength(1);
+    expect(allocations[0].matchedAmount).toBe("100");
+  });
+
+  it("returns no allocations when no program matches the campaign", async () => {
+    const allocations = await applyAutomaticGrantMatches(campaign.id, "5000", "platform", source);
+    expect(allocations).toEqual([]);
+  });
+
+  it("matches automatically when a contribution is recorded", async () => {
+    seedGrantPrograms([
+      { id: "grant_auto2", name: "Auto Fund", matchPercentage: 10, perCampaignCap: "0", totalPool: "10000", allocated: "0", eligibilityCriteria: ["REGION_SOUTH_GLOBAL"], status: "OPEN", createdAt: 1, updatedAt: 1 },
+    ]);
+    const result = await recordCampaignContribution(campaign.id, "5000", source);
+    expect(result?.campaign.raisedAmount).toBe("5000");
+
+    const allocations = await getGrantProgramService(source).getCampaignAllocations(campaign.id);
+    expect(allocations).toHaveLength(1);
+    expect(allocations[0].matchedAmount).toBe("500");
+    expect(allocations[0].allocatedBy).toBe("platform");
   });
 });
 

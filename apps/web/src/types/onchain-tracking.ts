@@ -28,6 +28,15 @@ export interface NFTCertificate {
   metadataUri: string;
   assetCode: string;
   verified: boolean;
+  /** Environmental impact recorded in the certificate metadata. */
+  impact?: EnvironmentalImpact;
+}
+
+export interface EnvironmentalImpact {
+  trees: number;
+  co2OffsetTons: number;
+  sponsorCount: number;
+  completedAt: string;
 }
 
 export interface RecordMilestoneInput {
@@ -46,6 +55,7 @@ export interface MintCertificateInput {
   fundingGoal: string;
   totalRaised: string;
   recipientAddress?: string;
+  impact?: EnvironmentalImpact;
 }
 
 export interface CertificateVerification {

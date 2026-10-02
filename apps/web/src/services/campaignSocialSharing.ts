@@ -69,16 +69,16 @@ export class CampaignSocialSharingService {
     const allHashtags = [...defaultHashtags, ...hashtags];
 
     const sponsorText = sponsorName ? ` by ${sponsorName}` : '';
-    const impactText = `${treesPlanted.toLocaleString()} trees planted${sponsorText}, ${co2Sequestered.toLocaleString()} tons CO₂ sequestered in ${region}`;
-
-    const baseText = customMessage || `I just supported "${campaignName}"! ${impactText} 🌱 Join me in making an impact!`;
+    const impactText = `${treesPlanted.toLocaleString()} trees planted${sponsorText}, ${co2Sequestered.toLocaleString()} tons CO2 sequestered in ${region}`;
+    const custom = customMessage ? `${customMessage} ` : '';
+    const baseText = `${custom}${campaignName}: ${impactText}`;
 
     const twitterText = this.truncateForTwitter(baseText, campaignUrl, allHashtags);
     const facebookText = `${baseText}\n\nLearn more: ${campaignUrl}`;
     const linkedinText = `${baseText}\n\nCampaign: ${campaignName}\nLocation: ${region}\nType: ${projectType}\nImpact: ${impactText}\n\n${campaignUrl}`;
     const whatsappText = `${baseText}\n\n${campaignUrl}`;
     const emailSubject = `Join me in supporting ${campaignName}!`;
-    const emailBody = `${baseText}\n\nCampaign Details:\n- Trees Planted: ${treesPlanted.toLocaleString()}\n- CO₂ Sequestered: ${co2Sequestered.toLocaleString()} tons\n- Region: ${region}\n- Project Type: ${projectType}\n\nJoin me: ${campaignUrl}`;
+    const emailBody = `${baseText}\n\nCampaign Details:\n- Trees Planted: ${treesPlanted.toLocaleString()}\n- CO2 Sequestered: ${co2Sequestered.toLocaleString()} tons\n- Region: ${region}\n- Project Type: ${projectType}\n\nJoin me: ${campaignUrl}`;
 
     return {
       twitter: {
@@ -114,55 +114,34 @@ export class CampaignSocialSharingService {
     };
   }
 
-  private truncateForTwitter(text: string, url: string, hashtags: string[]): string {
+  private truncateForTwitter(text: string, _url: string, _hashtags: string[]): string {
     const maxLength = 280;
-    const urlLength = 23; // t.co shortened URL length
-    const hashtagText = ' ' + hashtags.map(h => `#${h}`).join(' ');
-    const availableLength = maxLength - urlLength - hashtagText.length - 1; // -1 for space before URL
-
-    if (text.length <= availableLength) {
+    if (text.length <= maxLength) {
       return text;
     }
-
-    return text.substring(0, availableLength - 3) + '...';
+    return text.substring(0, maxLength - 3) + '...';
   }
 
   private buildTwitterUrl(text: string, url: string, hashtags: string[]): string {
-    const params = new URLSearchParams();
-    params.append('text', text);
-    params.append('url', url);
-    if (hashtags.length > 0) {
-      params.append('hashtags', hashtags.join(','));
-    }
-    return `https://twitter.com/intent/tweet?${params.toString()}`;
+    const tags = hashtags.length > 0 ? `&hashtags=${hashtags.join(',')}` : '';
+    return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${url}${tags}`;
   }
 
   private buildFacebookUrl(url: string): string {
-    return `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+    return `https://www.facebook.com/sharer/sharer.php?u=${url}`;
   }
 
   private buildLinkedInUrl(url: string, title: string, summary: string): string {
-    const params = new URLSearchParams();
-    params.append('url', url);
-    params.append('title', title);
-    params.append('summary', summary);
-    return `https://www.linkedin.com/sharing/share-offsite/?${params.toString()}`;
+    return `https://www.linkedin.com/sharing/share-offsite/?url=${url}&title=${encodeURIComponent(title)}&summary=${encodeURIComponent(summary)}`;
   }
 
   private buildWhatsAppUrl(text: string): string {
-    return `https://wa.me/?text=${encodeURIComponent(text)}`;
+    return `https://wa.me/?text=${encodeURI(text)}`;
   }
 
   private buildEmailUrl(subject: string, body: string): string {
-    const params = new URLSearchParams();
-    params.append('subject', subject);
-    params.append('body', body);
-    return `mailto:?${params.toString()}`;
+    return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURI(body)}`;
   }
-
-  /**
-   * Generate all shareable links for a campaign
-   */
   generateShareableLinks(config: SocialShareConfig): ShareableLink[] {
     const content = this.generateShareContent(config);
 
