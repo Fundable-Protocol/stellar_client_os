@@ -5,6 +5,10 @@ import {
   MAX_ANALYTICS_WINDOW_DAYS,
   getAdminCampaignAnalyticsService,
 } from "@/services/admin-campaign-analytics.service";
+import {
+  MAX_SECONDARY_MARKET_WINDOW_DAYS,
+  getCampaignCarbonCreditTradingService,
+} from "@/services/campaign-carbon-credit-trading.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +42,9 @@ const QuerySchema = z.object({
   windowDays: z.coerce.number().int().min(1).max(MAX_ANALYTICS_WINDOW_DAYS).optional(),
   stream: z.enum(["1", "true", "0", "false"]).optional(),
   intervalSeconds: z.coerce.number().int().min(5).max(300).optional(),
+  market: z.enum(["1", "true", "0", "false"]).optional(),
+  marketWindowDays: z.coerce.number().int().min(1).max(MAX_SECONDARY_MARKET_WINDOW_DAYS).optional(),
+  sponsorId: z.string().min(1).max(128).optional(),
 });
 
 const NO_STORE = "private, no-store, max-age=0";
@@ -56,6 +63,9 @@ export async function GET(request: NextRequest) {
     windowDays: searchParams.get("windowDays") ?? undefined,
     stream: searchParams.get("stream") ?? undefined,
     intervalSeconds: searchParams.get("intervalSeconds") ?? undefined,
+    market: searchParams.get("market") ?? undefined,
+    marketWindowDays: searchParams.get("marketWindowDays") ?? undefined,
+    sponsorId: searchParams.get("sponsorId") ?? undefined,
   });
   if (!parsed.success) {
     return NextResponse.json(
@@ -64,8 +74,26 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { stream, intervalSeconds, ...query } = parsed.data;
+  const { stream, intervalSeconds, market, marketWindowDays, sponsorId, ...query } = parsed.data;
   const service = getAdminCampaignAnalyticsService();
+
+  if (market === "1" || market === "true") {
+    try {
+      const tradingService = getCampaignCarbonCreditTradingService();
+      const data = await tradingService.getSecondaryMarketSnapshot({
+        network: query.network,
+        windowDays: marketWindowDays ?? query.windowDays,
+        sponsorId,
+      });
+      return NextResponse.json({ data }, { headers: { "Cache-Control": NO_STORE } });
+    } catch (error: unknown) {
+      console.error("Failed to compute secondary market analytics", error instanceof Error ? error.message : error);
+      return NextResponse.json(
+        { error: "Failed to compute secondary market analytics" },
+        { status: 500, headers: { "Cache-Control": NO_STORE } },
+      );
+    }
+  }
 
   if (stream !== "1" && stream !== "true") {
     try {

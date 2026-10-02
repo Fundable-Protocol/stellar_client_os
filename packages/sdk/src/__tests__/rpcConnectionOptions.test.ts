@@ -3,7 +3,7 @@ import {
   assertSecureRpcUrl,
   isLoopbackHttpUrl,
   resolveRpcServerOptions,
-} from '../utils/rpcConnectionOptions';
+} from '../utils/rpcConnectionOptions.js';
 
 describe('rpcConnectionOptions', () => {
   describe('isLoopbackHttpUrl', () => {
@@ -50,10 +50,10 @@ describe('rpcConnectionOptions', () => {
       ).toEqual({ allowHttp: false });
     });
 
-    it('defaults allowHttp to false for loopback http URLs', () => {
-      expect(resolveRpcServerOptions('http://localhost:8000')).toEqual({
-        allowHttp: false,
-      });
+    it('requires explicit opt-in for loopback http URLs', () => {
+      expect(() => resolveRpcServerOptions('http://localhost:8000')).toThrow(
+        /requires explicit allowHttp: true/
+      );
     });
 
     it('enables allowHttp for loopback http URLs when explicitly requested', () => {

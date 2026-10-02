@@ -64,5 +64,11 @@ export function resolveRpcServerOptions(
     return { allowHttp: true };
   }
 
+  if (isLoopbackHttpUrl(url)) {
+    throw new Error(
+      'Plain HTTP for loopback RPC URLs requires explicit allowHttp: true.'
+    );
+  }
+
   return { allowHttp: false };
 }

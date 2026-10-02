@@ -13,7 +13,6 @@ const SOCIAL_QUERY_KEY = "social";
  */
 export function useReferrals() {
   const { address } = useWallet();
-  const queryClient = useQueryClient();
 
   // Fetch planter info
   const {

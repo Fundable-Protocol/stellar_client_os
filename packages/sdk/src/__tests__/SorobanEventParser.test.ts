@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { SorobanEventParser } from "../utils/SorobanEventParser";
-import type { ContractEventRaw } from "../utils/events";
+import { SorobanEventParser } from "../utils/SorobanEventParser.js";
+import type { ContractEventRaw } from "../utils/events.js";
 
 const CONTRACT_ID = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
 const OTHER_CONTRACT_ID = "CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";

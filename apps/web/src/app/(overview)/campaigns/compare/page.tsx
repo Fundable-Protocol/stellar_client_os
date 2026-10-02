@@ -1,4 +1,8 @@
-"use client";
+import CampaignComparison from "@/components/modules/campaigns/CampaignComparison";
+
+export default function CampaignComparePage() {
+  return <CampaignComparison />;
+}"use client";
 
 import React from "react";
 import Link from "next/link";
