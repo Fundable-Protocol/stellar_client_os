@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { onChainCampaignTrackingService } from '@/services/onchain-campaign-tracking.service';
+import { pushNotificationService } from '@/services/push-notification.service';
 
 export async function GET(
   request: NextRequest,
@@ -41,6 +42,22 @@ export async function POST(
       achievedAmount: achievedAmount || '0',
       targetAmount: targetAmount || '0',
     });
+
+    try {
+      await pushNotificationService.sendCampaignMilestoneNotification({
+        campaignId,
+        milestonePercentage: Number(milestonePercentage),
+        title,
+        description: description || '',
+        achievedAmount: achievedAmount || '0',
+        targetAmount: targetAmount || '0',
+      });
+    } catch (notificationError) {
+      console.error(
+        'Failed to send campaign milestone push notification',
+        notificationError
+      );
+    }
 
     return NextResponse.json({ success: true, milestone }, { status: 201 });
   } catch (error: any) {

@@ -10,7 +10,6 @@ import {
   AnalyzeCampaignInput,
   CampaignSecurityStatus,
   FraudDetectionReport,
-  FraudPatternType,
   RiskLevel,
   SuspiciousActivityFlag,
 } from '@/types/fraud-detection';
@@ -58,7 +57,7 @@ export class FraudDetectionService {
       }
     }
 
-    const clusteredIps = Object.entries(ipCounts).filter(([_, count]) => count >= 3);
+    const clusteredIps = Object.entries(ipCounts).filter(([, count]) => count >= 3);
     if (clusteredIps.length > 0) {
       flags.push({
         id: `flag-ip-${Date.now()}`,

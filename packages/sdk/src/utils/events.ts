@@ -12,7 +12,7 @@ import type {
   StreamDepositEvent,
   StreamPausedEvent,
   StreamResumedEvent,
-} from "../generated/payment-stream/src/index";
+} from "../generated/payment-stream/src/index.js";
 
 export type ContractEventRaw = {
   contract_id: string;

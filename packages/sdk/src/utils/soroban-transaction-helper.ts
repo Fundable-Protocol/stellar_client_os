@@ -8,7 +8,7 @@
 
 import { Server, Api } from '@stellar/stellar-sdk/rpc';
 import { xdr } from '@stellar/stellar-sdk';
-import type { Transaction } from '@stellar/stellar-sdk';
+import type { SorobanDataBuilder, Transaction } from '@stellar/stellar-sdk';
 
 /**
  * Resource usage metrics for a Soroban transaction.
@@ -196,7 +196,7 @@ export async function estimateTransactionFee(
  * @param sorobanData - Base64-encoded Soroban transaction data.
  * @returns Resource usage metrics.
  */
-function extractResources(sorobanData?: string): ResourceUsage {
+function extractResources(sorobanData?: string | SorobanDataBuilder): ResourceUsage {
   const defaultResources: ResourceUsage = {
     instructions: 0,
     readBytes: 0,
@@ -210,12 +210,15 @@ function extractResources(sorobanData?: string): ResourceUsage {
   }
 
   try {
-    const data = xdr.SorobanTransactionData.fromXDR(sorobanData, 'base64');
+    const data =
+      typeof sorobanData === 'string'
+        ? xdr.SorobanTransactionData.fromXDR(sorobanData, 'base64')
+        : sorobanData.build();
     const footprint = data.resources();
 
     return {
       instructions: Number(footprint.instructions()),
-      readBytes: Number(footprint.readBytes()),
+      readBytes: Number(footprint.diskReadBytes()),
       writeBytes: Number(footprint.writeBytes()),
       readEntries: footprint.footprint().readOnly().length,
       writeEntries: footprint.footprint().readWrite().length,
@@ -250,16 +253,14 @@ export async function analyzeNetworkCongestion(
     const latestLedger = await rpc.getLatestLedger();
     const sequence = Number(latestLedger.sequence);
 
-    const fees: bigint[] = [];
-    for (let i = 0; i < ledgerCount; i++) {
-      try {
-        const ledger = await rpc.getLedger({ sequence: sequence - i });
-        const fee = BigInt(ledger.baseFeeInStroops || '100');
-        fees.push(fee);
-      } catch {
-        // Skip ledgers that can't be fetched
-      }
-    }
+    const firstLedger = Math.max(1, sequence - ledgerCount + 1);
+    const response = await rpc.getLedgers({
+      startLedger: firstLedger,
+      pagination: { limit: ledgerCount },
+    });
+    const fees = response.ledgers.map((ledger) =>
+      BigInt(ledger.headerXdr.header().baseFee() || 100),
+    );
 
     if (fees.length === 0) {
       return getDefaultMetrics();

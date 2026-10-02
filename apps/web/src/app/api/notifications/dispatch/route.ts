@@ -2,6 +2,7 @@ import { EmailService } from "@/services/email.service";
 import {
   getDueDigests,
   getPreferencesForCampaign,
+  getPreferencesForCampaign,
   markNotified,
 } from "@/services/notification-preferences.service";
 import { isMilestoneEvent, type ProgressEvent } from "@/lib/notification-schedule";
@@ -9,10 +10,12 @@ import {
   milestoneEmailHtml,
   type MilestoneEmailImpactMetrics,
 } from "@/services/campaign.service";
+import { PushService } from "@/services/push.service";
 
 export const runtime = "nodejs";
 
 const emailService = new EmailService();
+const pushService = new PushService();
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
@@ -94,6 +97,48 @@ export interface DispatchMilestoneMetrics {
   location?: string;
 }
 
+/** Milestone keys that should trigger a mobile push notification. */
+const PUSH_MILESTONE_KEYS = new Set([
+  "trees_planted",
+  "verification_complete",
+  "campaign_finished",
+  "impact_achieved",
+]);
+
+/** Human-readable push copy per milestone key. */
+function milestonePushCopy(
+  campaignName: string,
+  milestoneKey: string,
+): { title: string; body: string } {
+  switch (milestoneKey) {
+    case "trees_planted":
+      return {
+        title: `${campaignName} 🌱`,
+        body: "Trees from your sponsored campaign have been planted.",
+      };
+    case "verification_complete":
+      return {
+        title: `${campaignName} ✅`,
+        body: "Your campaign's impact has been verified.",
+      };
+    case "campaign_finished":
+      return {
+        title: `${campaignName} 🎉`,
+        body: "The campaign you sponsored has finished.",
+      };
+    case "impact_achieved":
+      return {
+        title: `${campaignName} 🌍`,
+        body: "Your sponsored campaign reached its impact goal.",
+      };
+    default:
+      return {
+        title: `${campaignName}`,
+        body: `Milestone reached: ${milestoneKey}`,
+      };
+  }
+}
+
 interface DispatchBody {
   event?: ProgressEvent;
   campaign?: {
@@ -172,10 +217,27 @@ export async function POST(request: Request) {
         impactMetrics,
       );
 
+      const campaignName = String(body.campaign?.name ?? "A campaign you sponsor");
+      const shouldPush = PUSH_MILESTONE_KEYS.has(event.milestoneKey);
+      const pushCopy = shouldPush
+        ? milestonePushCopy(campaignName, event.milestoneKey)
+        : undefined;
+
       for (const p of prefs) {
         try {
           if (p.channel === "email") {
             await emailService.sendEmail({ to: p.email!, subject: content.subject, html: content.html });
+          } else if (p.channel === "push" && shouldPush && pushCopy) {
+            await pushService.sendPush({
+              endpoint: p.pushEndpoint!,
+              title: pushCopy.title,
+              body: pushCopy.body,
+              data: {
+                type: "milestone",
+                campaignId,
+                milestoneKey: event.milestoneKey,
+              },
+            });
           } else {
             // Push channel: logged for now; a push provider plugs in here.
             console.log(`[push] ${p.pushEndpoint} ← ${content.subject}`);
