@@ -46,6 +46,8 @@ export const LiveTreeCounter: React.FC<LiveTreeCounterProps> = ({
 
   return (
     <div
+      role="region"
+      aria-label="Live tree planting impact ticker"
       className={`relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-950/80 via-slate-900/90 to-zinc-950 p-6 border border-emerald-500/20 backdrop-blur-xl shadow-xl transition-all duration-300 hover:border-emerald-500/40 ${className}`}
     >
       {/* Background glow & particle grid */}

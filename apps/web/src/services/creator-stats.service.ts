@@ -65,7 +65,7 @@ export function calculateCreatorStats(
   );
 
   let totalRaisedStroopsNum = 0;
-  let totalSponsorsSet = new Set<string>();
+  const totalSponsorsSet = new Set<string>();
   let totalTreesPlanted = 0;
   let successfulCount = 0;
   let activeCount = 0;

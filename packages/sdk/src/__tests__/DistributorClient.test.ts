@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DistributorClient } from "../DistributorClient";
-import { Address } from "@stellar/stellar-sdk";
+import { DistributorClient } from "../DistributorClient.js";
+import { Address, Keypair } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
 // Mock the generated distributor contract client
@@ -25,7 +25,7 @@ const mockContractClient = {
   set_protocol_fee: vi.fn(),
 };
 
-vi.mock("../generated/distributor/src/index", () => ({
+vi.mock("../generated/distributor/src/index.js", () => ({
   Client: vi.fn().mockImplementation(() => mockContractClient),
 }));
 
@@ -40,8 +40,8 @@ const VALID_OPTIONS = {
 
 const SENDER = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const TOKEN = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
-const RECIPIENT_A = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
-const RECIPIENT_B = "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+const RECIPIENT_A = Keypair.random().publicKey();
+const RECIPIENT_B = Keypair.random().publicKey();
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -61,7 +61,7 @@ describe("DistributorClient", () => {
     });
 
     it("passes options through to the generated ContractClient", async () => {
-      const { Client } = await import("../generated/distributor/src/index");
+      const { Client } = await import("../generated/distributor/src/index.js");
       expect(Client).toHaveBeenCalledWith(VALID_OPTIONS);
     });
   });

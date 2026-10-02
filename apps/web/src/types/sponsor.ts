@@ -12,6 +12,7 @@ export interface Sponsor {
   sponsoredAt: number; // Unix timestamp ms
   message?: string;
   isRecent?: boolean; // Highlight badge for live incoming sponsors
+  isAnonymous?: boolean; // Anonymous sponsors hide their identity
 }
 
 export function calculateSponsorTier(amountStr: string): SponsorTier {

@@ -45,8 +45,6 @@ export class SocialService {
       referrer: referrerAddress,
     });
 
-    // Sign and send the transaction (implementation depends on wallet integration)
-    // This is a placeholder - actual signing would be done by the wallet
     await tx.signAndSend();
   }
 
@@ -148,7 +146,6 @@ export class SocialService {
 
 // Export singleton instance
 export const socialService = new SocialService();
-export const REFERRAL_REWARD_STROOPS = 10_000_000n; // 1 XLM
 export const MONTHLY_REFERRAL_CAP = 10;
 
 export type TeamMember = {

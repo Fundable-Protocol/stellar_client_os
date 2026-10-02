@@ -1,10 +1,10 @@
 import {
   AssembledTransaction,
-  Client as ContractClient,
   ClientOptions as ContractClientOptions,
 } from "@stellar/stellar-sdk/contract";
 import { Address } from "@stellar/stellar-sdk";
-import { executeWithErrorHandling } from "./utils/errors";
+import { Client as ContractClient } from "./generated/campaign-funding/src/index.js";
+import { executeWithErrorHandling } from "./utils/errors.js";
 
 /**
  * Type alias for address parameters that accept both string and Address objects
@@ -187,6 +187,26 @@ export class CampaignFundingClient {
           amount: params.amount,
         }),
       "Contribute to campaign"
+    );
+  }
+
+  /**
+   * Contribute without including the sponsor address in the contribution event.
+   * The transaction signer and contract ledger storage remain publicly visible.
+   */
+  public async contributeAnonymously(params: {
+    contributor: AddressParam;
+    campaign_id: bigint;
+    amount: bigint;
+  }): Promise<AssembledTransaction<null>> {
+    return executeWithErrorHandling(
+      () =>
+        this.client.contribute_anonymously({
+          contributor: addressToString(params.contributor),
+          campaign_id: params.campaign_id,
+          amount: params.amount,
+        }),
+      "Contribute anonymously to campaign"
     );
   }
 

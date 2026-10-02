@@ -1,3 +1,7 @@
+export interface CampaignFollowPreferences {
+  milestoneUpdates: boolean;
+  verificationUpdates: boolean;
+  completionUpdates: boolean;
 /**
  * Types for Campaign Follow — Issue #942 (v1)
  *
@@ -72,6 +76,18 @@ export interface FollowNotificationPrefs {
 export interface CampaignFollow {
   id: string;
   campaignId: string;
+  email: string;
+  walletAddress?: string;
+  preferences: CampaignFollowPreferences;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateCampaignFollowInput {
+  campaignId: string;
+  email: string;
+  walletAddress?: string;
+  preferences?: Partial<CampaignFollowPreferences>;
   /** Stellar address of the follower. */
   followerAddress: string;
   prefs: FollowNotificationPrefs;
