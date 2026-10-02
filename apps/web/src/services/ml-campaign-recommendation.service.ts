@@ -48,12 +48,10 @@ export class MlCampaignRecommendationService {
       const reasons: string[] = [];
 
       // 1. Tree species preferences
-      // Note: campaign.treeType might not exist on CampaignRecord directly since it's from campaign.ts' CampaignData, 
-      // but let's assume it's passed or can be heuristically checked from description/id
       const campaignAny = campaign as any;
       if (preferences.treeSpeciesPreferences?.length) {
-        const treeType = (campaignAny.treeType || "").toLowerCase();
-        if (preferences.treeSpeciesPreferences.some(pref => treeType.includes(pref.toLowerCase()))) {
+        const treeInfo = `${campaignAny.treeSpecies || ""} ${campaignAny.treeType || ""} ${campaignAny.description || ""}`.toLowerCase();
+        if (preferences.treeSpeciesPreferences.some(pref => treeInfo.includes(pref.toLowerCase()))) {
           score += 30;
           reasons.push("Matches tree species preferences");
         }
@@ -61,8 +59,8 @@ export class MlCampaignRecommendationService {
 
       // 2. Geographic interests
       if (preferences.geographicInterests?.length) {
-        const location = (campaignAny.location || "").toLowerCase();
-        if (preferences.geographicInterests.some(loc => location.includes(loc.toLowerCase()))) {
+        const geoInfo = `${campaignAny.location || ""} ${campaignAny.region || ""} ${(campaignAny.countries || []).join(" ")}`.toLowerCase();
+        if (preferences.geographicInterests.some(loc => geoInfo.includes(loc.toLowerCase()))) {
           score += 25;
           reasons.push("Matches geographic interests");
         }

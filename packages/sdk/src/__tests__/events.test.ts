@@ -3,7 +3,7 @@ import {
   parsePaymentStreamContractEvent,
   parsePaymentStreamContractEvents,
   type PaymentStreamContractEvent,
-} from "../utils/events";
+} from "../utils/events.js";
 
 describe("payment stream event parser", () => {
   it("parses FeeCollected events", () => {

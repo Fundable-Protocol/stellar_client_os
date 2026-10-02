@@ -23,7 +23,6 @@ import {
   getPlanterReferralStats,
   getPlanterReferralUrl,
   REFERRAL_BONUS_XLM,
-  type PlanterReferralStats,
 } from "@/services/social.service";
 import { getCampaignsByCreator, type Campaign } from "@/services/campaign.service";
 
@@ -37,23 +36,27 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
 
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [qrCode, setQrCode] = useState<{ referralUrl: string; dataUrl: string } | null>(null);
+  const stats: PlanterReferralStats = useMemo(
+    () => getPlanterReferralStats(address || ""),
+    [address],
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
-  const [stats, setStats] = useState<PlanterReferralStats>(() =>
-    getPlanterReferralStats(address || "")
+  const stats = useMemo(
+    () => getPlanterReferralStats(address || ""),
+    [address]
   );
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
   const referralUrl = useMemo(() => {
     return address ? getPlanterReferralUrl(address) : "";
   }, [address]);
+  const qrDataUrl =
+    qrCode?.referralUrl === referralUrl ? qrCode.dataUrl : "";
+
+  const activeQrDataUrl = referralUrl ? qrDataUrl : "";
 
   useEffect(() => {
-    if (address) {
-      setStats(getPlanterReferralStats(address));
-    }
-  }, [address]);
-
-  useEffect(() => {
+    let cancelled = false;
     if (address) {
       setCampaigns(getCampaignsByCreator(address));
     }
@@ -61,9 +64,11 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
 
   useEffect(() => {
     if (!referralUrl) {
-      setQrDataUrl("");
+      setQrCode(null);
       return;
     }
+
+    let cancelled = false;
     QRCode.toDataURL(referralUrl, {
       width: 240,
       margin: 2,
@@ -72,8 +77,15 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
         light: "#ffffff",
       },
     })
-      .then((url) => setQrDataUrl(url))
+      .then((url) => {
+        if (!cancelled) setQrCode({ referralUrl, dataUrl: url });
+        if (!cancelled) setQrDataUrl(url);
+      })
       .catch((err) => console.error("Error generating QR code:", err));
+
+    return () => {
+      cancelled = true;
+    };
   }, [referralUrl]);
 
   const profileTotals = useMemo(() => {
@@ -407,7 +419,7 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
         </div>
 
         {/* QR Code Modal / Drawer */}
-        {showQr && qrDataUrl && (
+        {showQr && activeQrDataUrl && (
           <div
             data-testid="qr-code-container"
             className="mt-4 flex flex-col items-center justify-center p-6 rounded-2xl bg-zinc-950 border border-zinc-800 text-center space-y-3 animate-in fade-in zoom-in-95 duration-200"
@@ -417,7 +429,7 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
             </p>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={qrDataUrl}
+              src={activeQrDataUrl}
               alt="Planter Referral QR Code"
               className="size-52 rounded-xl shadow-lg border border-white/10"
               data-testid="referral-qr-image"

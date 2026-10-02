@@ -22,7 +22,7 @@ import {
   type PaymentStreamContractEvent,
   type PaymentStreamContractEventType,
   PAYMENT_STREAM_EVENT_TYPES,
-} from "./events";
+} from "./events.js";
 
 export type { ContractEventRaw, PaymentStreamContractEvent, PaymentStreamContractEventType };
 export { PAYMENT_STREAM_EVENT_TYPES };

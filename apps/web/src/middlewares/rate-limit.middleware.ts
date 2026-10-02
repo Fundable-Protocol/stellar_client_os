@@ -58,7 +58,10 @@ export function extractIp(req: NextRequest): string {
 
 export function extractCampaignApiIdentity(req: Request): { identity: string; tier: ReturnType<typeof resolveCampaignApiTier> } {
   const apiKey = req.headers.get("x-api-key") ?? req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  const tier = resolveCampaignApiTier(apiKey);
+  const tierHeader = req.headers.get("x-campaign-tier");
+  const fundingHeader = req.headers.get("x-campaign-funding");
+  const fundingAmount = fundingHeader ? parseFloat(fundingHeader) : null;
+  const tier = resolveCampaignApiTier(tierHeader ?? apiKey, fundingAmount);
   if (apiKey) return { identity: `${tier.id}:key:${apiKey.slice(-16)}`, tier };
   return { identity: `${tier.id}:ip:${extractIp(req as NextRequest)}`, tier };
 }

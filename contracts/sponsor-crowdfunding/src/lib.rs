@@ -1,4 +1,6 @@
 #![no_std]
+mod checked_math;
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, token, Address, Env,
 };
@@ -86,6 +88,11 @@ pub enum Error {
 
 /// Maximum share in basis points (100%).
 const MAX_SHARE_BPS: u32 = 10_000;
+/// Maximum amount accepted for any single financial operation.
+///
+/// Set to `i128::MAX / 2` so the sum of any two individually-valid amounts
+/// still fits in `i128`; larger accumulations are caught by checked math.
+pub const MAX_AMOUNT: i128 = i128::MAX / 2;
 /// Storage TTL threshold: ~30 days at 5 s/ledger.
 const LEDGER_THRESHOLD: u32 = 518_400;
 /// Storage TTL bump: ~31 days at 5 s/ledger.
@@ -113,7 +120,9 @@ impl SponsorCrowdfundingContract {
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::PoolCount, &0u64);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     // -----------------------------------------------------------------------
@@ -132,16 +141,16 @@ impl SponsorCrowdfundingContract {
     pub fn create_pool(env: Env, tree_id: u64, target_amount: i128, token: Address) -> u64 {
         Self::assert_initialized(&env);
 
-        if target_amount <= 0 {
-            panic_with_error!(&env, Error::InvalidAmount);
-        }
+        checked_math::validate_amount(&env, target_amount);
 
         let mut count: u64 = env
             .storage()
             .instance()
             .get(&DataKey::PoolCount)
             .unwrap_or(0);
-        count += 1;
+        count = count
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
         env.storage().instance().set(&DataKey::PoolCount, &count);
 
         let pool = FundingPool {
@@ -158,7 +167,9 @@ impl SponsorCrowdfundingContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
 
         env.events()
             .publish(("PoolCreated", count), (count, tree_id, target_amount));
@@ -187,14 +198,9 @@ impl SponsorCrowdfundingContract {
         if pool.status != PoolStatus::Open {
             panic_with_error!(&env, Error::PoolNotOpen);
         }
-        if amount <= 0 {
-            panic_with_error!(&env, Error::InvalidAmount);
-        }
+        checked_math::validate_amount(&env, amount);
 
-        let new_total = pool
-            .total_raised
-            .checked_add(amount)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        let new_total = checked_math::checked_add(&env, pool.total_raised, amount);
 
         // Transfer tokens into contract escrow.
         let token_client = token::Client::new(&env, &pool.token);
@@ -203,9 +209,7 @@ impl SponsorCrowdfundingContract {
         // Update per-contributor balance.
         let contrib_key = DataKey::Contribution(pool_id, contributor.clone());
         let prev: i128 = env.storage().persistent().get(&contrib_key).unwrap_or(0);
-        let new_contrib = prev
-            .checked_add(amount)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow));
+        let new_contrib = checked_math::checked_add(&env, prev, amount);
         env.storage().persistent().set(&contrib_key, &new_contrib);
         env.storage()
             .persistent()
@@ -323,10 +327,8 @@ impl SponsorCrowdfundingContract {
         let token_client = token::Client::new(&env, &pool.token);
         token_client.transfer(&env.current_contract_address(), &contributor, &amount);
 
-        env.events().publish(
-            ("RefundIssued", pool_id),
-            (contributor, pool_id, amount),
-        );
+        env.events()
+            .publish(("RefundIssued", pool_id), (contributor, pool_id, amount));
     }
 
     // -----------------------------------------------------------------------
@@ -371,7 +373,9 @@ impl SponsorCrowdfundingContract {
         let admin = Self::get_admin(env.clone());
         admin.require_auth();
         env.storage().instance().set(&DataKey::Admin, &new_admin);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 
     // -----------------------------------------------------------------------
@@ -403,7 +407,9 @@ impl SponsorCrowdfundingContract {
         env.storage()
             .persistent()
             .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-        env.storage().instance().extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage()
+            .instance()
+            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 }
 
@@ -437,15 +443,15 @@ mod tests {
         env: &Env,
         admin: &Address,
     ) -> (Address, TokenClient<'a>, StellarAssetClient<'a>) {
-        let addr = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let addr = env
+            .register_stellar_asset_contract_v2(admin.clone())
+            .address();
         let token = TokenClient::new(env, &addr);
         let token_admin = StellarAssetClient::new(env, &addr);
         (addr, token, token_admin)
     }
 
-    fn setup_contract(
-        env: &Env,
-    ) -> (Address, SponsorCrowdfundingContractClient, Address, Address) {
+    fn setup_contract(env: &Env) -> (Address, SponsorCrowdfundingContractClient, Address, Address) {
         let contract_id = env.register(SponsorCrowdfundingContract, ());
         let client = SponsorCrowdfundingContractClient::new(env, &contract_id);
         let admin = Address::generate(env);
@@ -559,5 +565,48 @@ mod tests {
         client.set_admin(&new_admin);
         assert_eq!(client.get_admin(), new_admin);
     }
-}
 
+    #[test]
+    fn test_create_pool_accepts_max_amount() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, token_addr) = setup_contract(&env);
+        let id = client.create_pool(&1, &MAX_AMOUNT, &token_addr);
+        assert_eq!(client.get_pool(&id).target_amount, MAX_AMOUNT);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #4)")]
+    fn test_create_pool_rejects_max_amount_plus_one() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, token_addr) = setup_contract(&env);
+        client.create_pool(&1, &(MAX_AMOUNT + 1), &token_addr);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #4)")]
+    fn test_contribute_rejects_zero_amount() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, token_addr) = setup_contract(&env);
+        let sponsor = Address::generate(&env);
+        let id = client.create_pool(&1, &10_000, &token_addr);
+        client.contribute(&sponsor, &id, &0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #4)")]
+    fn test_contribute_rejects_negative_amount() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, token_addr) = setup_contract(&env);
+        let sponsor = Address::generate(&env);
+        let id = client.create_pool(&1, &10_000, &token_addr);
+        client.contribute(&sponsor, &id, &-1);
+    }
+}

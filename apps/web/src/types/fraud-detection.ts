@@ -3,6 +3,10 @@
  */
 
 export type FraudPatternType =
+  | 'UNREALISTIC_TREE_COUNT'
+  | 'SUSPICIOUS_VERIFICATION'
+  | 'BOT_SPONSORS'
+  | 'LOCATION_MISMATCH'
   | 'FAKE_BACKERS'
   | 'DUPLICATE_ACCOUNTS'
   | 'MONEY_LAUNDERING'
@@ -20,7 +24,7 @@ export interface SuspiciousActivityFlag {
   patternType: FraudPatternType;
   description: string;
   severityScore: number; // 0-100
-  evidenceDetails: Record<string, any>;
+  evidenceDetails: Record<string, unknown>;
   detectedAt: string;
 }
 
@@ -42,12 +46,28 @@ export interface BackerProfileSample {
   pledgeAmount: number;
   pledgedAt: string;
   accountAgeDays?: number;
+  userAgent?: string;
+  verificationStatus?: 'verified' | 'pending' | 'failed';
+  location?: string;
+}
+
+export interface VerificationSample {
+  verifiedAt?: string;
+  verifierId?: string;
+  status: 'verified' | 'rejected' | 'pending';
+  treeCount?: number;
+  evidenceId?: string;
 }
 
 export interface AnalyzeCampaignInput {
   campaignId: string;
   campaignTitle?: string;
   creatorAddress?: string;
+  location?: string;
+  treeCount?: number;
+  targetTrees?: number;
+  campaignDurationDays?: number;
+  verifications?: VerificationSample[];
   backers?: BackerProfileSample[];
   transactions?: {
     txHash: string;

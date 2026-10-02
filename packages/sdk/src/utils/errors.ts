@@ -138,7 +138,9 @@ function parseTransactionResultXdr(resultXdr: string): {
   } catch (error) {
     return {
       message: "Failed to parse transaction result",
-      details: `XDR parsing error: ${error instanceof Error ? error.message : String(error)}`,
+      details: `XDR parsing error for ${resultXdr.slice(0, 100)}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
       suggestion: "The transaction result may be corrupted or in an unexpected format",
     };
   }
@@ -152,7 +154,7 @@ function getSuggestionForErrorCode(code: number): string {
     1: "The contract is already initialized. You can use it directly without re-initializing.",
     2: "The contract has not been initialized. Call the initialize() method first.",
     3: "Check that you're using the correct account with proper permissions for this operation.",
-    4: "Ensure the amount is positive and within the valid range for this operation.",
+    4: "Ensure the amount is positive and within valid range for this operation.",
     5: "Verify that the end time is after the start time for the stream.",
     6: "Check that the stream ID is correct and the stream exists.",
     7: "Only active streams can be modified. Check the stream status first.",
@@ -208,9 +210,9 @@ function parseSimulationError(errorMessage: string): {
   
   if (errorMessage.includes("XDR")) {
     return {
-      message: "XDR encoding/decoding error",
+      message: "Transaction simulation XDR encoding/decoding error",
       details: errorMessage,
-      suggestion: "Check the transaction format and parameters",
+      suggestion: "Check transaction format and parameters",
     };
   }
   
@@ -260,7 +262,12 @@ export function parseContractError(error: unknown, operationContext?: string): P
     }
 
     // Check for simulation error patterns
-    if (errorMessage.includes("simulation") || errorMessage.includes("XDR")) {
+    if (
+      errorMessage.includes("simulation") ||
+      errorMessage.includes("XDR") ||
+      errorMessage.includes("insufficient fee") ||
+      errorMessage.includes("insufficient balance")
+    ) {
       const parsed = parseSimulationError(errorMessage);
       return {
         type: "simulation_error",

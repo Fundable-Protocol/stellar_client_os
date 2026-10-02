@@ -41,6 +41,18 @@ const CONTRACTS = [
     wasmFile: "distributor.wasm",
     outputDir: resolve(sdkRoot, "src/generated/distributor"),
   },
+  {
+    name: "planter",
+    packageName: "planter",
+    wasmFile: "planter.wasm",
+    outputDir: resolve(sdkRoot, "src/generated/planter"),
+  },
+  {
+    name: "campaign-funding",
+    packageName: "campaign-funding",
+    wasmFile: "campaign_funding.wasm",
+    outputDir: resolve(sdkRoot, "src/generated/campaign-funding"),
+  },
 ];
 
 function readFlagValue(flag) {
@@ -130,9 +142,7 @@ if (!skipBuild) {
       wasmOutDir,
     ];
 
-    if (optimize) {
-      buildArgs.push("--optimize");
-    }
+    buildArgs.push("--profile", optimize ? "release" : "debug");
 
     run(
       "stellar",

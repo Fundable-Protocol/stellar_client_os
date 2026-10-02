@@ -5,7 +5,7 @@
  * to reduce configuration boilerplate for SDK users.
  */
 
-import { SorobanRpc, Networks } from "@stellar/stellar-sdk";
+import { rpc, Networks } from "@stellar/stellar-sdk";
 
 export interface NetworkInfo {
   passphrase: string;
@@ -21,7 +21,7 @@ export interface NetworkInfo {
 export async function detectNetworkPassphrase(
   rpcUrl: string
 ): Promise<NetworkInfo> {
-  const server = new SorobanRpc.Server(rpcUrl);
+  const server = new rpc.Server(rpcUrl);
   
   try {
     // Fetch network information from RPC
@@ -48,7 +48,7 @@ export async function detectNetworkPassphrase(
     return {
       passphrase,
       friendlyName,
-      protocolVersion: network.protocolVersion,
+      protocolVersion: Number(network.protocolVersion),
     };
   } catch (error) {
     throw new Error(

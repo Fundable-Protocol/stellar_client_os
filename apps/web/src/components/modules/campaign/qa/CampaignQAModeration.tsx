@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   MessageSquare,
   ShieldCheck,
@@ -8,13 +8,11 @@ import {
   EyeOff,
   ThumbsUp,
   Search,
-  Filter,
   Send,
   ShieldAlert,
   BadgeCheck,
   Trash2,
   CheckCircle,
-  XCircle,
   BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,8 +34,21 @@ const STATUS_FILTERS: { label: string; value: QAItemStatus | "all"; icon: React.
   { label: "Hidden", value: "hidden", icon: <EyeOff className="h-3.5 w-3.5 text-red-400" /> },
 ];
 
+function TimeAgo({ timestamp, now }: { timestamp: number; now: number | null }) {
+  if (now === null) return <span>Just now</span>;
+
+  const diff = now - timestamp;
 function TimeAgo({ timestamp }: { timestamp: number }) {
-  const diff = Date.now() - timestamp;
+  const [now, setNow] = useState(() => Date.now());
+
+  React.useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const diff = Math.max(0, now - timestamp);
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
@@ -106,7 +117,7 @@ function QACard({
             {item.authorName ?? item.authorAddress}
           </span>
           <span className="text-[10px] text-zinc-500">
-            <TimeAgo timestamp={item.createdAt} />
+            <TimeAgo timestamp={item.createdAt} now={now} />
           </span>
         </div>
 
@@ -207,6 +218,17 @@ export function CampaignQAModeration({
   campaignTitle = "Campaign",
 }: CampaignQAModerationProps) {
   const qa = useQAModeration({ campaignId });
+  const [now, setNow] = useState<number | null>(null);
+
+  useEffect(() => {
+    const initialTimer = window.setTimeout(() => setNow(Date.now()), 0);
+    const interval = window.setInterval(() => setNow(Date.now()), 60_000);
+
+    return () => {
+      window.clearTimeout(initialTimer);
+      window.clearInterval(interval);
+    };
+  }, []);
   const [newQuestion, setNewQuestion] = useState("");
   const [bulkCount, setBulkCount] = useState<number | null>(null);
 
