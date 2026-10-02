@@ -49,6 +49,7 @@ export function CampaignImageGallery({ images }: CampaignImageGalleryProps) {
                 loading={isHero ? "eager" : "lazy"}
                 fetchPriority={isHero ? "high" : "auto"}
                 decoding="async"
+                referrerPolicy="no-referrer"
                 unoptimized
                 // crossOrigin="anonymous" prevents Safari on iOS 14 from
                 // caching the image as an opaque (no-CORS) response, which

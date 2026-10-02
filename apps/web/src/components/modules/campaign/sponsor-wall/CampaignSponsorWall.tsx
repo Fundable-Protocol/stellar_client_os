@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Search, Radio, Award, Heart, TrendingUp, Users, Sparkles, Filter } from "lucide-react";
+import { Search, Radio, Award, Heart, TrendingUp, Users, Sparkles, Filter, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 export interface CampaignSponsorWallProps {
   campaignId: string;
   campaignTitle?: string;
+  onViewReceipt?: (sponsorId: string) => void;
 }
 
 const TIER_FILTERS: { label: string; value: SponsorTier | "ALL" }[] = [
@@ -23,7 +24,7 @@ const TIER_FILTERS: { label: string; value: SponsorTier | "ALL" }[] = [
   { label: "Bronze", value: "BRONZE" },
 ];
 
-export function CampaignSponsorWall({ campaignId, campaignTitle = "Save the Amazon RainForest" }: CampaignSponsorWallProps) {
+export function CampaignSponsorWall({ campaignId, campaignTitle = "Save the Amazon RainForest", onViewReceipt }: CampaignSponsorWallProps) {
   const wall = useSponsorWall({ campaignId, enableLiveUpdates: true });
 
   return (
@@ -84,6 +85,15 @@ export function CampaignSponsorWall({ campaignId, campaignTitle = "Save the Amaz
         </a>
       </div>
 
+      {/* Blockchain-Verifiable Receipt Notice */}
+      <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-4 py-2 text-xs text-sky-300">
+        <ShieldCheck className="h-4 w-4" />
+        <span>
+          Each sponsorship issues a blockchain-verifiable receipt token showing tree count, species,
+          planting location, and expected CO2 sequestration.
+        </span>
+      </div>
+
       {/* Search & Filter Bar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-sm">
@@ -136,7 +146,7 @@ export function CampaignSponsorWall({ campaignId, campaignTitle = "Save the Amaz
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {wall.sponsors.map((sponsor) => (
-            <SponsorCard key={sponsor.id} sponsor={sponsor} />
+            <SponsorCard key={sponsor.id} sponsor={sponsor} onViewReceipt={onViewReceipt} />
           ))}
         </div>
       )}

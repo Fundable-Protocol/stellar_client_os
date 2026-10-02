@@ -49,6 +49,32 @@ const CarbonPurchaseSchema = z.object({
   amount: z.number().positive(),
 });
 
+const SustainabilityInputsSchema = z.object({
+  treeSpeciesDiversity: z.number().min(0).max(1),
+  regionClimateImpact: z.number().min(0).max(1),
+  soilHealthImprovement: z.number().min(0).max(1),
+  biodiversityPotential: z.number().min(0).max(1),
+});
+
+const SustainabilityScoreWeights = {
+  treeSpeciesDiversity: 0.3,
+  regionClimateImpact: 0.25,
+  soilHealthImprovement: 0.2,
+  biodiversityPotential: 0.25,
+} as const;
+
+type SustainabilityInputs = z.infer<typeof SustainabilityInputsSchema>;
+
+function computeSustainabilityScore(inputs: SustainabilityInputs) {
+  const weighted =
+    inputs.treeSpeciesDiversity * SustainabilityScoreWeights.treeSpeciesDiversity +
+    inputs.regionClmateImpact * SustainabilityScoreWeights.regionClmateImpact +
+    inputs.soilHealthImprovement * SustainabilityScoreWeights.soilHealthImprovement +
+    inputs.biodiversityPotential * SustainabilityScoreWeights.biodiversityPotential;
+  const score = Math.round(weighted * 100);
+  return Math.max(0, Math.min(100, score));
+}
+
 function noStore<T>(body: T, init?: ResponseInit): NextResponse<T> {
   return NextResponse.json(body, {
     ...init,
@@ -70,13 +96,21 @@ function noStore<T>(body: T, init?: ResponseInit): NextResponse<T> {
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
-) {
+): Promise<NextResponse> {
   const { id } = await params;
   const dashboard = await getCampaignAnalyticsDashboard(id);
   if (!dashboard) return noStore({ error: "Campaign not found" }, { status: 404 });
   const vertex = await getCampaignAnalytics(id);
   const carbonPricing = await listCarbonCreditOffers(id);
-  return noStore({ data: { ...dashboard, vertex, carbonPricing } });
+  const sustainabilityInputs = SustainabilityInputsSchema.safeParse(dashboard.sustainability ?? {});
+  const sustainability = sustainabilityInputs.success
+    ? {
+        inputs: sustainabilityInputs.data,
+        score: computeSustainabilityScore(sustainabilityInputs.data),
+        weights: SustainabilityScoreWeights,
+      }
+    : null;
+  return noStore({ data: { ...dashboard, vertex, carbonPricing, sustainability } });
 }
 
 /**
@@ -94,7 +128,7 @@ export async function GET(
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
-) {
+): Promise<NextResponse> {
   const { id } = await params;
   try {
     const body = await request.json() as Record<string, unknown>;

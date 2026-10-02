@@ -143,15 +143,27 @@ await client.triggerExpiry({ campaignId });
 
 This function is permissionless by design — sponsors are never dependent on the creator to unlock their refunds.
 
-### Refunds (failed campaigns)
+### Refunds (tiered policy)
 
-Each sponsor calls `refund` individually to recover their exact contribution. There are no fees on refunds.
+Refunds follow a tiered policy (#889) based on how far the campaign progressed:
+
+| Tier | Condition | Refund |
+|------|-----------|--------|
+| 1 | Campaign never started (no planter assigned) within 60 days of creation | 100 % |
+| 2 | Campaign started but no trees planted within 90 days of creation | 50 % |
+| 3 | Campaign completed (`Claimed` / `VerificationFailed`) or trees planted in time | 0 % |
+
+A campaign that reached its deadline without meeting `min_target` (`Failed` status) always refunds in full, regardless of these windows.
+
+Each sponsor calls `refund` individually to recover their entitled share. There are no fees on refunds.
 
 ```typescript
 await client.refund({ contributor: 'GBBB...', campaignId });
 ```
 
-The contribution record is cleared before the transfer (check-effects-interactions) so double-refunds are impossible.
+A campaign *starts* when a planter is assigned (admin-only `assign_planter`, or implicitly via the first `record_tree_planting`). Assignment is permanent — the first assignment wins — so the refund tier can never be changed retroactively. Query the current tier any time with `get_refund_percent`.
+
+The refunded portion of the contribution record is cleared before the transfer (check-effects-interactions) so double-refunds are impossible. Note that a 50 % refund clears the record entirely: the contributor cannot claim the remaining half later — that half stays escrowed for the planter who ultimately fulfils the commitment.
 
 ---
 
