@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "tw-animate-css";
+import "tailwindcss";
+import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -118,6 +118,41 @@ body {
   background-color: black;
 }
 
+html[data-campaign-high-contrast="true"] .campaign-accessible {
+  font-size: 1.125rem;
+}
+
+html[data-campaign-high-contrast="true"] .campaign-accessible :is(p, span, label, dt, dd, li) {
+  color: #fff !important;
+  font-size: max(1rem, 1em);
+}
+
+html[data-campaign-high-contrast="true"] .campaign-accessible :is(a, button, input, select, textarea) {
+  border: 2px solid #ffeb3b !important;
+}
+
+html[data-campaign-high-contrast="true"] .campaign-accessible :is(a, button) {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  font-size: max(1rem, 1em);
+}
+
+html[data-campaign-high-contrast="true"] .campaign-accessible a {
+  color: #ffeb3b !important;
+}
+
+html[data-campaign-high-contrast="true"] .campaign-accessible :is(input, select, textarea) {
+  background-color: #000 !important;
+  color: #fff !important;
+}
+
+html[data-campaign-high-contrast="true"] :focus-visible {
+  outline: 4px solid #ffeb3b !important;
+  outline-offset: 4px !important;
+  box-shadow: 0 0 0 2px #000 !important;
+}
+
 :root {
   /* Fundable Colors */
 
@@ -202,6 +237,100 @@ body {
   --sidebar-ring: oklch(0.552 0.016 285.938);
 }
 
+/* High Contrast Mode */
+/* The .high-contrast class is applied to <html> by the HighContrastProvider. */
+.high-contrast {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #000000;
+  --card-foreground: #ffffff;
+  --popover: #000000;
+  --popover-foreground: #ffffff;
+  --primary: #ffff00;
+  --primary-foreground: #000000;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #ffffff;
+  --muted: #1a1a1a;
+  --muted-foreground: #ffffff;
+  --accent: #ffff00;
+  --accent-foreground: #000000;
+  --destructive: #ff0000;
+  --destructive-foreground: #ffffff;
+  --border: #ffffff;
+  --input: #ffffff;
+  --ring: #ffff00;
+  --chart-1: #ffff00;
+  --chart-2: #00ffff;
+  --chart-3: #ff00ff;
+  --chart-4: #00ff00;
+  --chart-5: #ff0000;
+  --sidebar: #000000;
+  --sidebar-foreground: #ffffff;
+  --sidebar-primary: #ffff00;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #ffff00;
+  --sidebar-accent-foreground: #000000;
+  --sidebar-border: #ffffff;
+  --sidebar-ring: #ffff00;
+
+  /* Fundable color overrides for high contrast */
+  --fundable-dark: #000000;
+  --fundable-mid-dark: #1a1a1a;
+  --fundable-grey: #ffffff;
+  --fundable-light-grey: #ffffff;
+  --fundable-mid-grey: #1a1a1a;
+  --fundable-placeholder: #ffffff;
+  --fundable-purple: #ffff00;
+  --fundable-purple-2: #ffff00;
+  --fundable-violet: #ffff00;
+  --fundable-deep-purple: #ffff00;
+  --fundable-faint-white: #ffffff;
+
+  /* Increased base font size for readability */
+  font-size: 118.75%;
+}
+
+.high-contrast body {
+  background-color: #000000;
+  color: #ffffff;
+}
+
+/* Boost focus indicators in high contrast mode */
+.high-contrast *:focus-visible,
+.high-contrast *:focus {
+  outline: 3px solid #ffff00 !important;
+  outline-offset: 2px !important;
+}
+
+.high-contrast a[data-slot="button"],
+.high-contrast button {
+  border: 2px solid #ffffff !important;
+}
+
+.high-contrast [data-slot="button"]:focus-visible,
+.high-contrast button:focus-visible {
+  outline: 3px solid #ffff00 !important;
+  outline-offset: 2px !important;
+  box-shadow: 0 0 0 6px rgba(255, 255, 0, 0.35) !important;
+}
+
+/* Ensure link colors remain distinct and high contrast */
+.high-contrast a {
+  color: #ffff00;
+}
+
+.high-contrast a:hover {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .high-contrast * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
 @utility container {
   padding: 1rem;
   margin-inline: auto;
@@ -224,7 +353,7 @@ body {
 }
 
 /* Custom scrollbar styles for distribution table */
-.distribution-scrollbar {
+distribution-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: #52525b #27272a;
 }

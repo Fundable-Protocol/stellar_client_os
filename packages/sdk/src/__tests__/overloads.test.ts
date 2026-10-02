@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PaymentStreamClient } from "../PaymentStreamClient";
-import { DistributorClient } from "../DistributorClient";
-import { Client as ContractClient } from "../generated/payment-stream/src/index";
-import { Client as DistributorContractClient } from "../generated/distributor/src/index";
+import { PaymentStreamClient } from "../PaymentStreamClient.js";
+import { DistributorClient } from "../DistributorClient.js";
+import { Client as ContractClient } from "../generated/payment-stream/src/index.js";
+import { Client as DistributorContractClient } from "../generated/distributor/src/index.js";
 
 // Mock the contract clients
-vi.mock("../generated/payment-stream/src/index", () => ({
+vi.mock("../generated/payment-stream/src/index.js", () => ({
   Client: vi.fn(),
 }));
 
-vi.mock("../generated/distributor/src/index", () => ({
+vi.mock("../generated/distributor/src/index.js", () => ({
   Client: vi.fn(),
 }));
 

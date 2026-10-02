@@ -4,7 +4,6 @@ import { useState, useCallback, useMemo } from "react";
 import {
   CAMPAIGN_WIZARD_STEPS,
   CampaignWizardData,
-  CampaignWizardStepId,
   INITIAL_WIZARD_DATA,
   validateStep,
   WizardStepErrors,
@@ -161,6 +160,8 @@ export function useCampaignWizard(initialData: Partial<CampaignWizardData> = {})
     updateField,
     addMilestone,
     removeMilestone,
+    addStretchGoal,
+    removeStretchGoal,
     goNext,
     goBack,
     goToStep,

@@ -80,4 +80,52 @@ describe("CampaignWebhookService", () => {
       percentage: 25,
     }));
   });
+
+  it("publishes impact milestone reached event for trees and co2", async () => {
+    const { service, dispatchEvent } = createService();
+    await service.campaignImpactMilestoneReached({
+      eventId: "campaign-1:impact:1000_trees",
+      campaignId: "campaign-1",
+      milestone: "1000_trees",
+      treeCount: 1000,
+      co2Sequestration: "5.2",
+    });
+
+    expect(dispatchEvent).toHaveBeenCalledWith("campaign_milestone_reached", {
+      eventId: "campaign-1:impact:1000_trees",
+      campaignId: "campaign-1",
+      milestone: "1000_trees",
+      treeCount: 1000,
+      co2Sequestration: "5.2",
+    });
+  });
+
+  it("evaluates and dispatches newly reached impact milestones", async () => {
+    const { service, dispatchEvent } = createService();
+    const triggered = await service.checkAndDispatchImpactMilestones("campaign-100", 5200, "12.5", []);
+
+    expect(triggered).toEqual(["1000_trees", "5000_trees", "10_tons_co2"]);
+    expect(dispatchEvent).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not re-dispatch previously triggered impact milestones", async () => {
+    const { service, dispatchEvent } = createService();
+    const triggered = await service.checkAndDispatchImpactMilestones(
+      "campaign-100",
+      5200,
+      "12.5",
+      ["1000_trees", "5000_trees"]
+    );
+
+    expect(triggered).toEqual(["10_tons_co2"]);
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    expect(dispatchEvent).toHaveBeenCalledWith("campaign_milestone_reached", {
+      eventId: "campaign-100:impact:10_tons_co2",
+      campaignId: "campaign-100",
+      milestone: "10_tons_co2",
+      treeCount: 5200,
+      co2Sequestration: "12.5",
+    });
+  });
 });
+
