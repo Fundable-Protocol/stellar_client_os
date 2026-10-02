@@ -64,10 +64,10 @@ const HistoryTable = ({
         getCoreRowModel: getCoreRowModel(),
         getPaginationRowModel: getPaginationRowModel(),
         manualPagination: true,
-        pageCount: Math.ceil(totalCount / limit),
+        pageCount: Math.max(1, Math.ceil(totalCount / limit)),
     });
 
-    const pageCount = Math.ceil(totalCount / limit);
+        const pageCount = Math.max(1, Math.ceil(totalCount / limit));
 
     const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 

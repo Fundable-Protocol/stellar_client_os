@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contracttype, Address, Env, Map, String, Symbol, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, Env, String, Vec,
 };
 
 /// Errors for the dispute arbiter consensus contract.
@@ -27,6 +27,8 @@ pub enum ArbiterError {
     VotingPeriodExpired = 8,
     /// Dispute does not have enough assigned arbiters (need 5).
     NotEnoughArbiters = 9,
+    /// The dispute ID counter has reached `u64::MAX`; no more disputes can be created.
+    ContractFull = 10,
 }
 
 /// The possible vote choices for an arbiter on a disputed milestone.
@@ -48,6 +50,15 @@ pub struct Vote {
     pub arbiter: Address,
     pub choice: VoteChoice,
     pub reason: String,
+    pub timestamp: u64,
+}
+
+/// Emitted when the dispute ID space is exhausted (`DisputeCount` reached
+/// `u64::MAX`) and a creation attempt is rejected instead of overflowing.
+#[contractevent(topics = ["contract_full"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractFullEvent {
+    /// Ledger timestamp of the rejected creation attempt.
     pub timestamp: u64,
 }
 
@@ -169,6 +180,14 @@ impl DisputeArbiterContract {
             .instance()
             .get(&DataKey::DisputeCount)
             .unwrap_or(0);
+        if count == u64::MAX {
+            // Dispute ID space exhausted: reject gracefully instead of overflowing.
+            ContractFullEvent {
+                timestamp: env.ledger().timestamp(),
+            }
+            .publish(&env);
+            return Err(ArbiterError::ContractFull);
+        }
         count += 1;
 
         let now = env.ledger().timestamp();
@@ -435,7 +454,7 @@ mod test {
         for _ in 0..5 {
             arbiters.push_back(Address::generate(env));
         }
-        client.create_dispute(&1, &1, client_addr, freelancer, &arbiters).unwrap()
+        client.create_dispute(&1, &1, client_addr, freelancer, &arbiters)
     }
 
     #[test]
@@ -444,7 +463,7 @@ mod test {
         env.mock_all_auths();
         let (client, admin) = setup(&env);
         assert_eq!(client.get_dispute_count(), 0);
-        client.set_voting_period(&admin, &3600).unwrap();
+        client.set_voting_period(&admin, &3600);
     }
 
     #[test]
@@ -469,9 +488,38 @@ mod test {
         assert_eq!(dispute_id, 1);
         assert_eq!(client.get_dispute_count(), 1);
 
-        let dispute = client.get_dispute(&dispute_id).unwrap();
+        let dispute = client.get_dispute(&dispute_id);
         assert_eq!(dispute.state, DisputeState::Voting);
         assert_eq!(dispute.votes_for_approve, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #10)")]
+    fn test_create_dispute_rejected_when_count_full() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register(DisputeArbiterContract, ());
+        let client = DisputeArbiterContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+
+        let client_addr = Address::generate(&env);
+        let freelancer = Address::generate(&env);
+        let mut arbiters = Vec::new(&env);
+        for _ in 0..5 {
+            arbiters.push_back(Address::generate(&env));
+        }
+
+        // Exhaust the dispute ID space: the next create must return
+        // ArbiterError::ContractFull instead of overflowing.
+        env.as_contract(&contract_id, || {
+            env.storage()
+                .instance()
+                .set(&DataKey::DisputeCount, &u64::MAX);
+        });
+
+        client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
     }
 
     #[test]
@@ -488,9 +536,7 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id = client
-            .create_dispute(&1, &1, &client_addr, &freelancer, &arbiters)
-            .unwrap();
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         // Cast 3 approve votes → should auto-resolve as Approved
         let reason = String::from_str(&env, "Milestone is complete");
@@ -500,10 +546,10 @@ mod test {
                 &arbiters.get(i).unwrap(),
                 &VoteChoice::Approve,
                 &reason,
-            ).unwrap();
+            );
         }
 
-        let dispute = client.get_dispute(&dispute_id).unwrap();
+        let dispute = client.get_dispute(&dispute_id);
         assert_eq!(dispute.state, DisputeState::Approved);
         assert_eq!(dispute.votes_for_approve, 3);
         assert!(dispute.resolved_at.is_some());
@@ -523,9 +569,7 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id = client
-            .create_dispute(&1, &1, &client_addr, &freelancer, &arbiters)
-            .unwrap();
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         let reason = String::from_str(&env, "Milestone not delivered");
         for i in 0..3 {
@@ -534,10 +578,10 @@ mod test {
                 &arbiters.get(i).unwrap(),
                 &VoteChoice::Reject,
                 &reason,
-            ).unwrap();
+            );
         }
 
-        let dispute = client.get_dispute(&dispute_id).unwrap();
+        let dispute = client.get_dispute(&dispute_id);
         assert_eq!(dispute.state, DisputeState::Rejected);
         assert_eq!(dispute.votes_for_reject, 3);
     }
@@ -556,16 +600,12 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id = client
-            .create_dispute(&1, &1, &client_addr, &freelancer, &arbiters)
-            .unwrap();
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         let reason = String::from_str(&env, "Looks good");
         let arbiter = arbiters.get(0).unwrap();
 
-        client
-            .cast_vote(&dispute_id, &arbiter, &VoteChoice::Approve, &reason)
-            .unwrap();
+        client.cast_vote(&dispute_id, &arbiter, &VoteChoice::Approve, &reason);
 
         // Second vote from same arbiter should fail
         let result = client.try_cast_vote(&dispute_id, &arbiter, &VoteChoice::Approve, &reason);
@@ -586,9 +626,7 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id = client
-            .create_dispute(&1, &1, &client_addr, &freelancer, &arbiters)
-            .unwrap();
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         let outsider = Address::generate(&env);
         let reason = String::from_str(&env, "I am not assigned");
@@ -610,16 +648,12 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id = client
-            .create_dispute(&1, &1, &client_addr, &freelancer, &arbiters)
-            .unwrap();
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         // Cast only 2 votes — not enough for consensus
         let reason = String::from_str(&env, "Approve");
         for i in 0..2 {
-            client
-                .cast_vote(&dispute_id, &arbiters.get(i).unwrap(), &VoteChoice::Approve, &reason)
-                .unwrap();
+            client.cast_vote(&dispute_id, &arbiters.get(i).unwrap(), &VoteChoice::Approve, &reason);
         }
 
         // Advance time past voting deadline
@@ -634,7 +668,7 @@ mod test {
             max_entry_ttl: 6312000,
         });
 
-        let state = client.force_resolve_timeout(&dispute_id).unwrap();
+        let state = client.force_resolve_timeout(&dispute_id);
         assert_eq!(state, DisputeState::TimedOut);
     }
 
@@ -652,23 +686,19 @@ mod test {
             arbiters.push_back(Address::generate(&env));
         }
 
-        let dispute_id = client
-            .create_dispute(&1, &1, &client_addr, &freelancer, &arbiters)
-            .unwrap();
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
 
         let reason = String::from_str(&env, "Need more proof");
         for i in 0..3 {
-            client
-                .cast_vote(
-                    &dispute_id,
-                    &arbiters.get(i).unwrap(),
-                    &VoteChoice::RequestEvidence,
-                    &reason,
-                )
-                .unwrap();
+            client.cast_vote(
+                &dispute_id,
+                &arbiters.get(i).unwrap(),
+                &VoteChoice::RequestEvidence,
+                &reason,
+            );
         }
 
-        let dispute = client.get_dispute(&dispute_id).unwrap();
+        let dispute = client.get_dispute(&dispute_id);
         assert_eq!(dispute.state, DisputeState::EvidenceRequested);
         assert_eq!(dispute.votes_for_evidence, 3);
     }

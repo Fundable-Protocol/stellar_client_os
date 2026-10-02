@@ -1,0 +1,189 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
+import Image from "next/image";
+import { Trophy, Star, Quote, Users, BarChart, ImageIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { getSuccessStories, SuccessStory } from "@/services/campaign-success.service";
+
+export default function SuccessStories() {
+  const [stories, setStories] = useState<SuccessStory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchStories = async () => {
+      try {
+        const data = await getSuccessStories();
+        setStories(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load success stories");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStories();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-xl animate-pulse">
+        <div className="h-6 w-40 bg-zinc-800 rounded mb-4" />
+        <div className="grid md:grid-cols-2 gap-6">
+          <div className="h-48 bg-zinc-800 rounded" />
+          <div className="h-48 bg-zinc-800 rounded" />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-xl border border-red-800/50 bg-red-950/20 p-6 text-red-300">
+        <p className="text-sm font-semibold">Error loading success stories:</p>
+        <p className="text-xs mt-1">{error}</p>
+      </div>
+    );
+  }
+
+  if (stories.length === 0) {
+    return null; // or some fallback
+  }
+
+  return (
+    <section className="space-y-6">
+      <div className="border-b border-zinc-800 pb-4">
+        <h2 className="text-2xl font-extrabold text-zinc-50 tracking-tight flex items-center gap-2">
+          <Trophy className="h-6 w-6 text-amber-400" />
+          Success Stories
+        </h2>
+        <p className="mt-1 text-sm text-zinc-400">
+          Campaigns that shipped and delivered real impact. Hear directly from creators and backers.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {stories.map((story) => {
+          const progress = Math.round(
+            (parseFloat(story.raisedAmount.replace(/,/g, "")) /
+              parseFloat(story.goalAmount.replace(/,/g, "")) ) *
+              100
+          );
+
+          return (
+            <article
+              key={story.id}
+              className="flex flex-col rounded-xl border border-emerald-500/30 bg-zinc-900/80 p-6 shadow-xl transition-all duration-300 hover:border-emerald-400/50 hover:shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <Badge className="bg-emerald-950/60 text-emerald-300 border-emerald-800 text-[11px]">
+                    {story.category}
+                  </Badge>
+                  <h3 className="text-xl font-bold text-zinc-100">{story.title}</h3>
+                  <p className="text-xs text-zinc-400 line-clamp-3 leading-relaxed">
+                    {story.description}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-4 text-xs">
+                <div className="rounded-lg bg-zinc-800/50 p-3">
+                  <p className="text-zinc-500">Raised</p>
+                  <p className="font-bold text-zinc-100">
+                    {story.raisedAmount} {story.token}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-zinc-800/50 p-3">
+                  <p className="text-zinc-500">Progress</p>
+                  <p className="font-bold text-emerald-400">{progress}%</p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-2 rounded-lg border border-purple-500/20 bg-purple-950/20 p-4">
+                <div className="flex items-center gap-2 text-purple-300 text-xs font-semibold uppercase tracking-wide">
+                  <Quote className="h-3.5 w-3.5" /> Creator Interview
+                </div>
+                <blockquote className="text-sm text-zinc-300 italic leading-relaxed">
+                  “{story.creatorInterview.quote}”
+                </blockquote>
+                <figcaption className="text-xs text-zinc-500">
+                  - {story.creatorInterview.author}, {story.creatorInterview.role}
+                </figcaption>
+              </div>
+
+{story.impactMetrics && story.impactMetrics.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center gap-2 text-sky-400 text-xs font-semibold uppercase tracking-wide">
+                    <BarChart className="h-3.5 w-3.5" /> Impact Metrics
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {story.impactMetrics.map((metric, idx) => (
+                      <div key={idx} className="rounded-lg bg-zinc-800/40 p-3 border border-zinc-700/50">
+                        <p className="text-zinc-400 text-xs">{metric.label}</p>
+                        <p className="font-bold text-sky-300 text-sm mt-1">{metric.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {story.beforeAfterPhotos && (
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center gap-2 text-rose-400 text-xs font-semibold uppercase tracking-wide">
+                    <ImageIcon className="h-3.5 w-3.5" /> Before & After
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="relative aspect-video rounded overflow-hidden border border-zinc-800">
+                      <Image
+                        src={story.beforeAfterPhotos.beforeUrl}
+                        alt={`${story.title} before`}
+                        fill
+                        sizes="(max-width: 768px) 50vw, 25vw"
+                        className="object-cover"
+                      />
+                      <div className="absolute top-2 left-2 bg-black/60 px-2 py-0.5 rounded text-[10px] font-bold text-white uppercase tracking-wider">Before</div>
+                    </div>
+                    <div className="relative aspect-video rounded overflow-hidden border border-zinc-800">
+                      <Image
+                        src={story.beforeAfterPhotos.afterUrl}
+                        alt={`${story.title} after`}
+                        fill
+                        sizes="(max-width: 768px) 50vw, 25vw"
+                        className="object-cover"
+                      />
+                      <div className="absolute top-2 left-2 bg-emerald-500/80 px-2 py-0.5 rounded text-[10px] font-bold text-white uppercase tracking-wider">After</div>
+                    </div>
+                  </div>
+                  {story.beforeAfterPhotos.caption && (
+                    <p className="text-[11px] text-zinc-500 italic text-center mt-1">
+                      {story.beforeAfterPhotos.caption}
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center gap-2 text-amber-300 text-xs font-semibold uppercase tracking-wide">
+                  <Users className="h-3.5 w-3.5" /> Backer Testimonials
+                </div>
+                {(story.backerTestimonials ?? []).slice(0, 2).map((testimonial) => (
+                  <div key={testimonial.id} className="rounded-lg bg-zinc-800/30 p-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-zinc-300">{testimonial.author}</span>
+                      <div className="flex items-center gap-0.5">
+                        {Array.from({length: testimonial.rating ?? 5}).map((_, i) => (
+                          <Star key={i} className="h-3 w-3 fill-amber-400 text-amber-400" aria-hidden="true" />
+                        ))}
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-400 leading-relaxed">{testimonial.content}</p>
+                  </div>
+                ))}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

@@ -1,15 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { WalletNetwork } from "@creit.tech/stellar-wallets-kit";
 import { ContractDeployer } from "@/services/contract.deployer";
 import { CopyIcon, CheckCircle2, InfoIcon } from "lucide-react";
 
-export default function DeployContract() {
+type DeployContractProps = {
+  initialSourceCode?: string;
+};
+
+export default function DeployContract({
+  initialSourceCode,
+}: DeployContractProps) {
   const { address, isConnected, signTransaction, network } = useWallet();
   const [sourceCode, setSourceCode] = useState<string>(
-    `#![no_std]
+    initialSourceCode ??
+      `#![no_std]
 use soroban_sdk::{contract, contractimpl, symbol_short, vec, Env, Symbol, Vec};
 
 #[contract]
@@ -29,6 +36,12 @@ impl HelloContract {
   /** Contract ID derived before the create-contract transaction is signed. */
   const [predictedContractId, setPredictedContractId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialSourceCode) {
+      setSourceCode(initialSourceCode);
+    }
+  }, [initialSourceCode]);
 
   const networkPassphrase =
     network === WalletNetwork.TESTNET

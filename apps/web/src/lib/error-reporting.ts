@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nextjs';
 import { sanitizeError, sanitizeObject, sanitizeErrorString } from './sanitize-error';
 
 type ErrorContext = {
@@ -5,6 +6,15 @@ type ErrorContext = {
   componentStack?: string;
   digest?: string;
 };
+
+function captureSentryError(error: Error, context: Record<string, unknown>): void {
+  if (!process.env.NEXT_PUBLIC_SENTRY_DSN) return;
+
+  Sentry.withScope((scope) => {
+    scope.setContext('fundable', context);
+    Sentry.captureException(error);
+  });
+}
 
 /**
  * Report a runtime error to the configured error reporting endpoint
@@ -21,6 +31,7 @@ export function reportRuntimeError(error: Error, context: ErrorContext = {}): vo
 
   // Sanitize context values to ensure no keys leak through
   const sanitizedContext = sanitizeObject(context);
+  captureSentryError(sanitizedError, sanitizedContext as Record<string, unknown>);
 
   // Build payload with sanitized values
   const payload = {
@@ -68,6 +79,7 @@ export function reportCaughtError(
   // Sanitize the error and context
   const sanitizedError = sanitizeError(errorObj);
   const sanitizedContext = sanitizeObject(context);
+  captureSentryError(sanitizedError, sanitizedContext as Record<string, unknown>);
 
   const payload = {
     name: sanitizedError.name,

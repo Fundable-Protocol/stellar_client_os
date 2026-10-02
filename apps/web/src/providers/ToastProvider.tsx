@@ -19,6 +19,8 @@ export const ToastProvider = () => {
       position="top-right"
       gutter={12}
       toastOptions={{
+        // Default duration for toasts (milliseconds)
+        duration: 5000,
         className: "",
         style: {
           background: "#1a1b1e",

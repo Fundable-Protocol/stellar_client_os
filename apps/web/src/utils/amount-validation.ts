@@ -8,6 +8,48 @@
 export const MAX_DECIMAL_PLACES = 7;
 
 /**
+ * Minimum XLM reserve left in the account when auto-filling the maximum
+ * streamable amount. Covers the Stellar minimum account reserve plus
+ * headroom for transaction fees, so a MAX fill never strands the user
+ * without funds to pay for the stream-creation transaction.
+ */
+export const XLM_MINIMUM_RESERVE = 2;
+
+/**
+ * Computes the maximum amount a user can stream given their token balance.
+ *
+ * For XLM, the minimum account reserve (`XLM_MINIMUM_RESERVE`) is deducted
+ * so the user keeps enough native balance to pay transaction fees and satisfy
+ * the Stellar base reserve. For every other token the full balance is usable
+ * because fees and the reserve are always paid in XLM.
+ *
+ * Returns `null` when there is no usable balance (missing, non-numeric, or
+ * zero) or no token code, and `"0"` when the balance is too small to stream
+ * anything after reserving XLM.
+ *
+ * @param balance - Raw balance string for the selected token (e.g. "10.5")
+ * @param tokenCode - Token code ("XLM", "USDC", ...)
+ * @returns Maximum streamable amount as a string, or null
+ */
+export function computeMaxStreamableAmount(
+  balance: string | null | undefined,
+  tokenCode: string | undefined
+): string | null {
+  if (!balance || !tokenCode) return null;
+
+  const balanceNum = parseFloat(balance);
+  if (isNaN(balanceNum) || balanceNum <= 0) return null;
+
+  if (tokenCode === "XLM") {
+    const afterReserve = balanceNum - XLM_MINIMUM_RESERVE;
+    if (afterReserve <= 0) return "0";
+    return formatAmount(afterReserve.toFixed(MAX_DECIMAL_PLACES));
+  }
+
+  return balance;
+}
+
+/**
  * Validates if a string represents a valid positive number
  * @param amount - The amount string to validate
  * @returns true if the amount is valid, false otherwise

@@ -9,8 +9,9 @@ import {
 /**
  * POST /api/certificates
  *
- * Generates a downloadable high-resolution PDF contribution receipt or
- * invoice for a verified donor.
+ * Generates a downloadable high-resolution PDF contribution receipt,
+ * invoice, or tradeable carbon credit certificate.
+ * Tradeable CO2 offset credits can be sold on carbon marketplaces.
  *
  * @body {CertificateInput} — JSON body matching the CertificateInput shape.
  *
@@ -18,7 +19,7 @@ import {
  *   200 — `application/pdf` binary stream with headers:
  *     - `Content-Disposition: attachment; filename="fundable-receipt-<id>.pdf"`
  *     - `X-Certificate-Id: <uuid>`
- *     - `X-Generated-At: <iso8601>`
+ *     - `X-Generated-At: <iso8601>`"
  *   400 — `{ error: string }` — invalid input
  *   500 — `{ error: string }` — generation failure
  *
@@ -66,7 +67,9 @@ export async function POST(req: NextRequest) {
     );
 
     const docType = (body as CertificateInput).documentType ?? "certificate";
-    const filename = `fundable-${docType}-${certificateId}.pdf`;
+    const filename = docType === "carbon-credit"
+      ? `carbon-credit-${certificateId}.pdf`
+      : `fundable-${docType}-${certificateId}.pdf`;
 
     return new NextResponse(pdfBytes as unknown as BodyInit, {
       status: 200,

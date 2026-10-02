@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import type { CampaignWebhookEvent } from "../types/webhook";
 import path from 'path';
 import { createHmac, randomUUID } from 'crypto';
 import type { WebhookSubscription, WebhookDeliveryAttempt, WebhookPayload } from '../types/webhook';
@@ -12,6 +13,9 @@ const IDEMPOTENCY_FIELDS = [
   'notification_id',
   'verificationId',
   'verification_id',
+  'campaignId',
+  'campaign_id',
+  'campaign',
   'nullifier',
   'txHash',
   'tx_hash',
@@ -63,7 +67,7 @@ export class WebhookService {
   private readonly subscriptionsPath: string;
   private readonly deadLetterPath: string;
   private readonly deduplicationPath: string;
-  private readonly pendingDeliveries: Set<Promise<void>> = new Set();
+  private readonly pendingDeliveries: Set<Promise<unknown>> = new Set();
   private readonly inFlightEventKeys = new Set<string>();
   private readonly deliveredEventKeys = new Set<string>();
   private deduplicationLoaded = false;
@@ -417,4 +421,17 @@ export class WebhookService {
       return false;
     }
   }
+}
+
+
+/** Dispatch one of the campaign integration events through the signed delivery pipeline. */
+export async function dispatchCampaignWebhook(
+  event: CampaignWebhookEvent,
+  payload: Record<string, unknown>,
+  service = new WebhookService(),
+): Promise<void> {
+  if (!payload.eventId && !payload.verificationId && !payload.treeId && !payload.campaignId) {
+    throw new Error("Campaign webhook payload must include a stable eventId, verificationId, treeId, or campaignId");
+  }
+  await service.dispatchEvent(event, payload);
 }

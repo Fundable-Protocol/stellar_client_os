@@ -488,11 +488,11 @@ describe("FundableMap Component", () => {
       });
     });
 
-    it("should have role button on circle markers", () => {
+    it("should have aria-label on circle markers", () => {
       render(<FundableMapView streams={mockStreams} />);
       const markers = screen.getAllByTestId("circle-marker");
       markers.forEach((marker) => {
-        expect(marker.getAttribute("role")).toBe("button");
+        expect(marker.getAttribute("aria-label")).toBeTruthy();
       });
     });
 

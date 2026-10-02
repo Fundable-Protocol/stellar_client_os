@@ -20,7 +20,7 @@ import * as path from 'path';
 import {
   Keypair,
   Networks,
-  SorobanRpc,
+  rpc,
   TransactionBuilder,
   Operation,
   Asset,
@@ -62,7 +62,7 @@ export const DISTRIBUTOR_WASM_PATH =
  */
 export async function isLocalNodeReachable(): Promise<boolean> {
   try {
-    const server = new SorobanRpc.Server(LOCAL_RPC_URL, { allowHttp: true });
+    const server = new rpc.Server(LOCAL_RPC_URL, { allowHttp: true });
     await server.getNetwork();
     return true;
   } catch {

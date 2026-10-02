@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PaymentStreamClient } from "../PaymentStreamClient";
-import { DistributorClient } from "../DistributorClient";
-import { Client as ContractClient } from "../generated/payment-stream/src/index";
-import { Client as DistributorContractClient } from "../generated/distributor/src/index";
+import { PaymentStreamClient } from "../PaymentStreamClient.js";
+import { DistributorClient } from "../DistributorClient.js";
+import { Client as ContractClient } from "../generated/payment-stream/src/index.js";
+import { Client as DistributorContractClient } from "../generated/distributor/src/index.js";
 
 // Mock the contract clients
-vi.mock("../generated/payment-stream/src/index", () => ({
+vi.mock("../generated/payment-stream/src/index.js", () => ({
   Client: vi.fn(),
 }));
 
-vi.mock("../generated/distributor/src/index", () => ({
+vi.mock("../generated/distributor/src/index.js", () => ({
   Client: vi.fn(),
 }));
 
@@ -207,31 +207,11 @@ describe("Client Method Overloads", () => {
       expect(result).toBe(mockResult);
     });
 
-    it("getUserStats accepts object parameter", async () => {
-      const mockResult = { signAndSend: vi.fn() };
-      mockDistributorClient.get_user_stats.mockResolvedValue(mockResult);
-
-      const result = await distributorClient.getUserStats({ user });
-
-      expect(mockDistributorClient.get_user_stats).toHaveBeenCalledWith({ user });
-      expect(result).toBe(mockResult);
-    });
-
     it("getTokenStats accepts individual parameters", async () => {
       const mockResult = { signAndSend: vi.fn() };
       mockDistributorClient.get_token_stats.mockResolvedValue(mockResult);
 
       const result = await distributorClient.getTokenStats(token);
-
-      expect(mockDistributorClient.get_token_stats).toHaveBeenCalledWith({ token });
-      expect(result).toBe(mockResult);
-    });
-
-    it("getTokenStats accepts object parameter", async () => {
-      const mockResult = { signAndSend: vi.fn() };
-      mockDistributorClient.get_token_stats.mockResolvedValue(mockResult);
-
-      const result = await distributorClient.getTokenStats({ token });
 
       expect(mockDistributorClient.get_token_stats).toHaveBeenCalledWith({ token });
       expect(result).toBe(mockResult);

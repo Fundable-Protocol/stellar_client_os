@@ -16,6 +16,11 @@ const envSchema = z.object({
     .min(1, "Distributor contract ID is required")
     .startsWith("C", "Contract ID must start with 'C'"),
 
+  NEXT_PUBLIC_PLANTER_CONTRACT_ID: z
+    .string()
+    .startsWith("C", "Contract ID must start with 'C'")
+    .optional(),
+
   // Network Configuration
   NEXT_PUBLIC_SOROBAN_RPC_URL: z
     .string()
@@ -69,6 +74,7 @@ export function validateEnv(): Env {
   const env = {
     NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID: process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID,
     NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID: process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID,
+    NEXT_PUBLIC_PLANTER_CONTRACT_ID: process.env.NEXT_PUBLIC_PLANTER_CONTRACT_ID,
     NEXT_PUBLIC_SOROBAN_RPC_URL: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL,
     NEXT_PUBLIC_NETWORK_PASSPHRASE: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE,
     NEXT_PUBLIC_STELLAR_NETWORK: process.env.NEXT_PUBLIC_STELLAR_NETWORK,
@@ -114,6 +120,7 @@ export const env = process.env.NODE_ENV === 'test'
   ? ({
       NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID: process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID ?? 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
       NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID: process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID ?? 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
+      NEXT_PUBLIC_PLANTER_CONTRACT_ID: process.env.NEXT_PUBLIC_PLANTER_CONTRACT_ID,
       NEXT_PUBLIC_SOROBAN_RPC_URL: process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? 'https://soroban-testnet.stellar.org',
       NEXT_PUBLIC_NETWORK_PASSPHRASE: process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE ?? 'Test SDF Network ; September 2015',
       NEXT_PUBLIC_STELLAR_NETWORK: (process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? 'testnet') as 'testnet' | 'mainnet',

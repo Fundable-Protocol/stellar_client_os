@@ -10,6 +10,7 @@
  *   - regionMetrics    — breakdown by geographic region
  *   - categoryMetrics  — breakdown by funding category
  *   - assetMetrics     — breakdown by token contract address
+ *   - sponsorImpact    — a sponsor's CO2 offset vs the global average + percentile
  *
  * # Introspection / Playground
  * In development (`NODE_ENV !== production`), navigate to /api/graphql in

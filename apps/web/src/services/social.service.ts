@@ -1,4 +1,151 @@
-export const REFERRAL_REWARD_STROOPS = 10_000_000n; // 1 XLM
+export const STROOPS_PER_XLM = 10_000_000n;
+export const REFERRAL_BONUS_XLM = 5;
+export const REFERRAL_REWARD_STROOPS = 50_000_000n; // 5 XLM bonus (50,000,000 stroops)
+import { PlanterClient, PlanterInfo, ReferralInfo } from "@fundable/sdk";
+
+/**
+ * Service for interacting with the Planter referral system.
+ */
+export class SocialService {
+  private planterClient: PlanterClient | null = null;
+
+  /**
+   * Initialize the social service with the planter contract client.
+   * @param contractId The deployed planter contract ID
+   * @param networkPassphrase The network passphrase
+   * @param rpcUrl The RPC URL for Soroban
+   */
+  initialize(
+    contractId: string,
+    networkPassphrase: string,
+    rpcUrl: string
+  ) {
+    this.planterClient = new PlanterClient({
+      contractId,
+      networkPassphrase,
+      rpcUrl,
+    });
+  }
+
+  /**
+   * Register a new planter with an optional referrer.
+   * @param planterAddress The planter's address
+   * @param referrerAddress Optional referrer's address
+   */
+  async registerPlanter(
+    planterAddress: string,
+    referrerAddress?: string
+  ): Promise<void> {
+    if (!this.planterClient) {
+      throw new Error("SocialService not initialized");
+    }
+
+    const tx = await this.planterClient.registerPlanter({
+      planter: planterAddress,
+      referrer: referrerAddress,
+    });
+
+    await tx.signAndSend();
+  }
+
+  /**
+   * Record a job completion for a planter.
+   * @param planterAddress The planter's address
+   */
+  async completeJob(planterAddress: string): Promise<void> {
+    if (!this.planterClient) {
+      throw new Error("SocialService not initialized");
+    }
+
+    const tx = await this.planterClient.completeJob({
+      planter: planterAddress,
+    });
+
+    await tx.signAndSend();
+  }
+
+  /**
+   * Claim referral reward for a referred planter's first job completion.
+   * @param referrerAddress The referrer's address
+   * @param referredPlanterAddress The referred planter's address
+   */
+  async claimReferralReward(
+    referrerAddress: string,
+    referredPlanterAddress: string
+  ): Promise<void> {
+    if (!this.planterClient) {
+      throw new Error("SocialService not initialized");
+    }
+
+    const tx = await this.planterClient.claimReferralReward({
+      referrer: referrerAddress,
+      referredPlanter: referredPlanterAddress,
+    });
+
+    await tx.signAndSend();
+  }
+
+  /**
+   * Get planter information.
+   * @param planterAddress The planter's address
+   * @returns Planter information
+   */
+  async getPlanter(planterAddress: string): Promise<PlanterInfo> {
+    if (!this.planterClient) {
+      throw new Error("SocialService not initialized");
+    }
+
+    return await this.planterClient.getPlanter({
+      planter: planterAddress,
+    });
+  }
+
+  /**
+   * Get referral information for a referrer.
+   * @param referrerAddress The referrer's address
+   * @returns Referral information
+   */
+  async getReferralInfo(referrerAddress: string): Promise<ReferralInfo> {
+    if (!this.planterClient) {
+      throw new Error("SocialService not initialized");
+    }
+
+    return await this.planterClient.getReferralInfo({
+      referrer: referrerAddress,
+    });
+  }
+
+  /**
+   * Get current reward amount.
+   * @returns Current reward amount in stroops
+   */
+  async getRewardAmount(): Promise<bigint> {
+    if (!this.planterClient) {
+      throw new Error("SocialService not initialized");
+    }
+
+    return await this.planterClient.getRewardAmount();
+  }
+
+  /**
+   * Update reward amount (admin only).
+   * @param newAmount New reward amount in stroops
+   */
+  async setRewardAmount(newAmount: bigint): Promise<void> {
+    if (!this.planterClient) {
+      throw new Error("SocialService not initialized");
+    }
+
+    const tx = await this.planterClient.setRewardAmount({
+      newAmount,
+    });
+
+    await tx.signAndSend();
+  }
+}
+
+// Export singleton instance
+export const socialService = new SocialService();
 export const MONTHLY_REFERRAL_CAP = 10;
 
 export type TeamMember = {
@@ -30,6 +177,15 @@ export interface SocialStore {
   setItem(key: string, value: string): void;
 }
 
+export interface PlanterReferralStats {
+  totalReferrals: number;
+  totalRewardsStroops: string;
+  totalBonusXlm: number;
+  monthlyCount: number;
+  monthlyCap: number;
+  rewards: ReferralReward[];
+}
+
 const TEAMS_KEY = "fundable:sponsor-teams";
 const REWARDS_KEY = "fundable:referral-rewards";
 
@@ -53,8 +209,19 @@ function write<T>(store: SocialStore, key: string, value: T): void {
   store.setItem(key, JSON.stringify(value));
 }
 
-function monthKey(date = new Date()): string {
+export function monthKey(date = new Date()): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Generate a planter's unique referral link with address query parameter */
+export function getPlanterReferralUrl(address: string, baseUrl?: string): string {
+  if (!address) return "";
+  const origin =
+    baseUrl ||
+    (typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "https://fundable.network");
+  return `${origin}/?ref=${encodeURIComponent(address)}`;
 }
 
 export function listSponsorTeams(store: SocialStore = browserStore): SponsorTeam[] {
@@ -119,6 +286,43 @@ export function recordTeamTreeSponsorship(
 
 export function listReferralRewards(store: SocialStore = browserStore): ReferralReward[] {
   return read<ReferralReward[]>(store, REWARDS_KEY, []);
+}
+
+/** Calculate aggregated referral metrics for a specific planter address */
+export function getPlanterReferralStats(
+  planterAddress: string,
+  store: SocialStore = browserStore,
+  now = new Date(),
+): PlanterReferralStats {
+  if (!planterAddress) {
+    return {
+      totalReferrals: 0,
+      totalRewardsStroops: "0",
+      totalBonusXlm: 0,
+      monthlyCount: 0,
+      monthlyCap: MONTHLY_REFERRAL_CAP,
+      rewards: [],
+    };
+  }
+
+  const currentMonth = monthKey(now);
+  const allRewards = listReferralRewards(store);
+  const planterRewards = allRewards.filter((reward) => reward.referrer === planterAddress);
+  const monthlyRewards = planterRewards.filter((reward) => reward.month === currentMonth);
+
+  const totalStroops = planterRewards.reduce((sum, r) => sum + BigInt(r.rewardStroops || 0), 0n);
+  const bonusXlm = Number(totalStroops) / Number(STROOPS_PER_XLM);
+
+  return {
+    totalReferrals: planterRewards.length,
+    totalRewardsStroops: totalStroops.toString(),
+    totalBonusXlm: bonusXlm,
+    monthlyCount: monthlyRewards.length,
+    monthlyCap: MONTHLY_REFERRAL_CAP,
+    rewards: planterRewards.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    ),
+  };
 }
 
 /** Record the first completed tree for a referred sponsor, capped at 10 rewards/month. */

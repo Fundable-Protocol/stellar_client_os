@@ -8,10 +8,35 @@ info:
     The API includes contribution certificates, Soroban compilation, public
     stream-map queries, milestone-photo verification, S3 upload presigning,
     GraphQL analytics, and webhook subscriptions.
+
+    ### Rate Limits & Tier-Based Pricing
+
+    Fundable enforces sliding-window rate limiting to protect public infrastructure:
+    - **Free Tier:** 100 requests/day ($0/month, default unauthenticated IP-based)
+    - **Paid Tier 1:** 1,000 requests/day ($10/month, bearer token / API key authenticated)
+    - **Paid Tier 2:** 10,000 requests/day ($50/month, high-throughput dedicated quota)
+    - **Enterprise Tier:** Custom / Unlimited (Contact support for custom capacity)
+
+    Standard rate-limiting headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`)
+    are returned on all responses. Exceeded limits return `429 Too Many Requests` with a `Retry-After` header.
+<<<<<<< HEAD
+=======
+    GraphQL analytics, webhook subscriptions, campaign metadata IPFS pinning,
+    creator stats, and verification SLA guarantees.
+
+    ## Rate Limits & Throttling
+    All endpoints enforce sliding-window rate limiting (60 req/min for Read APIs,
+    30 req/min for Creation APIs, 10 req/min for Execution APIs).
+    Rate limit headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, `Retry-After`)
+    are included on all responses. For detailed policy, see `docs/campaign-api-rate-limits.md`.
+>>>>>>> upstream/main
   license:
     name: MIT
     url: https://opensource.org/license/mit/
-security: []
+security:
+  - apiKeyAuth: []
+  - bearerAuth: []
+  - {}
 servers:
   - url: https://api.fundable.network
     description: Fundable API server
@@ -25,6 +50,8 @@ servers:
 tags:
   - name: Certificates
     description: Contribution receipt and invoice generation
+  - name: Campaigns
+    description: Campaign discovery and trending rankings
   - name: Compilation
     description: Soroban source compilation
   - name: GraphQL
@@ -37,8 +64,228 @@ tags:
     description: Public geographic stream queries
   - name: Webhooks
     description: Subscription registration and event dispatch
+  /api/campaigns/trending:
+    get:
+      tags: [Campaigns]
+      summary: Rank active campaigns by trending score
+      operationId: getTrendingCampaigns
+      description: |
+        Returns active campaigns ranked by a tunable composite score built from
+        daily velocity, engagement rate, and completion probability. Scoring
+        weights are configurable via the `TRENDING_*_WEIGHT` environment
+        variables (defaults: velocity 0.4, engagement 0.3, completion 0.3).
+      parameters:
+        - name: network
+          in: query
+          required: false
+          description: Soroban network to rank.
+          schema:
+            type: string
+            enum: [testnet, mainnet]
+            default: testnet
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of ranked campaigns to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Zero-based offset into the ranked list.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: includeNonActive
+          in: query
+          required: false
+          description: Include non-Active campaigns (e.g. recently completed).
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Ranked campaigns with their composite scores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendingCampaignsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/certificates:
+
 
 paths:
+  /api/campaigns:
+    get:
+      tags: [Campaigns]
+      summary: List campaigns with filters and sorting
+      operationId: listCampaigns
+      parameters:
+        - $ref: '#/components/parameters/CampaignStatus'
+        - name: creator
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, updatedAt, name, status, goalAmount, raisedAmount, sponsorCount, treeCount]
+            default: createdAt
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: network
+          in: query
+          schema: { type: string, enum: [testnet, mainnet], default: testnet }
+      responses:
+        '200':
+          description: Matching campaigns
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Campaign' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Campaigns]
+      summary: Create a campaign
+      operationId: createCampaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCampaignRequest' }
+      responses:
+        '201':
+          description: Campaign created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: A campaign with the same name, location, and duration already exists for this creator
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, duplicates]
+                properties:
+                  error: { type: string }
+                  duplicates:
+                    type: array
+                    items: { $ref: '#/components/schemas/Campaign' }
+  /api/campaigns/{id}:
+    get:
+      tags: [Campaigns]
+      summary: Get a campaign and its status history
+      operationId: getCampaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: Campaign details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Campaigns]
+      summary: Update campaign metadata, status, or impact totals
+      operationId: updateCampaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCampaignRequest' }
+      responses:
+        '200':
+          description: Updated campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/campaigns/{id}/export:
+    get:
+      tags: [Campaigns]
+      summary: Download sponsor or impact report as CSV
+      operationId: exportCampaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - name: report
+          in: query
+          required: true
+          schema: { type: string, enum: [sponsors, impact] }
+      responses:
+        '200':
+          description: CSV report
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/campaigns/{id}/impact:
+    get:
+      tags: [Campaigns]
+      summary: Query historical campaign ecological impact over time
+      operationId: getCampaignImpactHistory
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - name: date
+          in: query
+          required: false
+          description: ISO date (YYYY-MM-DD) or timestamp to query historical impact for a specific date
+          schema: { type: string }
+        - name: startDate
+          in: query
+          required: false
+          schema: { type: string }
+        - name: endDate
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Historical impact metrics including tree count, CO2 sequestration, and sponsor count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      campaignId: { type: string }
+                      campaignName: { type: string }
+                      currentImpact: { type: object }
+                      impactAtDate: { type: object }
+                      timeline: { type: array, items: { type: object } }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/certificates:
     post:
       tags: [Certificates]
@@ -546,12 +793,209 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/mobile/push/subscribe:
+    post:
+      tags: [MobilePush]
+      summary: Register mobile push subscription
+      description: Subscribe a device to receive campaign milestone push notifications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberAddress, endpoint, keys]
+              properties:
+                subscriberAddress:
+                  type: string
+                  description: Stellar wallet address of the subscriber
+                campaignId:
+                  type: string
+                  description: Target campaign ID or '*' for all sponsored campaigns
+                  default: '*'
+                endpoint:
+                  type: string
+                keys:
+                  type: object
+                  properties:
+                    p256dh: { type: string }
+                    auth: { type: string }
+                deviceType:
+                  type: string
+                  enum: [mobile_ios, mobile_android, mobile_web, unknown]
+                enabledMilestones:
+                  type: array
+                  items:
+                    type: string
+                    enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+      responses:
+        '201':
+          description: Subscription registered
+        '400':
+          description: Validation error
+    delete:
+      tags: [MobilePush]
+      summary: Unregister mobile push subscription
+      parameters:
+        - in: query
+          name: endpoint
+          schema: { type: string }
+          required: false
+        - in: query
+          name: id
+          schema: { type: string }
+          required: false
+      responses:
+        '200':
+          description: Subscription removed
+        '404':
+          description: Subscription not found
+    get:
+      tags: [MobilePush]
+      summary: Get subscriptions for a wallet
+      parameters:
+        - in: query
+          name: address
+          schema: { type: string }
+          required: false
+      responses:
+        '200':
+          description: List of subscriptions
+
+  /api/mobile/push/preferences:
+    put:
+      tags: [MobilePush]
+      summary: Update milestone push preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberAddress, enabledMilestones]
+              properties:
+                subscriberAddress: { type: string }
+                campaignId: { type: string, default: '*' }
+                enabledMilestones:
+                  type: array
+                  items:
+                    type: string
+                    enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+      responses:
+        '200':
+          description: Preferences updated
+
+  /api/mobile/push/notify:
+    post:
+      tags: [MobilePush]
+      summary: Dispatch milestone push notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [campaignId, milestone]
+              properties:
+                campaignId: { type: string }
+                campaignTitle: { type: string }
+                milestone:
+                  type: string
+                  enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+                details: { type: object }
+                deepLinkUrl: { type: string }
+      responses:
+        '200':
+          description: Milestone notifications dispatched
+
+  /api/campaigns/{id}/verification-audit:
+    get:
+      tags: [CampaignAudit]
+      summary: Retrieve immutable campaign verification audit trail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Complete audit trail
+    post:
+      tags: [CampaignAudit]
+      summary: Log verification activity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [activityType, actor, details]
+              properties:
+                activityType:
+                  type: string
+                  enum: [submitted_for_review, verifier_comments, photo_uploaded, approved, rejected]
+                actor: { type: string }
+                details: { type: string }
+                txHash: { type: string }
+                campaignTitle: { type: string }
+      responses:
+        '201':
+          description: Activity logged to immutable trail
+
 components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for Paid Tier 1 ($10/mo) or Paid Tier 2 ($50/mo) access.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: APIKey
+      description: Bearer token for Paid Tier 1 or Tier 2 subscriptions.
+
+  parameters:
+    CampaignId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CampaignStatus:
+      name: status
+      in: query
+      schema:
+        $ref: '#/components/schemas/CampaignStatus'
   headers:
     ContentDisposition:
       description: Attachment filename for the generated PDF
       schema:
         type: string
+    RateLimitLimit:
+      description: The maximum number of requests allowed within the current window
+      schema:
+        type: integer
+        example: 1000
+    RateLimitRemaining:
+      description: The number of remaining requests allowed within the current window
+      schema:
+        type: integer
+        example: 842
+    RateLimitReset:
+      description: The time in seconds remaining until the rate limit resets
+      schema:
+        type: integer
+        example: 45
+    RetryAfter:
+      description: Number of seconds to wait before retrying after being rate-limited
+      schema:
+        type: integer
+        example: 60
 
   responses:
     BadRequest:
@@ -572,8 +1016,132 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/GraphQLResponse'
+    RateLimitExceeded:
+      description: Rate limit exceeded (Free Tier 100 req/day, Tier 1 1000 req/day, Tier 2 10k req/day)
+      headers:
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitError'
 
   schemas:
+    RateLimitError:
+      type: object
+      required: [error, code, retryAfter]
+      properties:
+        error:
+          type: string
+          example: Too many requests
+        code:
+          type: string
+          example: RATE_LIMIT_EXCEEDED
+        message:
+          type: string
+          example: Daily rate limit exceeded for Free Tier (100 req/day). Upgrade to Tier 1 ($10/mo) or Tier 2 ($50/mo).
+        retryAfter:
+          type: integer
+          example: 45
+        currentTier:
+          type: string
+          enum: [free, tier1, tier2, enterprise]
+          example: free
+        upgradeUrl:
+          type: string
+          format: uri
+          example: https://fundable.network/pricing
+<<<<<<< HEAD
+=======
+    CampaignStatus:
+      type: string
+      enum: [DRAFT, PENDING_VERIFICATION, ACTIVE, PAUSED, COMPLETED, FAILED]
+    Campaign:
+      type: object
+      required: [id, creator, name, status, goalAmount, raisedAmount, sponsorCount, treeCount, createdAt, updatedAt, statusChangedAt, sponsors, statusHistory]
+      properties:
+        id: { type: string, format: uuid }
+        creator: { type: string }
+        name: { type: string }
+        description: { type: string }
+        location: { type: string }
+        durationMs: { type: integer, minimum: 0 }
+        status: { $ref: '#/components/schemas/CampaignStatus' }
+        goalAmount: { type: string, pattern: '^\\d+$' }
+        raisedAmount: { type: string, pattern: '^\\d+$' }
+        sponsorCount: { type: integer, minimum: 0 }
+        treeCount: { type: integer, minimum: 0 }
+        co2Sequestration: { type: string, description: 'Cumulative CO2 sequestration in metric tonnes' }
+        impactMilestonesReached:
+          type: array
+          items: { type: string, enum: [1000_trees, 5000_trees, 10_tons_co2] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        statusChangedAt: { type: string, format: date-time }
+        sponsors:
+          type: array
+          items: { $ref: '#/components/schemas/CampaignSponsor' }
+        statusHistory:
+          type: array
+          items: { $ref: '#/components/schemas/CampaignStatusHistory' }
+    CampaignSponsor:
+      type: object
+      required: [id, campaignId, address, amount, token, sponsoredAt]
+      properties:
+        id: { type: string, format: uuid }
+        campaignId: { type: string, format: uuid }
+        address: { type: string }
+        amount: { type: string }
+        token: { type: string }
+        sponsoredAt: { type: string, format: date-time }
+    CampaignStatusHistory:
+      type: object
+      required: [id, campaignId, toStatus, changedBy, changedAt]
+      properties:
+        id: { type: string, format: uuid }
+        campaignId: { type: string, format: uuid }
+        fromStatus: { allOf: [{ $ref: '#/components/schemas/CampaignStatus' }], nullable: true }
+        toStatus: { $ref: '#/components/schemas/CampaignStatus' }
+        changedBy: { type: string }
+        changedAt: { type: string, format: date-time }
+        reason: { type: string }
+    CreateCampaignRequest:
+      type: object
+      required: [creator, name, goalAmount]
+      properties:
+        creator: { type: string }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        location: { type: string, maxLength: 500 }
+        durationMs: { type: integer, minimum: 0 }
+        deadline: { type: integer, description: 'Unix timestamp (ms); sets durationMs to deadline minus now' }
+        goalAmount: { type: string, pattern: '^\\d+$' }
+        network: { type: string, enum: [testnet, mainnet], default: testnet }
+    UpdateCampaignRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        status: { $ref: '#/components/schemas/CampaignStatus' }
+        changedBy: { type: string }
+        reason: { type: string }
+        treeCount: { type: integer, minimum: 0, description: 'Cumulative trees planted; crossing 1000 or 5000 emits a campaign_milestone_reached webhook' }
+        co2Sequestration: { type: string, pattern: '^\d+(\.\d+)?$', description: 'Cumulative CO2 sequestration in metric tonnes; crossing 10 emits a campaign_milestone_reached webhook' }
+    Pagination:
+      type: object
+      required: [limit, offset, count]
+      properties:
+        limit: { type: integer }
+        offset: { type: integer }
+        count: { type: integer }
+>>>>>>> upstream/main
     Error:
       type: object
       required: [error]
@@ -882,6 +1450,142 @@ components:
         payload:
           type: object
           additionalProperties: true
+    TrendingCampaignsResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendingCampaign'
+        meta:
+          $ref: '#/components/schemas/TrendingCampaignMeta'
+    TrendingCampaign:
+      type: object
+      required: [id, score, rank, components, raw]
+      properties:
+        id:
+          type: string
+          description: On-chain campaign id (numeric string).
+        creator:
+          type: string
+        token:
+          type: string
+        targetAmount:
+          type: string
+          description: Hard-cap target in stroops.
+        minTarget:
+          type: string
+          description: Minimum success threshold in stroops.
+        createdAt:
+          type: integer
+          format: int64
+        deadline:
+          type: integer
+          format: int64
+        totalRaised:
+          type: string
+        status:
+          type: string
+          enum: [Active, Successful, Failed, Claimed]
+        score:
+          type: number
+          format: double
+          description: Composite trending score in [0, 100].
+        rank:
+          type: integer
+          minimum: 1
+        components:
+          $ref: '#/components/schemas/TrendingComponents'
+        raw:
+          $ref: '#/components/schemas/TrendingRaw'
+    TrendingComponents:
+      type: object
+      required: [velocity, engagement, completion]
+      properties:
+        velocity:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        engagement:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        completion:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+    TrendingRaw:
+      type: object
+      required:
+        - dailyVelocity
+        - engagementRate
+        - completionProbability
+        - uniqueContributors
+        - contributionCount
+        - progressPercent
+      properties:
+        dailyVelocity:
+          type: number
+          description: Stroops raised in the trailing 24 h window.
+        engagementRate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        completionProbability:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        uniqueContributors:
+          type: integer
+          minimum: 0
+        contributionCount:
+          type: integer
+          minimum: 0
+        progressPercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+    TrendingWeights:
+      type: object
+      required: [velocity, engagement, completion]
+      properties:
+        velocity:
+          type: number
+          format: double
+          minimum: 0
+        engagement:
+          type: number
+          format: double
+          minimum: 0
+        completion:
+          type: number
+          format: double
+          minimum: 0
+    TrendingCampaignMeta:
+      type: object
+      required: [total, evaluated, weights, generatedAt, network]
+      properties:
+        total:
+          type: integer
+          description: Number of ranked campaigns in the eligible set.
+        evaluated:
+          type: integer
+          description: Total campaigns loaded from the data source.
+        weights:
+          $ref: '#/components/schemas/TrendingWeights'
+        generatedAt:
+          type: integer
+          format: int64
+        network:
+          type: string
+          enum: [testnet, mainnet]
     SuccessMessage:
       type: object
       required: [success, message]

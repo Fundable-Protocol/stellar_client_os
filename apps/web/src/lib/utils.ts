@@ -21,3 +21,21 @@ export function sliceAddress(address: string, startChars = 4, endChars = 5): str
     if (address.length <= startChars + endChars) return address;
     return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
 }
+
+/**
+ * Sort an array of items by a given property.
+ * Defaults to ascending order (soonest deadlines, lowest altitudes).
+ * Pass `descending = true` for descending order (e.g. highest pay).
+ */
+export function sortByProperty<T>(items: T[], key: keyof T, descending = false): T[] {
+    return [...items].sort((a, b) => {
+        const aVal = a[key];
+        const bVal = b[key];
+        if (aVal == null && bVal == null) return 0;
+        if (aVal == null) return 1;
+        if (bVal == null) return -1;
+        if (aVal < bVal) return descending ? 1 : -1;
+        if (aVal > bVal) return descending ? -1 : 1;
+        return 0;
+    });
+}

@@ -76,12 +76,17 @@ stellar_client/
 ├── contracts/               # Soroban smart contracts (Rust)
 │   ├── payment-stream/      # Payment streaming contract
 │   ├── distributor/         # Token distribution contract
+│   ├── campaign-funding/    # Campaign escrow & funding contract
+│   ├── campaign-verification-audit/ # Immutable on-chain verification audit log
+│   ├── planter/             # Planter performance & metrics contract
 │   └── Cargo.toml           # Rust workspace config
 │
 ├── docs/                      # Project documentation
 │   ├── architecture.md
 │   ├── getting-started.md     # Project setup documentation
 │   ├── webhooks.md            # Webhook system documentation
+│   ├── openapi.yaml           # OpenAPI specification
+│   ├── rate-limits.md         # API rate limiting documentation
 │   ├── contracts/             # Contracts documentation
 │   │   ├── distributor.md
 │   │   └── payment-stream.md
@@ -99,7 +104,10 @@ stellar_client/
 
 - **Payment Streaming** - Create and manage continuous token streams
 - **Token Distribution** - Efficiently distribute tokens to multiple recipients
+- **Campaign Funding** - Launch and manage on-chain fundraising campaigns with milestones
 - **Multi-Asset Support** - USDC, XLM, and other Stellar assets
+- **Campaign Milestone Push Notifications** - Real-time mobile push updates for trees planted, verification complete, campaign finished, and impact achieved
+- **Campaign Verification Audit Trail** - Immutable blockchain log of all verification activities (submitted for review, verifier comments, photo uploaded, approved/rejected)
 - **Offramp Integration** - Convert crypto to fiat currencies
 
 ## 🛠️ Tech Stack
@@ -109,6 +117,41 @@ stellar_client/
 | **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS v4 |
 | **Contracts** | Soroban SDK, Rust |
 | **SDK** | TypeScript, @stellar/stellar-sdk |
+
+## 📐 Campaign Contract Architecture
+
+The `contracts/campaign` Soroban contract powers on-chain fundraising campaigns.
+
+### State Machine
+
+Campaigns progress through `Draft -> Active -> Paused -> Successful/Failed -> PaidOut/Refunded`.
+
+- `Draft` – creator configures campaign and milestone payout schedule.
+- `Active` – contributions are accepted.
+- `Paused` – emergency stop; contributions suspended but state preserved.
+- `Successful` – all milestones verified and claimed by the creator.
+- `Failed` – end time reached without meeting the funding goal or cancelled by admin.
+- `PaidOut` – final milestone released and campaign fully settled.
+- `Refunded` – backers can claim proportional refunds after failure.
+
+Transitions are enforced by the contract and only the `admin` or `campaign_owner` may invoke restricted actions.
+
+### Security Model
+
+- **Admin guard**: privileged operations use an `admin` address set at deployment.
+- **Capability checks**: every state transition validates caller and current state.
+- **Reentrancy protection**: external calls to token contracts happen after internal state updates.
+- **Overflow-safe math**: checked arithmetic from the Soroban SDK prevents balance errors.
+- **Escrow accounting**: contributions are held in contract balance and only released by explicit `payout` or `refund` functions.
+- **Milestone approvals**: fund release requires multi-sig/approval from designated reviewers before owner can claim.
+
+### Scalability
+
+- Campaigns are stored as persistent map entries keyed by `u32` campaign id, avoiding unbounded collections.
+- Contributions are aggregated rather than stored as individual ledger entries.
+- Payouts batch milestone claims to minimize transaction count.
+- The contract is stateless with respect to off-chain indexers; event log entries enable efficient data replication.
+- Deployment uses a single contract with per-campaign storage, allowing the same contract ID to serve many campaigns without migrations.
 
 ## 🚀 Getting Started
 
@@ -245,6 +288,26 @@ Allowed content types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `a
 
 Required environment variables (see `.env.example`): `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; optional `AWS_SESSION_TOKEN` (temporary STS credentials) and `S3_PRESIGN_EXPIRES_SECONDS` (60–900). The IAM user needs only `s3:PutObject` on the evidence bucket.
 
+### 🌿 Planter Profile & Referral Commission (5 XLM Bonus)
+
+Planters can access their profile at `/profile` to view their personal identity, track metrics, and manage their unique embedded referral link (`https://fundable.network/?ref=<address>`).
+
+- **Commission:** Planters earn an instant **5 XLM bonus** (`50,000,000` stroops) for every new sponsor who joins via their referral link and completes their first tree sponsorship.
+- **Sharing & Tracking:** Includes 1-click copy with feedback, dynamic QR code generation, direct social sharing (X/Twitter, Telegram, WhatsApp), and real-time monthly quota tracking (up to 10 rewards/month).
+
+### ⚡ Public API Rate Limits & Tier-Based Pricing
+
+Fundable enforces a sliding-window rate limiter backed by Redis to protect public endpoints while offering scalable tiers:
+
+| Tier | Daily Limit | Monthly Price (USD) | Burst Limit | Recommended For |
+|---|---|---|---|---|
+| **Free Tier** | **100 req / day** | **$0.00** | 10 req / min | Development, indie planters, testing |
+| **Paid Tier 1** | **1,000 req / day** | **$10.00 / mo** | 60 req / min | Production dApps, community bots |
+| **Paid Tier 2** | **10,000 req / day** | **$50.00 / mo** | 300 req / min | High-volume indexers, analytics, enterprise |
+| **Enterprise** | **100,000+ req / day** | **Custom ($250+)** | 1,000+ req / min | Institutional partners, registries |
+
+- For complete integration guides, authentication headers (`Authorization: Bearer <key>` or `X-API-Key`), standard response headers (`RateLimit-*`), and 429 error handling, see **[docs/rate-limits.md](docs/rate-limits.md)** and the **[OpenAPI Specification](docs/openapi.yaml)**.
+
 ## 📦 Packages
 
 ### `apps/web`
@@ -260,6 +323,20 @@ Soroban contract for creating and managing payment streams with:
 Soroban contract for token distributions:
 - Equal distribution across recipients
 - Weighted distribution with custom amounts
+
+### `contracts/campaign`
+Soroban contract for on-chain fundraising campaigns:
+- Campaign creation with funding goals and expiration
+- Milestone-based payout approvals
+- Emergency pause and refund flows
+- Multi-token contribution support
+
+### `contracts/campaign-diversity`
+Soroban contract that scores a campaign's tree planting for biodiversity:
+- `0 .. 10000` diversity score from verified species coverage and evenness
+- Simpson-index evenness factor, so a monoculture scores `0`
+- Pending/verified planting lifecycle, and carbon-credit screening
+- See [docs/contracts/campaign-diversity.md](docs/contracts/campaign-diversity.md)
 
 ### `packages/sdk`
 TypeScript SDK for interacting with the deployed contracts.
