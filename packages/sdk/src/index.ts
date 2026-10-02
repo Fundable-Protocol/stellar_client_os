@@ -48,6 +48,7 @@ export {
 export * from "./CarbonCreditClient.js";
 export * from "./ImpactNFTClient.js";
 export * from "./nft-milestone.js";
+export * from "./SpeciesProofClient.js";
 export * from "./utils/checked-math.js";
 
 // Export deployment module, disambiguating names also exported by generated bindings.
