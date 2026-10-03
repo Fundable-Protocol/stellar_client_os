@@ -29,7 +29,46 @@ pub enum OptionalAddress {
 /// self-documenting.
 #[contracttype]
 #[derive(Clone)]
+
+/// Non-profit organization partner for charitable tax deduction eligibility.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NonProfitPartner {
+    pub partner_address: Address,
+    pub name: soroban_sdk::String,
+    pub tax_id: soroban_sdk::String,
+    pub registered_at: u64,
+}
+
+/// On-chain tax deduction certificate issued to campaign sponsors.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaxCertificate {
+    pub certificate_id: u64,
+    pub campaign_id: u64,
+    pub sponsor: Address,
+    pub non_profit_partner: Address,
+    pub non_profit_name: soroban_sdk::String,
+    pub non_profit_tax_id: soroban_sdk::String,
+    pub contribution_amount: i128,
+    pub eligible_deduction_amount: i128,
+    pub issued_at: u64,
+}
+
+/// Emitted when a tax deduction certificate is issued to a sponsor.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaxCertificateIssuedEvent {
+    pub certificate_id: u64,
+    pub campaign_id: u64,
+    pub sponsor: Address,
+    pub amount: i128,
+}
+
 pub enum DataKey {
+    NonProfitPartner(u64),
+    TaxCertificate(u64, Address),
+    TaxCertificateCount,
     /// Global admin address (instance storage).
     Admin,
     /// Running total of campaigns created (instance storage).
@@ -672,6 +711,10 @@ pub enum Error {
     ProofNotFound = 39,
     /// Tree mortality occurred outside the 2-year insurance coverage window.
     InsuranceWindowExpired = 38,
+    /// The non-profit partner has not been registered for this campaign.
+    NonProfitPartnerNotFound = 28,
+    /// Tax certificate has already been issued for this sponsor and campaign.
+    CertificateAlreadyIssued = 29,
 }
 
 // ---------------------------------------------------------------------------
@@ -3182,6 +3225,103 @@ impl CampaignFundingContract {
         now <= campaign.created_at.saturating_add(TWO_YEARS_SECS)
     }
 
+
+    // -----------------------------------------------------------------------
+    // Tax Deduction Certification (Issue #880)
+    // -----------------------------------------------------------------------
+
+    /// Register a verified non-profit partner for a campaign to enable tax-deductible contributions.
+    pub fn register_non_profit_partner(
+        env: Env,
+        creator: Address,
+        campaign_id: u64,
+        partner: Address,
+        name: soroban_sdk::String,
+        tax_id: soroban_sdk::String,
+    ) {
+        creator.require_auth();
+        Self::assert_initialized(&env);
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if campaign.creator != creator {
+            panic_with_error!(&env, Error::Unauthorized);
+        }
+
+        let partner_info = NonProfitPartner {
+            partner_address: partner,
+            name,
+            tax_id,
+            registered_at: env.ledger().timestamp(),
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::NonProfitPartner(campaign_id), &partner_info);
+    }
+
+    /// Retrieve the registered non-profit partner details for a campaign.
+    pub fn get_non_profit_partner(env: Env, campaign_id: u64) -> Option<NonProfitPartner> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::NonProfitPartner(campaign_id))
+    }
+
+    /// Issue an on-chain tax deduction certificate to a sponsor for their charitable contribution.
+    pub fn issue_tax_certificate(env: Env, campaign_id: u64, sponsor: Address) -> TaxCertificate {
+        Self::assert_initialized(&env);
+
+        let partner_info = Self::get_non_profit_partner(env.clone(), campaign_id)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NonProfitPartnerNotFound));
+
+        let contribution = Self::get_contribution(env.clone(), campaign_id, sponsor.clone());
+        if contribution <= 0 {
+            panic_with_error!(&env, Error::NoContributionFound);
+        }
+
+        let cert_key = DataKey::TaxCertificate(campaign_id, sponsor.clone());
+        if env.storage().persistent().has(&cert_key) {
+            panic_with_error!(&env, Error::CertificateAlreadyIssued);
+        }
+
+        let mut count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TaxCertificateCount)
+            .unwrap_or(0);
+        count = count.checked_add(1).unwrap();
+        env.storage().instance().set(&DataKey::TaxCertificateCount, &count);
+
+        let cert = TaxCertificate {
+            certificate_id: count,
+            campaign_id,
+            sponsor: sponsor.clone(),
+            non_profit_partner: partner_info.partner_address,
+            non_profit_name: partner_info.name,
+            non_profit_tax_id: partner_info.tax_id,
+            contribution_amount: contribution,
+            eligible_deduction_amount: contribution,
+            issued_at: env.ledger().timestamp(),
+        };
+
+        env.storage().persistent().set(&cert_key, &cert);
+
+        env.events().publish(
+            ("TaxCertificateIssued", campaign_id),
+            TaxCertificateIssuedEvent {
+                certificate_id: count,
+                campaign_id,
+                sponsor,
+                amount: contribution,
+            },
+        );
+
+        cert
+    }
+
+    /// Retrieve an issued tax deduction certificate for a sponsor.
+    pub fn get_tax_certificate(env: Env, campaign_id: u64, sponsor: Address) -> Option<TaxCertificate> {
+        env.storage().persistent().get(&DataKey::TaxCertificate(campaign_id, sponsor))
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
@@ -5629,12 +5769,133 @@ mod tests {
         assert_eq!(carbon_client.balance(&treasury), 500);
         assert_eq!(bonus_client.balance(&planter), 0);
     }
+
+    // -----------------------------------------------------------------------
+    // Tax Deduction Certification Tests (Issue #880)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_register_non_profit_partner() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token = Address::generate(&env);
+        let creator = Address::generate(&env);
+        let partner = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let name = soroban_sdk::String::from_str(&env, "Trees For All Foundation");
+        let tax_id = soroban_sdk::String::from_str(&env, "52-1234567");
+
+        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+
+        let info = client.get_non_profit_partner(&id).unwrap();
+        assert_eq!(info.partner_address, partner);
+        assert_eq!(info.name, name);
+        assert_eq!(info.tax_id, tax_id);
+    }
+
+    #[test]
+    fn test_issue_tax_certificate_success() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+        let partner = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &5_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let name = soroban_sdk::String::from_str(&env, "Reforest Action NonProfit");
+        let tax_id = soroban_sdk::String::from_str(&env, "EIN-987654321");
+        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+
+        // Sponsor contributes 3,000 stroops
+        client.contribute(&sponsor, &id, &3_000);
+
+        // Issue tax certificate
+        let cert = client.issue_tax_certificate(&id, &sponsor);
+        assert_eq!(cert.certificate_id, 1);
+        assert_eq!(cert.campaign_id, id);
+        assert_eq!(cert.sponsor, sponsor);
+        assert_eq!(cert.non_profit_partner, partner);
+        assert_eq!(cert.contribution_amount, 3_000);
+        assert_eq!(cert.eligible_deduction_amount, 3_000);
+
+        // Check get_tax_certificate
+        let retrieved = client.get_tax_certificate(&id, &sponsor).unwrap();
+        assert_eq!(retrieved, cert);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #28)")]
+    fn test_issue_tax_certificate_fails_without_partner() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &5_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.contribute(&sponsor, &id, &1_000);
+
+        // Fails with NonProfitPartnerNotFound (#28)
+        client.issue_tax_certificate(&id, &sponsor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #12)")]
+    fn test_issue_tax_certificate_fails_without_contribution() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+        let partner = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let name = soroban_sdk::String::from_str(&env, "Green Earth Foundation");
+        let tax_id = soroban_sdk::String::from_str(&env, "EIN-11223344");
+        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+
+        // Fails with NoContributionFound (#12)
+        client.issue_tax_certificate(&id, &sponsor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #29)")]
+    fn test_issue_tax_certificate_duplicate_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+        let partner = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &5_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let name = soroban_sdk::String::from_str(&env, "Clean Air Alliance");
+        let tax_id = soroban_sdk::String::from_str(&env, "EIN-55667788");
+        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+
+        client.contribute(&sponsor, &id, &2_000);
+        client.issue_tax_certificate(&id, &sponsor);
+
+        // Second call fails with CertificateAlreadyIssued (#29)
+        client.issue_tax_certificate(&id, &sponsor);
+    }
 }
-
-
-
-
-
-
-
-
