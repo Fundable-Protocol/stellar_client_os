@@ -55,6 +55,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       autoTranslate?: boolean;
       treeCount?: number;
       co2Sequestration?: string;
+speciesCount?: number;
       countries?: string[];
       location?: string;
     };
@@ -84,6 +85,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.treeCount !== undefined && (!Number.isSafeInteger(body.treeCount) || body.treeCount < 0)) {
       return noStore({ error: "treeCount must be a non-negative whole number" }, { status: 400 });
     }
+    if (body.speciesCount !== undefined && (!Number.isSafeInteger(body.speciesCount) || body.speciesCount < 0)) {
+      return noStore({ error: "speciesCount must be a non-negative whole number" }, { status: 400 });
+    }
     if (body.co2Sequestration !== undefined && (
       typeof body.co2Sequestration !== "string" ||
       !/^\d+(?:\.\d+)?$/.test(body.co2Sequestration) ||
@@ -102,12 +106,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (!body.changedBy) return noStore({ error: "changedBy is required when changing status" }, { status: 400 });
       updated = await transitionCampaignStatus(campaign, body.status, body.changedBy, body.reason);
     }
-    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined) {
-      const language = body.language ?? updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
-      const translations = body.translations ?? updated.translations ?? {};
-      const description = body.description ?? updated.description ?? "";
-    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined) {
-if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined || body.countries !== undefined || body.location !== undefined) {
+if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined || body.speciesCount !== undefined) {
       const language = body.language ? normalizeTranslationLocale(body.language)! : updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
       const translations = { ...updated.translations, ...body.translations };
       const description = body.description ?? updated.description ?? "";
@@ -124,6 +123,7 @@ if (body.name !== undefined || body.description !== undefined || body.language !
         localizedContent,
         treeCount: body.treeCount ?? updated.treeCount,
         co2Sequestration: body.co2Sequestration ?? updated.co2Sequestration,
+speciesCount: body.speciesCount ?? updated.speciesCount,
         countries: body.countries ?? updated.countries,
         location: body.location ?? updated.location,
         updatedAt: Date.now(),

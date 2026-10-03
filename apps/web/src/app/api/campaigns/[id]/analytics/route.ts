@@ -4,7 +4,8 @@ import {
   recordCampaignContribution,
   recordCampaignRefund,
   recordCampaignView,
-  recordCampaignCreditSale,
+recordCampaignCreditSale,
+  recordCampaignSpeciesCount,
 } from "../../../../../services/campaign-analytics.service";
 
 export const runtime = "nodejs";
@@ -153,12 +154,13 @@ export async function POST(
   const campaignId = (await params).id;
   try {
     const body = await request.json() as {
-      event?: "view" | "contribution" | "refund" | "credit_sale";
+event?: "view" | "contribution" | "refund" | "credit_sale" | "species_count";
       viewerId?: string;
       sponsor?: string;
       amount?: string;
-      buyer?: string;
+buyer?: string;
       credits?: string;
+      speciesCount?: number;
     };
     if (body.event === "view") {
       await recordCampaignView(campaignId, body.viewerId);
@@ -167,13 +169,18 @@ export async function POST(
       await recordCampaignContribution(campaignId, body.amount, body.sponsor);
     } else if (body.event === "refund") {
       await recordCampaignRefund(campaignId);
-    } else if (body.event === "credit_sale") {
+} else if (body.event === "credit_sale") {
       if (!body.sponsor || !body.buyer || !body.credits) {
         return noStore({ error: "sponsor, buyer, and credits are required" }, { status: 400 });
       }
       await recordCampaignCreditSale(campaignId, body.sponsor, body.buyer, body.credits);
+    } else if (body.event === "species_count") {
+      if (body.speciesCount === undefined) {
+        return noStore({ error: "speciesCount is required" }, { status: 400 });
+      }
+      await recordCampaignSpeciesCount(campaignId, body.speciesCount);
     } else {
-      return noStore({ error: "event must be view, contribution, refund, or credit_sale" }, { status: 400 });
+return noStore({ error: "event must be view, contribution, refund, credit_sale, or species_count" }, { status: 400 });
     }
     const analytics = await getCampaignAnalytics(campaignId);
 return noStore({ data: applyGeographicDiversityIncentive(withSustainabilityScore(analytics)) }, { status: 201 });
