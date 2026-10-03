@@ -29,7 +29,28 @@ pub enum OptionalAddress {
 /// self-documenting.
 #[contracttype]
 #[derive(Clone)]
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SpeciesPlantingRecordedEvent {
+    pub campaign_id: u64,
+    pub species_code: BytesN<32>,
+    pub count: u64,
+    pub new_diversity_score: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiversityScoreUpdatedEvent {
+    pub campaign_id: u64,
+    pub diversity_score: u32,
+    pub distinct_species: u32,
+}
+
 pub enum DataKey {
+    CampaignSpeciesList(u64),
+    CampaignSpeciesCount(u64, BytesN<32>),
+    CampaignDiversityScore(u64),
     /// Global admin address (instance storage).
     Admin,
     /// Running total of campaigns created (instance storage).
@@ -3182,6 +3203,157 @@ impl CampaignFundingContract {
         now <= campaign.created_at.saturating_add(TWO_YEARS_SECS)
     }
 
+
+    // -----------------------------------------------------------------------
+    // Campaign Tree Species Diversity Scoring (Issue #855)
+    // -----------------------------------------------------------------------
+
+    /// Record a verified tree planting with its species identifier.
+    /// Updates the campaign's tree species index and recomputes the diversity score.
+    pub fn record_tree_species(
+        env: Env,
+        campaign_id: u64,
+        species_code: BytesN<32>,
+        count: u64,
+    ) -> u32 {
+        Self::assert_initialized(&env);
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        if count == 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
+        let mut species_list: Vec<BytesN<32>> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CampaignSpeciesList(campaign_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let mut found = false;
+        for i in 0..species_list.len() {
+            if species_list.get(i).unwrap() == species_code {
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            species_list.push_back(species_code.clone());
+            env.storage().persistent().set(&DataKey::CampaignSpeciesList(campaign_id), &species_list);
+        }
+
+        let current_count: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CampaignSpeciesCount(campaign_id, species_code.clone()))
+            .unwrap_or(0);
+        let new_count = current_count.checked_add(count).unwrap_or(current_count);
+        env.storage().persistent().set(&DataKey::CampaignSpeciesCount(campaign_id, species_code.clone()), &new_count);
+
+        // Compute Diversity Score (0..10,000 bps):
+        // 1. Richness component (up to 5,000 bps): 12 distinct species saturates at 5,000 bps
+        let distinct = species_list.len();
+        let richness_bps = if distinct >= 12 {
+            5_000u32
+        } else {
+            ((distinct as u64 * 5_000) / 12) as u32
+        };
+
+        // 2. Evenness component (up to 5,000 bps): Simpson's index calculation
+        let mut total_trees = 0u128;
+        for i in 0..species_list.len() {
+            let sp = species_list.get(i).unwrap();
+            let c: u64 = env.storage().persistent().get(&DataKey::CampaignSpeciesCount(campaign_id, sp)).unwrap_or(0);
+            total_trees = total_trees.saturating_add(c as u128);
+        }
+
+        let evenness_bps = if distinct <= 1 || total_trees <= 1 {
+            0u32
+        } else {
+            let mut sum_sq = 0u128;
+            for i in 0..species_list.len() {
+                let sp = species_list.get(i).unwrap();
+                let c: u64 = env.storage().persistent().get(&DataKey::CampaignSpeciesCount(campaign_id, sp)).unwrap_or(0);
+                sum_sq = sum_sq.saturating_add((c as u128) * (c as u128));
+            }
+            let max_possible_sq = total_trees * total_trees;
+            if max_possible_sq > 0 {
+                let simpson_concentration = (sum_sq * 5_000) / max_possible_sq;
+                5_000u32.saturating_sub(simpson_concentration as u32)
+            } else {
+                0u32
+            }
+        };
+
+        let diversity_score = richness_bps.saturating_add(evenness_bps).min(10_000);
+        env.storage().persistent().set(&DataKey::CampaignDiversityScore(campaign_id), &diversity_score);
+
+        env.events().publish(
+            ("SpeciesPlantingRecorded", campaign_id),
+            SpeciesPlantingRecordedEvent {
+                campaign_id,
+                species_code,
+                count,
+                new_diversity_score: diversity_score,
+            },
+        );
+
+        env.events().publish(
+            ("DiversityScoreUpdated", campaign_id),
+            DiversityScoreUpdatedEvent {
+                campaign_id,
+                diversity_score,
+                distinct_species: distinct as u32,
+            },
+        );
+
+        diversity_score
+    }
+
+    /// Retrieve the distinct species registered for a campaign.
+    pub fn get_campaign_species(env: Env, campaign_id: u64) -> Vec<BytesN<32>> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CampaignSpeciesList(campaign_id))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Retrieve the tree count for a specific species within a campaign.
+    pub fn get_species_tree_count(env: Env, campaign_id: u64, species_code: BytesN<32>) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CampaignSpeciesCount(campaign_id, species_code))
+            .unwrap_or(0)
+    }
+
+    /// Retrieve the calculated diversity score in basis points (0..10_000).
+    pub fn get_campaign_diversity_score(env: Env, campaign_id: u64) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CampaignDiversityScore(campaign_id))
+            .unwrap_or(0)
+    }
+
+    /// Determine if a campaign meets the diversity threshold for carbon credits
+    /// (requires at least 1,000 total trees and a diversity score >= 5,000 basis points).
+    pub fn is_carbon_credit_diversity_eligible(env: Env, campaign_id: u64) -> bool {
+        let score = Self::get_campaign_diversity_score(env.clone(), campaign_id);
+        if score < 5_000 {
+            return false;
+        }
+
+        let species_list = Self::get_campaign_species(env.clone(), campaign_id);
+        let mut total_trees = 0u64;
+        for i in 0..species_list.len() {
+            let sp = species_list.get(i).unwrap();
+            let c = Self::get_species_tree_count(env.clone(), campaign_id, sp);
+            total_trees = total_trees.saturating_add(c);
+        }
+
+        total_trees >= 1_000
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
@@ -5629,12 +5801,47 @@ mod tests {
         assert_eq!(carbon_client.balance(&treasury), 500);
         assert_eq!(bonus_client.balance(&planter), 0);
     }
+
+    // -----------------------------------------------------------------------
+    // Campaign Tree Species Diversity Tests (Issue #855)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_campaign_species_diversity_scoring_and_eligibility() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &100_000, &50_000, &10_000);
+
+        // Initially 0 species and 0 diversity score
+        assert_eq!(client.get_campaign_diversity_score(&id), 0);
+        assert_eq!(client.is_carbon_credit_diversity_eligible(&id), false);
+
+        // Add single species (monoculture) -> low score
+        let sp1 = BytesN::from_array(&env, &[1u8; 32]);
+        let score1 = client.record_tree_species(&id, &sp1, &500);
+        assert!(score1 > 0);
+        assert_eq!(client.get_species_tree_count(&id, &sp1), 500);
+
+        // Add 3 more diverse species
+        let sp2 = BytesN::from_array(&env, &[2u8; 32]);
+        let sp3 = BytesN::from_array(&env, &[3u8; 32]);
+        let sp4 = BytesN::from_array(&env, &[4u8; 32]);
+
+        client.record_tree_species(&id, &sp2, &500);
+        client.record_tree_species(&id, &sp3, &500);
+        let score4 = client.record_tree_species(&id, &sp4, &500);
+
+        // Diversity score increases with species richness and even distribution
+        assert!(score4 > score1);
+        assert_eq!(client.get_campaign_species(&id).len(), 4);
+
+        // With 4 species evenly distributed and 2,000 total trees, check eligibility
+        let eligible = client.is_carbon_credit_diversity_eligible(&id);
+        assert_eq!(eligible, true);
+    }
 }
-
-
-
-
-
-
-
-

@@ -51,6 +51,7 @@ export * from "./nft-milestone.js";
 export * from "./SpeciesProofClient.js";
 export * from "./utils/checked-math.js";
 export * from "./CampaignInsuranceClient.js";
+export * from "./CampaignDiversityClient.js";
 
 // Export deployment module, disambiguating names also exported by generated bindings.
 export { ContractDeployer } from "./deployer/ContractDeployer.js";
