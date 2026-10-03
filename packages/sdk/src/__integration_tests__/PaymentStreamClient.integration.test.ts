@@ -32,8 +32,8 @@ import {
   LOCAL_RPC_URL,
   LOCAL_NETWORK_PASSPHRASE,
   PAYMENT_STREAM_WASM_PATH,
-} from './setup';
-import { PaymentStreamClient } from '../PaymentStreamClient';
+} from './setup.js';
+import { PaymentStreamClient } from '../PaymentStreamClient.js';
 import { Keypair } from '@stellar/stellar-sdk';
 
 // ---------------------------------------------------------------------------

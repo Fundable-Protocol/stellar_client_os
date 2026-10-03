@@ -74,6 +74,7 @@ export interface CampaignData {
   location?: string;
   region?: Region;
   imageUrl?: string;
+  sponsorCount?: number;
   uniqueContributors?: number;
   contributionCount?: number;
   sustainabilityScore?: CampaignSustainabilityScore;

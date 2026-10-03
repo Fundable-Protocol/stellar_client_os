@@ -55,28 +55,31 @@ export function CampaignAnalyticsDashboard({
   campaignId,
   campaignTitle = "this campaign",
 }: CampaignAnalyticsDashboardProps) {
-  const [dashboard, setDashboard] = useState<DashboardPayload>(EMPTY);
-  const [loading, setLoading] = useState(true);
+  const [result, setResult] = useState<{
+    campaignId: string;
+    dashboard: DashboardPayload;
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     fetch(`/api/campaigns/${campaignId}/analytics/dashboard`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
       .then((payload) => {
-        if (!cancelled) setDashboard(payload?.data ?? EMPTY);
+        if (!cancelled) {
+          setResult({ campaignId, dashboard: payload?.data ?? EMPTY });
+        }
       })
       .catch(() => {
-        if (!cancelled) setDashboard(EMPTY);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setResult({ campaignId, dashboard: EMPTY });
       });
     return () => {
       cancelled = true;
     };
   }, [campaignId]);
 
+  const loading = result?.campaignId !== campaignId;
+  const dashboard =
+    result?.campaignId === campaignId ? result.dashboard : EMPTY;
   const hasData = dashboard.totals.visitors > 0 || dashboard.totals.contributions > 0;
 
   if (loading) {

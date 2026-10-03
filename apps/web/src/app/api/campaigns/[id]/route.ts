@@ -1,6 +1,8 @@
 import { getCampaign, transitionCampaignStatus } from "../../../../services/campaign.service";
 import {
   detectLanguage,
+  hasOnlySupportedTranslationLocales,
+  isSupportedTranslationLocale,
   isSupportedTranslationLocale,
   localizeCampaign,
   localeFromAcceptLanguage,
@@ -12,7 +14,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const regalidate = 0;
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store, max-age=0" };
 function noStore<T>(body: T, init?: ResponseInit): Response {
@@ -37,6 +39,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const id = (await params).id;
   const campaign = await getCampaign(id);
   if (!campaign) return noStore({ error: "Campaign not found" }, { status: 404 });
+  const limited = await checkCampaignRateLimit(request, campaign);
+  if (!limited.allowed) return noStore({ error: "Too many requests", code: "RATE_LIMIT_EXCEEDED" }, { status: 429, headers: limited.headers });
 
   try {
     const body = await request.json() as {
@@ -51,8 +55,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       autoTranslate?: boolean;
       treeCount?: number;
       co2Sequestration?: string;
-      speciesCount?: number;
+speciesCount?: number;
+      countries?: string[];
+      location?: string;
     };
+    if (body.language && !isSupportedTranslationLocale(body.language)) {
+      return noStore({ error: "language is not supported" }, { status: 400 });
+    }
+    if (body.translations && !hasOnlySupportedTranslationLocales(body.translations)) {
+      return noStore({ error: "translations contain an unsupported language" }, { status: 400 });
+    }
+    if (body.autoTranslate) {
+      return noStore(
+        { error: "Automatic translation is unavailable. Provide translations for the supported languages." },
+        { status: 501 },
+      );
     if (body.autoTranslate) {
       return noStore({ error: "Automatic translation is not configured; provide reviewed translations instead" }, { status: 501 });
     }
@@ -78,6 +95,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     )) {
       return noStore({ error: "co2Sequestration must be a non-negative decimal string in metric tonnes" }, { status: 400 });
     }
+    if (body.countries !== undefined && (!Array.isArray(body.countries) || body.countries.some((c) => typeof c !== "string"))) {
+      return noStore({ error: "countries must be an array of strings" }, { status: 400 });
+    }
+    if (body.location !== undefined && typeof body.location !== "string") {
+      return noStore({ error: "location must be a string" }, { status: 400 });
+    }
     let updated = campaign;
     if (body.status) {
       if (!body.changedBy) return noStore({ error: "changedBy is required when changing status" }, { status: 400 });
@@ -100,7 +123,9 @@ if (body.name !== undefined || body.description !== undefined || body.language !
         localizedContent,
         treeCount: body.treeCount ?? updated.treeCount,
         co2Sequestration: body.co2Sequestration ?? updated.co2Sequestration,
-        speciesCount: body.speciesCount ?? updated.speciesCount,
+speciesCount: body.speciesCount ?? updated.speciesCount,
+        countries: body.countries ?? updated.countries,
+        location: body.location ?? updated.location,
         updatedAt: Date.now(),
       });
     }

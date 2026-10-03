@@ -191,7 +191,7 @@ export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps>
       aria-labelledby="widget-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl width-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[W0vH]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
           <div>
@@ -199,7 +199,7 @@ export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps>
               Embed Campaign Widget
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Embed real-time tree and CO₂ impact on your website or blog.
+Embed real-time tree and CO₂ impact on your website or blog.
             </p>
           </div>
           <button
@@ -219,10 +219,10 @@ export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps>
               Select Widget Theme
             </label>
             <div className="grid grid-cols-3 gap-2.5">
-              {(
+              {
                 [
-                  { id: "forest", label: "🌲 Forest", desc: "Green & Emerald" },
-                  { id: "dark", label: "🌑 Dark", desc: "Slate & Neon" },
+                  { id: "forest", label: "🌱 Forest", desc: "Green & Emerald" },
+                  { id: "dark", label: "🌍 Dark", desc: "Slate & Neon" },
                   { id: "light", label: "☀️ Light", desc: "Clean & Crisp" },
                 ] as const
               ).map((t) => (
@@ -373,7 +373,7 @@ export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps>
                 onClick={handleCopy}
                 className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1"
               >
-                {copied ? "✓ Copied!" : "📋 Copy Code"}
+                {copied ? "✓ Copied!" : "🗉 Copy Code"}
               </button>
             </div>
             <pre className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-slate-300 text-xs font-mono overflow-x-auto whitespace-pre-wrap break-all select-all">

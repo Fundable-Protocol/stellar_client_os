@@ -10,7 +10,14 @@
  * Navigation param: { campaignId: string }
  */
 
-import React, { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -24,6 +31,13 @@ import {
   View,
 } from "react-native";
 import * as Notifications from "expo-notifications";
+import {
+  WishlistSyncEngine,
+  bindSyncOnReconnect,
+  createConnectivityMonitor,
+  createManualConnectivitySource,
+  getOfflineServices,
+} from "../offline";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -84,10 +98,16 @@ export interface CampaignMilestone {
 type ScreenState =
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "ready"; campaign: CampaignDetail; connected: boolean };
+  | {
+      status: "ready";
+      campaign: CampaignDetail;
+      connected: boolean;
+      /** True when the campaign was served from the offline cache. */
+      offline: boolean;
+    };
 
 type Action =
-  | { type: "LOADED";          campaign: CampaignDetail }
+  | { type: "LOADED";          campaign: CampaignDetail; fromCache?: boolean }
   | { type: "LOAD_ERROR";      message: string }
   | { type: "WS_CONNECTED" }
   | { type: "WS_DISCONNECTED" }
@@ -99,7 +119,12 @@ type Action =
 function reducer(state: ScreenState, action: Action): ScreenState {
   switch (action.type) {
     case "LOADED":
-      return { status: "ready", campaign: action.campaign, connected: false };
+      return {
+        status: "ready",
+        campaign: action.campaign,
+        connected: false,
+        offline: action.fromCache ?? false,
+      };
 
     case "LOAD_ERROR":
       return { status: "error", message: action.message };
@@ -223,6 +248,22 @@ async function presentMilestoneNotification(
   } catch {
     // Notification failures should never crash the screen.
   }
+}
+
+/**
+ * Apply a wishlist mutation on the server. Used by the offline sync engine
+ * when connectivity is restored.
+ */
+async function pushWishlistRemote(
+  apiBaseUrl: string,
+  campaignId: string,
+  action: "add" | "remove",
+): Promise<void> {
+  const res = await fetch(`${apiBaseUrl}/api/campaigns/${campaignId}/wishlist`, {
+    method: action === "add" ? "POST" : "DELETE",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
 
 function progressPercent(raised: string, goal: string): number {
@@ -413,9 +454,30 @@ export default function CampaignDetailScreen({
   wsUrl = "",
 }: CampaignDetailScreenProps) {
   const [state, dispatch] = useReducer(reducer, { status: "loading" });
+  const [inWishlist, setInWishlist] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const wsRef             = useRef<WebSocket | null>(null);
   const treeAnim          = useRef(new Animated.Value(1)).current;
   const seenMilestonesRef = useRef<Set<string>>(new Set());
+
+  // Offline services: persisted campaign cache + wishlist + sync queue.
+  const services = useMemo(() => getOfflineServices(), []);
+  const connectivity = useMemo(
+    () => createConnectivityMonitor(createManualConnectivitySource()),
+    [],
+  );
+  const syncEngine = useMemo(
+    () =>
+      new WishlistSyncEngine({
+        wishlist: services.wishlist,
+        queue: services.queue,
+        remote: {
+          add: (id) => pushWishlistRemote(apiBaseUrl, id, "add"),
+          remove: (id) => pushWishlistRemote(apiBaseUrl, id, "remove"),
+        },
+      }),
+    [services, apiBaseUrl],
+  );
 
   // Pulse animation triggered on each tree_planted event
   const pulsTree = useCallback(() => {
@@ -436,15 +498,19 @@ export default function CampaignDetailScreen({
     return () => { cancelled = true; };
   }, [apiBaseUrl, campaignId]);
 
-  // ── Fetch initial campaign data ────────────────────────────────────────────
+  // ── Fetch campaign data (network first, cached fallback) ───────────────────
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`${apiBaseUrl}/api/campaigns/${campaignId}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as CampaignDetail;
-        if (!cancelled) dispatch({ type: "LOADED", campaign: data });
+        const result = await services.repository.loadDetail(campaignId, async () => {
+          const res = await fetch(`${apiBaseUrl}/api/campaigns/${campaignId}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return (await res.json()) as CampaignDetail;
+        });
+        if (!cancelled) {
+          dispatch({ type: "LOADED", campaign: result.data, fromCache: result.fromCache });
+        }
       } catch (err) {
         if (!cancelled)
           dispatch({ type: "LOAD_ERROR", message: err instanceof Error ? err.message : "Failed to load campaign" });
@@ -452,7 +518,32 @@ export default function CampaignDetailScreen({
     }
     load();
     return () => { cancelled = true; };
-  }, [campaignId, apiBaseUrl]);
+  }, [campaignId, apiBaseUrl, services, reloadToken]);
+
+  // ── Offline wishlist membership + mutations ────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    services.wishlist.has(campaignId).then((value) => {
+      if (!cancelled) setInWishlist(value);
+    });
+    return () => { cancelled = true; };
+  }, [services, campaignId]);
+
+  const toggleWishlist = useCallback(() => {
+    const next = !inWishlist;
+    setInWishlist(next);
+    const mutation = next ? syncEngine.add(campaignId) : syncEngine.remove(campaignId);
+    // The mutation is persisted locally; failures stay queued for reconnect.
+    mutation.catch(() => {});
+  }, [inWishlist, campaignId, syncEngine]);
+
+  // ── Flush queued wishlist mutations when connectivity returns ──────────────
+  useEffect(() => {
+    return bindSyncOnReconnect(connectivity, {
+      engine: syncEngine,
+      onReconnect: () => setReloadToken((token) => token + 1),
+    });
+  }, [connectivity, syncEngine]);
 
   // ── WebSocket real-time updates ────────────────────────────────────────────
   useEffect(() => {
@@ -465,6 +556,8 @@ export default function CampaignDetailScreen({
     ws.onopen = () => {
       if (disposed) return;
       dispatch({ type: "WS_CONNECTED" });
+      // Socket is live again — flush queued offline wishlist mutations.
+      connectivity.setOnline(true);
       ws.send(JSON.stringify({ type: "subscribe", campaignId }));
     };
 
@@ -508,8 +601,16 @@ export default function CampaignDetailScreen({
       }
     };
 
-    ws.onclose  = () => { if (!disposed) dispatch({ type: "WS_DISCONNECTED" }); };
-    ws.onerror  = () => { if (!disposed) dispatch({ type: "WS_DISCONNECTED" }); };
+    ws.onclose  = () => {
+      if (disposed) return;
+      dispatch({ type: "WS_DISCONNECTED" });
+      connectivity.setOnline(false);
+    };
+    ws.onerror  = () => {
+      if (disposed) return;
+      dispatch({ type: "WS_DISCONNECTED" });
+      connectivity.setOnline(false);
+    };
 
     return () => {
       disposed = true;
@@ -522,7 +623,7 @@ export default function CampaignDetailScreen({
     };
   // Re-connect when campaign moves from loading → ready, or wsUrl changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status, wsUrl, campaignId]);
+  }, [state.status, wsUrl, campaignId, connectivity]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -543,7 +644,7 @@ export default function CampaignDetailScreen({
     );
   }
 
-  const { campaign, connected } = state;
+  const { campaign, connected, offline } = state;
   const fundingPct   = progressPercent(campaign.raisedAmount, campaign.goalAmount);
   const verifyPct    = Math.min(100, Math.max(0, campaign.verificationProgress ?? 0));
 
@@ -555,8 +656,30 @@ export default function CampaignDetailScreen({
       <View style={styles.header}>
         <Text style={styles.headerTag}>Impact campaign</Text>
         <Text style={styles.headerTitle} numberOfLines={2}>{campaign.name}</Text>
-        <View style={[styles.wsBadge, connected ? styles.wsBadgeOn : styles.wsBadgeOff]}>
-          <Text style={styles.wsBadgeText}>{connected ? "● Live" : "○ Offline"}</Text>
+        <View style={styles.headerActions}>
+          <View style={[styles.wsBadge, connected ? styles.wsBadgeOn : styles.wsBadgeOff]}>
+            <Text style={styles.wsBadgeText}>{connected ? "● Live" : "○ Offline"}</Text>
+          </View>
+          {offline ? (
+            <View style={[styles.wsBadge, styles.cachedBadge]}>
+              <Text style={styles.wsBadgeText}>⌁ Cached</Text>
+            </View>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.wishlistButton, inWishlist && styles.wishlistButtonOn]}
+            onPress={toggleWishlist}
+            accessibilityRole="button"
+            accessibilityLabel={inWishlist ? "Remove from wishlist" : "Add to wishlist"}
+          >
+            <Text
+              style={[
+                styles.wishlistButtonText,
+                inWishlist && styles.wishlistButtonTextOn,
+              ]}
+            >
+              {inWishlist ? "♥ Saved" : "♡ Wishlist"}
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -634,10 +757,19 @@ const styles = StyleSheet.create({
   header:           { backgroundColor: PURPLE, paddingTop: 52, paddingBottom: 20, paddingHorizontal: 20 },
   headerTag:        { color: "rgba(255,255,255,0.7)", fontSize: 11, letterSpacing: 1, textTransform: "uppercase" },
   headerTitle:      { color: "#fff", fontSize: 22, fontWeight: "700", marginTop: 4, lineHeight: 28 },
-  wsBadge:          { alignSelf: "flex-start", marginTop: 8, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10 },
+  headerActions:    { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  wsBadge:          { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10 },
   wsBadgeOn:        { backgroundColor: "rgba(26,114,72,0.85)" },
   wsBadgeOff:       { backgroundColor: "rgba(255,255,255,0.18)" },
+  cachedBadge:      { backgroundColor: "rgba(184,134,11,0.9)" },
   wsBadgeText:      { color: "#fff", fontSize: 11, fontWeight: "600" },
+  wishlistButton:   {
+    paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.6)",
+  },
+  wishlistButtonOn: { backgroundColor: "rgba(255,255,255,0.9)", borderColor: "#fff" },
+  wishlistButtonText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  wishlistButtonTextOn: { color: PURPLE },
 
   body:             { padding: 20, paddingBottom: 40 },
   description:      { fontSize: 14, color: "#3a3a50", lineHeight: 21, marginBottom: 8 },
