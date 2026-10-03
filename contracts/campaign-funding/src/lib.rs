@@ -29,6 +29,16 @@ pub enum OptionalAddress {
 /// self-documenting.
 #[contracttype]
 #[derive(Clone)]
+
+/// Emitted when dynamic supply/demand pricing is evaluated for a campaign.
+#[contractevent(topics = ["DynamicPricingEvaluated"])]
+pub struct DynamicPricingEvaluatedEvent {
+    pub campaign_id: u64,
+    pub base_cost: i128,
+    pub dynamic_cost: i128,
+    pub multiplier_bps: u32,
+}
+
 pub enum DataKey {
     /// Global admin address (instance storage).
     Admin,
@@ -3182,6 +3192,74 @@ impl CampaignFundingContract {
         now <= campaign.created_at.saturating_add(TWO_YEARS_SECS)
     }
 
+
+    // -----------------------------------------------------------------------
+    // Dynamic Pricing (Issue #884)
+    // -----------------------------------------------------------------------
+
+    /// Calculate dynamic cost per tree based on campaign sponsorship demand.
+    /// Below 90% funding: standard 1.0x (10,000 bps)
+    /// 90% or above funding: 1.5x (15,000 bps) surge pricing to manage demand
+    pub fn get_campaign_cost_per_tree(env: Env, campaign_id: u64, base_cost: i128) -> i128 {
+        Self::assert_initialized(&env);
+        if base_cost <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
+        let multiplier_bps = Self::get_dynamic_pricing_multiplier_bps(env.clone(), campaign_id);
+        let dynamic_cost = base_cost
+            .checked_mul(multiplier_bps as i128)
+            .unwrap()
+            / 10_000;
+
+        env.events().publish(
+            ("DynamicPricingEvaluated", campaign_id),
+            DynamicPricingEvaluatedEvent {
+                campaign_id,
+                base_cost,
+                dynamic_cost,
+                multiplier_bps,
+            },
+        );
+
+        dynamic_cost
+    }
+
+    /// Retrieve dynamic pricing multiplier in basis points for a campaign:
+    /// - < 90% funded: 10,000 bps (1.0x)
+    /// - >= 90% funded: 15,000 bps (1.5x surge pricing to balance load)
+    pub fn get_dynamic_pricing_multiplier_bps(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if campaign.target_amount <= 0 {
+            return 10_000;
+        }
+
+        let funded_pct_bps = (campaign.total_raised * 10_000) / campaign.target_amount;
+        if funded_pct_bps >= 9_000 {
+            15_000
+        } else {
+            10_000
+        }
+    }
+
+    /// Calculate the number of trees a contributor can sponsor with a given contribution
+    /// under current dynamic supply/demand pricing.
+    pub fn calculate_trees_for_contribution(
+        env: Env,
+        campaign_id: u64,
+        contribution_amount: i128,
+        base_cost: i128,
+    ) -> u32 {
+        if contribution_amount <= 0 {
+            return 0;
+        }
+        let dynamic_cost = Self::get_campaign_cost_per_tree(env, campaign_id, base_cost);
+        if dynamic_cost <= 0 {
+            return 0;
+        }
+        (contribution_amount / dynamic_cost) as u32
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
@@ -5629,12 +5707,73 @@ mod tests {
         assert_eq!(carbon_client.balance(&treasury), 500);
         assert_eq!(bonus_client.balance(&planter), 0);
     }
+
+    // -----------------------------------------------------------------------
+    // Dynamic Pricing Tests (Issue #884)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_dynamic_pricing_below_90_percent_uses_base_cost() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &10_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+
+        // 50% funded (5,000 / 10,000) -> 1.0x (10,000 bps)
+        client.contribute(&sponsor, &id, &5_000);
+        let multiplier = client.get_dynamic_pricing_multiplier_bps(&id);
+        assert_eq!(multiplier, 10_000);
+
+        let cost = client.get_campaign_cost_per_tree(&id, &100);
+        assert_eq!(cost, 100);
+
+        let trees = client.calculate_trees_for_contribution(&id, &500, &100);
+        assert_eq!(trees, 5);
+    }
+
+    #[test]
+    fn test_dynamic_pricing_at_or_above_90_percent_applies_surge_multiplier() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &10_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+
+        // 90% funded (9,000 / 10,000) -> 1.5x (15,000 bps) surge pricing
+        client.contribute(&sponsor, &id, &9_000);
+        let multiplier = client.get_dynamic_pricing_multiplier_bps(&id);
+        assert_eq!(multiplier, 15_000);
+
+        let cost = client.get_campaign_cost_per_tree(&id, &100);
+        assert_eq!(cost, 150);
+
+        let trees = client.calculate_trees_for_contribution(&id, &300, &100);
+        assert_eq!(trees, 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #4)")]
+    fn test_dynamic_pricing_zero_base_cost_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        client.get_campaign_cost_per_tree(&id, &0);
+    }
 }
-
-
-
-
-
-
-
-
