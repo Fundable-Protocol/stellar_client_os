@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { CampaignImpactCalculator } from "./CampaignImpactCalculator";
+
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+vi.stubGlobal("ResizeObserver", ResizeObserverStub);
 
 describe("CampaignImpactCalculator", () => {
   it("renders the calculator header", () => {
@@ -32,6 +40,20 @@ describe("CampaignImpactCalculator", () => {
     expect(screen.getAllByText("0").length).toBeGreaterThan(0);
   });
 
+  it("shows a 20-year cumulative forecast and 95% confidence interval", () => {
+    render(<CampaignImpactCalculator />);
+
+    expect(screen.getByRole("heading", { name: /20-year CO2 sequestration forecast/i })).toBeDefined();
+    expect(screen.getByRole("img", { name: /twenty-year cumulative CO2 forecast with 95% confidence interval/i })).toBeDefined();
+    expect(screen.getByText(/95% confidence interval:/i)).toBeDefined();
+  });
+
+  it("provides accessible annual forecast rows", () => {
+    render(<CampaignImpactCalculator />);
+    fireEvent.click(screen.getByText("View annual forecast data"));
+
+    expect(screen.getByRole("table", { name: /annual cumulative CO2 sequestration estimate/i })).toBeDefined();
+    expect(screen.getAllByRole("row")).toHaveLength(21);
   it("updates the projection as sponsors contribute more trees (issue #907)", () => {
     // Simulate the live counter feeding the calculator: the campaign starts
     // with 100 trees funded and sponsors add more over time.

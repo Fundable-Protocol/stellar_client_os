@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useAccount, useSignMessage } from "wagmi";
 
 interface InsuranceClaimModalProps {
   open: boolean;
@@ -14,11 +15,17 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
   const [poolBalance, setPoolBalance] = useState<number | null>(null);
   const [refundPercent, setRefundPercent] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { address, isConnected } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const [underwriterQuote, setUnderwriterQuote] = useState<{ premium: number; coverage: number; quoteId: string } | null>(null);
+  const [isFetchingQuote, setIsFetchingQuote] = useState(false);
 
   const reset = () => {
     setEvidence("");
     setFiles([]);
     setError(null);
+    setUnderwriterQuote(null);
+    setIsFetchingQuote(false);
   };
 
   const handleClose = () => {
@@ -31,7 +38,7 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
     setFiles(fileList);
   };
 
-  useEffect(() => {
+useEffect(() => {
     if (!open) return;
     let cancelled = false;
     const loadPool = async () => {
@@ -52,6 +59,30 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
     };
   }, [open, campaignId]);
 
+  const handleFetchQuote = async () => {
+    if (!isConnected || !address) {
+      setError("Please connect your wallet to request an underwriter quote.");
+      return;
+    }
+    setIsFetchingQuote(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}/insurance-quote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sponsorAddress: address }),
+      });
+      if (!response.ok) {
+        throw new Error("Unable to retrieve an underwriter quote. Please try again.");
+      }
+      const quote = await response.json();
+      setUnderwriterQuote(quote);
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : "An unexpected error occurred.");
+    } finally {
+      setIsFetchingQuote(false);
+    }
+  };
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     reset();
@@ -68,6 +99,10 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
       setError("Please attach at least one proof file.");
       return;
     }
+    if (!underwriterQuote) {
+      setError("Please request an underwriter quote before submitting your claim.");
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -76,6 +111,13 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
       const formData = new FormData();
       formData.append("failureDescription", failureDescriptionTrimmed);
       formData.append("proofFiles", files);
+      formData.append("quoteId", underwriterQuote.quoteId);
+      formData.append("sponsorAddress", address ?? "");
+
+      const signature = await signMessageAsync({
+        message: `Insurance claim for campaign ${campaignId} with quote ${underwriterQuote.quoteId}`,
+      });
+      formData.append("signature", signature);
 
       const response = await fetch(`/api/campaigns/${campaignId}/insurance-claim`, {
         method: "POST",
@@ -155,6 +197,35 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
                     </li>
                   ))}
                 </ul>
+              )}
+            </div>
+
+            <div className="mt-6 rounded-md border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900">Underwriter Coverage</h4>
+                  <p className="mt-1 text-xs text-gray-600">Request a guaranteed payout quote from our verification underwriters.</p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
+                  onClick={handleFetchQuote}
+                  disabled={isFetchingQuote || isSubmitting}
+                >
+                  {isFetchingQuote ? "Fetching..." : underwriterQuote ? "Refresh Quote" : "Get Quote"}
+                </button>
+              </div>
+              {underwriterQuote && (
+                <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <dt className="text-gray-500">Premium</dt>
+                    <dd className="font-medium text-gray-900">{underwriterQuote.premium} ETH</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Coverage</dt>
+                    <dd className="font-medium text-gray-900">{underwriterQuote.coverage} ETH</dd>
+                  </div>
+                </dl>
               )}
             </div>
 

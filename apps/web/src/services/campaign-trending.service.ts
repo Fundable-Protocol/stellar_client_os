@@ -405,6 +405,7 @@ export function scoreTrendingCampaigns(
  */
 export class DefaultCampaignDataSource implements CampaignDataSource {
   async getCampaigns(_network?: string): Promise<CampaignRecord[]> {
+    void _network;
     if (process.env.NODE_ENV === "test") return [];
 
     // Real implementation sketch (production):

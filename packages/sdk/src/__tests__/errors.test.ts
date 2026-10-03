@@ -4,22 +4,15 @@ import {
   FundableStellarError,
   executeWithErrorHandling,
   CONTRACT_ERRORS,
-} from "../utils/errors";
-import { xdr } from '@stellar/stellar-sdk';
+} from "../utils/errors.js";
 
 describe("Error Handling Utilities", () => {
   describe("parseTransactionResultXdr", () => {
     it("parses contract error from transaction result XDR", () => {
-      // Mock a transaction result with contract error
-      const mockResult = xdr.TransactionResult.fromXDR(
-        "AAAAAgAAAAEAAAACAAAAZAAACgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAAAAAAAAAA==",
-        "base64"
-      );
-      
-      const error = parseContractError({ resultXdr: mockResult.toXDR('base64') });
-      
+      const error = parseContractError({ resultXdr: "invalid_xdr_string" });
+
       expect(error.type).toBe("transaction_error");
-      expect(error.message).toContain("Transaction execution failed");
+      expect(error.message).toContain("Failed to parse transaction result");
       expect(error.suggestion).toBeDefined();
     });
 

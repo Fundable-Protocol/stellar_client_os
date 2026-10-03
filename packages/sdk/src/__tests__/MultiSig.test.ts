@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Keypair } from '@stellar/stellar-sdk';
-import { ContractDeployer } from '../deployer/ContractDeployer';
+import { ContractDeployer } from '../deployer/ContractDeployer.js';
 
 // ---------------------------------------------------------------------------
 // Minimal valid WASM buffer
@@ -61,7 +61,7 @@ vi.mock('@stellar/stellar-sdk', async () => {
         fromXDR: vi.fn(() => ({
           resources: vi.fn(() => ({
             instructions: vi.fn(() => 1000),
-            readBytes: vi.fn(() => 512),
+            diskReadBytes: vi.fn(() => 512),
             writeBytes: vi.fn(() => 256),
             footprint: vi.fn(() => ({
               readOnly: vi.fn(() => []),
@@ -74,8 +74,7 @@ vi.mock('@stellar/stellar-sdk', async () => {
         fromXDR: vi.fn(() => ({})),
       },
     },
-    hash: vi.fn(() => Buffer.from('a'.repeat(32), 'hex')),
-    Address: vi.fn().mockImplementation((addr: string) => ({ addr })),
+    hash: vi.fn(() => Buffer.from('a'.repeat(64), 'hex')),
   };
 });
 
@@ -169,22 +168,22 @@ describe('ContractDeployer - Multi-Sig Support', () => {
   describe('estimate fees', () => {
     it('estimateUploadFee supports DeployerAccount (address only)', async () => {
       const deployerConfig = {
-        address: 'GCMultiSig...',
+        address: key1.publicKey(),
         signers: [], // Signers not needed for simulation
       };
 
       await deployer.estimateUploadFee(VALID_WASM, deployerConfig);
-      expect(mockGetAccount).toHaveBeenCalledWith('GCMultiSig...');
+      expect(mockGetAccount).toHaveBeenCalledWith(key1.publicKey());
     });
 
     it('estimateDeployFee supports DeployerAccount (address only)', async () => {
       const deployerConfig = {
-        address: 'GCMultiSig...',
+        address: key1.publicKey(),
         signers: [],
       };
 
       await deployer.estimateDeployFee(WASM_HASH, deployerConfig);
-      expect(mockGetAccount).toHaveBeenCalledWith('GCMultiSig...');
+      expect(mockGetAccount).toHaveBeenCalledWith(key1.publicKey());
     });
   });
 });

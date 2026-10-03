@@ -32,8 +32,8 @@ import {
   LOCAL_RPC_URL,
   LOCAL_NETWORK_PASSPHRASE,
   DISTRIBUTOR_WASM_PATH,
-} from './setup';
-import { DistributorClient } from '../DistributorClient';
+} from './setup.js';
+import { DistributorClient } from '../DistributorClient.js';
 import { Keypair } from '@stellar/stellar-sdk';
 
 // ---------------------------------------------------------------------------

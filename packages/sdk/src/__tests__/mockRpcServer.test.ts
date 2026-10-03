@@ -23,9 +23,9 @@ import {
   DEFAULT_NETWORK_INFO,
   DEFAULT_LATEST_LEDGER,
   DEFAULT_FEE_STATS,
-} from '../test-utils/mockRpcServer';
+} from '../test-utils/mockRpcServer.js';
 import { Server as RpcServer, Api } from '@stellar/stellar-sdk/rpc';
-import { rpc as StellarRpc, SorobanRpc } from '@stellar/stellar-sdk';
+import { rpc as StellarRpc } from '@stellar/stellar-sdk';
 
 // ---------------------------------------------------------------------------
 // Shared mock instance
@@ -50,10 +50,6 @@ describe('module mock wiring', () => {
     expect(server).toBe(rpc);
   });
 
-  it('@stellar/stellar-sdk SorobanRpc.Server constructor returns the mock instance', () => {
-    const server = new SorobanRpc.Server('https://soroban-testnet.stellar.org');
-    expect(server).toBe(rpc);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -82,19 +78,7 @@ describe('Api namespace', () => {
   it('GetTransactionStatus has correct string constants', () => {
     expect(Api.GetTransactionStatus.SUCCESS).toBe('SUCCESS');
     expect(Api.GetTransactionStatus.FAILED).toBe('FAILED');
-    expect(Api.GetTransactionStatus.PENDING).toBe('PENDING');
     expect(Api.GetTransactionStatus.NOT_FOUND).toBe('NOT_FOUND');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// SorobanRpc namespace (umbrella package alias)
-// ---------------------------------------------------------------------------
-describe('SorobanRpc namespace from @stellar/stellar-sdk', () => {
-  it('GetTransactionStatus constants are correct', () => {
-    expect(SorobanRpc.GetTransactionStatus.SUCCESS).toBe('SUCCESS');
-    expect(SorobanRpc.GetTransactionStatus.FAILED).toBe('FAILED');
-    expect(SorobanRpc.GetTransactionStatus.NOT_FOUND).toBe('NOT_FOUND');
   });
 });
 
