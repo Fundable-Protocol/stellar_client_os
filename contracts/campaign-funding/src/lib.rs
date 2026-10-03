@@ -29,7 +29,46 @@ pub enum OptionalAddress {
 /// self-documenting.
 #[contracttype]
 #[derive(Clone)]
+
+/// Non-profit organization partner for charitable tax deduction eligibility.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NonProfitPartner {
+    pub partner_address: Address,
+    pub name: soroban_sdk::String,
+    pub tax_id: soroban_sdk::String,
+    pub registered_at: u64,
+}
+
+/// On-chain tax deduction certificate issued to campaign sponsors.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaxCertificate {
+    pub certificate_id: u64,
+    pub campaign_id: u64,
+    pub sponsor: Address,
+    pub non_profit_partner: Address,
+    pub non_profit_name: soroban_sdk::String,
+    pub non_profit_tax_id: soroban_sdk::String,
+    pub contribution_amount: i128,
+    pub eligible_deduction_amount: i128,
+    pub issued_at: u64,
+}
+
+/// Emitted when a tax deduction certificate is issued to a sponsor.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaxCertificateIssuedEvent {
+    pub certificate_id: u64,
+    pub campaign_id: u64,
+    pub sponsor: Address,
+    pub amount: i128,
+}
+
 pub enum DataKey {
+    NonProfitPartner(u64),
+    TaxCertificate(u64, Address),
+    TaxCertificateCount,
     /// Global admin address (instance storage).
     Admin,
     /// Running total of campaigns created (instance storage).
@@ -321,6 +360,13 @@ pub struct SpeciesProofVerifiedEvent {
     pub campaign_id: u64,
     pub planting_id: u64,
     pub species_code: BytesN<32>,
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InsurancePoolFundedEvent {
+    pub campaign_id: u64,
+    pub token: Address,
+    pub amount: i128,
+    pub pool_balance: i128,
 /// Contribution event used when a sponsor chooses anonymity on public surfaces.
 ///
 /// The contributor address is deliberately omitted. Soroban ledger data and the
@@ -496,42 +542,6 @@ pub struct SlaRefundIssuedEvent {
     pub contributor: Address,
     pub amount: i128,
 }
-/// Non-profit organization partner for charitable tax deduction eligibility.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct NonProfitPartner {
-    pub partner_address: Address,
-    pub name: soroban_sdk::String,
-    pub tax_id: soroban_sdk::String,
-    pub is_verified: bool,
-}
-
-/// On-chain tax deduction certificate issued to campaign sponsors.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TaxCertificate {
-    pub certificate_id: u64,
-    pub campaign_id: u64,
-    pub sponsor: Address,
-    pub non_profit_partner: Address,
-    pub non_profit_name: soroban_sdk::String,
-    pub non_profit_tax_id: soroban_sdk::String,
-    pub contribution_amount: i128,
-    pub eligible_deduction_amount: i128,
-    pub issued_at: u64,
-}
-
-/// Emitted when a tax deduction certificate is issued to a sponsor.
-#[contractevent(topics = ["TaxCertificateIssued"])]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TaxCertificateIssuedEvent {
-    pub certificate_id: u64,
-    pub campaign_id: u64,
-    pub sponsor: Address,
-    pub non_profit_partner: Address,
-    pub deduction_amount: i128,
-    pub issued_at: u64,
-}
 
 /// Emitted when cumulative contributions cross one of a campaign's funding
 /// milestones (25 %, 50 %, 75 % or 100 % of `target_amount`).
@@ -699,7 +709,9 @@ pub enum Error {
     SpeciesMismatch = 38,
     /// Tree species proof has not been submitted for this planting batch.
     ProofNotFound = 39,
-    /// No non-profit partner is registered for this campaign.
+    /// Tree mortality occurred outside the 2-year insurance coverage window.
+    InsuranceWindowExpired = 38,
+    /// The non-profit partner has not been registered for this campaign.
     NonProfitPartnerNotFound = 28,
     /// Tax certificate has already been issued for this sponsor and campaign.
     CertificateAlreadyIssued = 29,
@@ -964,7 +976,19 @@ impl CampaignFundingContract {
 
         CampaignCreatedEvent {
         
-        let co2_multiplier: u32 = 1;
+        let co2_multiplier = Self::calculate_co2_multiplier(now);
+        let co2_multiplier_bps = if Self::get_month_from_timestamp(now) >= 5 && Self::get_month_from_timestamp(now) <= 10 {
+            20_000
+        } else if Self::get_month_from_timestamp(now) == 4 {
+            15_000
+        } else {
+            10_000
+        };
+        env.storage().persistent().set(&DataKey::Co2Multiplier(count), &co2_multiplier);
+        env.storage().persistent().set(&DataKey::Co2MultiplierBps(count), &co2_multiplier_bps);
+        env.storage().persistent().extend_ttl(&DataKey::Co2Multiplier(count), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&DataKey::Co2MultiplierBps(count), LEDGER_THRESHOLD, LEDGER_BUMP);
+
         env.events().publish(
             ("CampaignCreated", count),
             CampaignCreatedEvent {
@@ -1103,6 +1127,13 @@ impl CampaignFundingContract {
 
         if campaign.status != CampaignStatus::Claimed {
             panic_with_error!(&env, Error::CampaignNotSuccessful);
+        }
+
+        // Tree loss must occur within the 2-year insurance coverage window (2 * 365 * 86,400s)
+        const TWO_YEARS_SECS: u64 = 63_072_000;
+        let now = env.ledger().timestamp();
+        if now > campaign.created_at.saturating_add(TWO_YEARS_SECS) {
+            panic_with_error!(&env, Error::InsuranceWindowExpired);
         }
 
         campaign.status = CampaignStatus::VerificationFailed;
@@ -1509,6 +1540,30 @@ impl CampaignFundingContract {
         Self::save_campaign(&env, campaign_id, &campaign);
 
         let token_client = token::Client::new(&env, &campaign.token);
+
+        // Deduct and fund insurance pool (1% of campaign funds)
+        let insurance_fee_rate = Self::get_insurance_fee_rate(env.clone());
+        let insurance_amount = if insurance_fee_rate > 0 {
+            (gross * (insurance_fee_rate as i128)) / 10_000
+        } else {
+            0
+        };
+        if insurance_amount > 0 {
+            let pool_key = DataKey::InsurancePool(campaign.token.clone());
+            let current_pool: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
+            let new_pool = current_pool.saturating_add(insurance_amount);
+            env.storage().instance().set(&pool_key, &new_pool);
+
+            env.events().publish(
+                ("InsurancePoolFunded", campaign_id),
+                InsurancePoolFundedEvent {
+                    campaign_id,
+                    token: campaign.token.clone(),
+                    amount: insurance_amount,
+                    pool_balance: new_pool,
+                },
+            );
+        }
 
         // Transfer protocol fee
         if fee > 0 {
@@ -2925,114 +2980,67 @@ impl CampaignFundingContract {
         };
 
         (current_trees, next_threshold, progress_bps)
-    // Tax Deduction Certification (Issue #880)
+    // Seasonal Bonus Multiplier (Issue #875)
     // -----------------------------------------------------------------------
 
-    /// Register a verified non-profit partner for a campaign.
-    /// Can only be authorized by the campaign creator or contract admin.
-    pub fn register_non_profit_partner(
-        env: Env,
-        caller: Address,
-        campaign_id: u64,
-        partner: Address,
-        name: soroban_sdk::String,
-        tax_id: soroban_sdk::String,
-    ) {
-        caller.require_auth();
+    /// Convert a Unix timestamp to month (1-12) using civil calendar algorithm.
+    fn get_month_from_timestamp(timestamp: u64) -> u32 {
+        let days = (timestamp / 86_400) as i64;
+        let z = days + 719_468;
+        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+        let doe = (z - era * 146_097) as u32;
+        let yoe = (doe - doe / 1020 + doe / 1460 - doe / 36524) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        if mp < 10 {
+            mp + 3
+        } else {
+            mp - 9
+        }
+    }
+
+    /// Calculate seasonal carbon credit bonus multiplier for a given creation timestamp.
+    /// - Rainy season (May to October / months 5-10): 2x
+    /// - Earth Month & Arbor Day (April / month 4): 1.5x (15,000 bps)
+    /// - Standard baseline: 1x (10,000 bps)
+    pub fn calculate_co2_multiplier(timestamp: u64) -> u32 {
+        let month = Self::get_month_from_timestamp(timestamp);
+        if month >= 5 && month <= 10 {
+            2
+        } else {
+            1
+        }
+    }
+
+    /// Retrieve the integer CO2 multiplier for a campaign (1x, 2x).
+    pub fn get_co2_multiplier(env: Env, campaign_id: u64) -> u32 {
         let campaign = Self::load_campaign(&env, campaign_id);
-        let admin: Option<Address> = env.storage().instance().get(&DataKey::Admin);
-
-        if caller != campaign.creator && Some(caller.clone()) != admin {
-            panic_with_error!(&env, Error::Unauthorized);
-        }
-
-        let partner_info = NonProfitPartner {
-            partner_address: partner,
-            name,
-            tax_id,
-            is_verified: true,
-        };
-
-        let key = DataKey::NonProfitPartner(campaign_id);
-        env.storage().persistent().set(&key, &partner_info);
-        env.storage().persistent().extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
-    }
-
-    /// Retrieve the registered non-profit partner for a campaign.
-    pub fn get_non_profit_partner(env: Env, campaign_id: u64) -> Option<NonProfitPartner> {
-        let _ = Self::load_campaign(&env, campaign_id);
-        env.storage().persistent().get(&DataKey::NonProfitPartner(campaign_id))
-    }
-
-    /// Issue an on-chain tax deduction certificate to a sponsor for their charitable contribution.
-    /// Verifies the campaign has a registered non-profit partner and that the sponsor contributed.
-    pub fn issue_tax_certificate(env: Env, campaign_id: u64, sponsor: Address) -> TaxCertificate {
-        sponsor.require_auth();
-        let _ = Self::load_campaign(&env, campaign_id);
-
-        let partner_info: NonProfitPartner = env
-            .storage()
+        env.storage()
             .persistent()
-            .get(&DataKey::NonProfitPartner(campaign_id))
-            .unwrap_or_else(|| panic_with_error!(&env, Error::NonProfitPartnerNotFound));
-
-        let cert_key = DataKey::TaxCertificate(campaign_id, sponsor.clone());
-        if env.storage().persistent().has(&cert_key) {
-            panic_with_error!(&env, Error::CertificateAlreadyIssued);
-        }
-
-        let contrib_key = DataKey::Contribution(campaign_id, sponsor.clone());
-        let contribution: i128 = env
-            .storage()
-            .persistent()
-            .get(&contrib_key)
-            .unwrap_or(0);
-
-        if contribution <= 0 {
-            panic_with_error!(&env, Error::NoContributionFound);
-        }
-
-        let mut count: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::TaxCertificateCount)
-            .unwrap_or(0);
-        count += 1;
-        env.storage().instance().set(&DataKey::TaxCertificateCount, &count);
-
-        let now = env.ledger().timestamp();
-        let cert = TaxCertificate {
-            certificate_id: count,
-            campaign_id,
-            sponsor: sponsor.clone(),
-            non_profit_partner: partner_info.partner_address.clone(),
-            non_profit_name: partner_info.name,
-            non_profit_tax_id: partner_info.tax_id,
-            contribution_amount: contribution,
-            eligible_deduction_amount: contribution,
-            issued_at: now,
-        };
-
-        env.storage().persistent().set(&cert_key, &cert);
-        env.storage().persistent().extend_ttl(&cert_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-
-        TaxCertificateIssuedEvent {
-            certificate_id: count,
-            campaign_id,
-            sponsor,
-            non_profit_partner: partner_info.partner_address,
-            deduction_amount: contribution,
-            issued_at: now,
-        }
-        .publish(&env);
-
-        cert
+            .get(&DataKey::Co2Multiplier(campaign_id))
+            .unwrap_or_else(|| Self::calculate_co2_multiplier(campaign.created_at))
     }
 
-    /// Retrieve an issued tax deduction certificate for a sponsor.
-    pub fn get_tax_certificate(env: Env, campaign_id: u64, sponsor: Address) -> Option<TaxCertificate> {
-        let _ = Self::load_campaign(&env, campaign_id);
-        env.storage().persistent().get(&DataKey::TaxCertificate(campaign_id, sponsor))
+    /// Retrieve the precision basis point multiplier for a campaign.
+    /// - April (Earth Month / Arbor Day): 15,000 bps (1.5x)
+    /// - May-October (Rainy season): 20,000 bps (2.0x)
+    /// - Otherwise: 10,000 bps (1.0x baseline)
+    pub fn get_co2_multiplier_bps(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        let month = Self::get_month_from_timestamp(campaign.created_at);
+        if month >= 5 && month <= 10 {
+            20_000
+        } else if month == 4 {
+            15_000
+        } else {
+            10_000
+        }
+    }
+
+    /// Calculate carbon credits awarded for verified trees with seasonal multiplier applied.
+    pub fn calculate_carbon_credits(env: Env, campaign_id: u64, verified_trees: u64) -> u64 {
+        let multiplier_bps = Self::get_co2_multiplier_bps(env, campaign_id);
+        ((verified_trees as u128) * (multiplier_bps as u128) / 10_000) as u64
     }
 
     // -----------------------------------------------------------------------
@@ -3190,6 +3198,128 @@ impl CampaignFundingContract {
     /// Safe checked addition for campaign contributions.
     pub fn safe_add_amounts(env: Env, a: i128, b: i128) -> i128 {
         CheckedMath::add(a, b).unwrap_or_else(|_| panic_with_error!(&env, Error::ArithmeticOverflow))
+    // Campaign Insurance Pool Protection (Issue #851)
+    // -----------------------------------------------------------------------
+
+    /// Retrieve the configured insurance fee rate in basis points (default 100 bps = 1%).
+    pub fn get_insurance_fee_rate(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InsuranceFeeRate)
+            .unwrap_or(100)
+    }
+
+    /// Retrieve the current insurance pool balance for a token.
+    pub fn get_insurance_pool_balance(env: Env, token: Address) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InsurancePool(token))
+            .unwrap_or(0)
+    }
+
+    /// Check if a campaign is within its 2-year tree loss insurance coverage window.
+    pub fn is_within_insurance_coverage(env: Env, campaign_id: u64) -> bool {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        const TWO_YEARS_SECS: u64 = 63_072_000;
+        let now = env.ledger().timestamp();
+        now <= campaign.created_at.saturating_add(TWO_YEARS_SECS)
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Tax Deduction Certification (Issue #880)
+    // -----------------------------------------------------------------------
+
+    /// Register a verified non-profit partner for a campaign to enable tax-deductible contributions.
+    pub fn register_non_profit_partner(
+        env: Env,
+        creator: Address,
+        campaign_id: u64,
+        partner: Address,
+        name: soroban_sdk::String,
+        tax_id: soroban_sdk::String,
+    ) {
+        creator.require_auth();
+        Self::assert_initialized(&env);
+        let campaign = Self::load_campaign(&env, campaign_id);
+        if campaign.creator != creator {
+            panic_with_error!(&env, Error::Unauthorized);
+        }
+
+        let partner_info = NonProfitPartner {
+            partner_address: partner,
+            name,
+            tax_id,
+            registered_at: env.ledger().timestamp(),
+        };
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::NonProfitPartner(campaign_id), &partner_info);
+    }
+
+    /// Retrieve the registered non-profit partner details for a campaign.
+    pub fn get_non_profit_partner(env: Env, campaign_id: u64) -> Option<NonProfitPartner> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::NonProfitPartner(campaign_id))
+    }
+
+    /// Issue an on-chain tax deduction certificate to a sponsor for their charitable contribution.
+    pub fn issue_tax_certificate(env: Env, campaign_id: u64, sponsor: Address) -> TaxCertificate {
+        Self::assert_initialized(&env);
+
+        let partner_info = Self::get_non_profit_partner(env.clone(), campaign_id)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::NonProfitPartnerNotFound));
+
+        let contribution = Self::get_contribution(env.clone(), campaign_id, sponsor.clone());
+        if contribution <= 0 {
+            panic_with_error!(&env, Error::NoContributionFound);
+        }
+
+        let cert_key = DataKey::TaxCertificate(campaign_id, sponsor.clone());
+        if env.storage().persistent().has(&cert_key) {
+            panic_with_error!(&env, Error::CertificateAlreadyIssued);
+        }
+
+        let mut count: u64 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TaxCertificateCount)
+            .unwrap_or(0);
+        count = count.checked_add(1).unwrap();
+        env.storage().instance().set(&DataKey::TaxCertificateCount, &count);
+
+        let cert = TaxCertificate {
+            certificate_id: count,
+            campaign_id,
+            sponsor: sponsor.clone(),
+            non_profit_partner: partner_info.partner_address,
+            non_profit_name: partner_info.name,
+            non_profit_tax_id: partner_info.tax_id,
+            contribution_amount: contribution,
+            eligible_deduction_amount: contribution,
+            issued_at: env.ledger().timestamp(),
+        };
+
+        env.storage().persistent().set(&cert_key, &cert);
+
+        env.events().publish(
+            ("TaxCertificateIssued", campaign_id),
+            TaxCertificateIssuedEvent {
+                certificate_id: count,
+                campaign_id,
+                sponsor,
+                amount: contribution,
+            },
+        );
+
+        cert
+    }
+
+    /// Retrieve an issued tax deduction certificate for a sponsor.
+    pub fn get_tax_certificate(env: Env, campaign_id: u64, sponsor: Address) -> Option<TaxCertificate> {
+        env.storage().persistent().get(&DataKey::TaxCertificate(campaign_id, sponsor))
     }
 
     // -----------------------------------------------------------------------
@@ -5291,11 +5421,6 @@ mod tests {
 
     #[test]
     fn test_milestone_rewards_feature_unlock_progression() {
-    // Tax Deduction Certification Tests (Issue #880)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn test_register_and_get_non_profit_partner() {
         let env = Env::default();
         env.mock_all_auths();
         set_time(&env, 1_000);
@@ -5367,29 +5492,62 @@ mod tests {
 
     #[test]
     fn test_species_declaration_and_proof_verification() {
-        let partner = Address::generate(&env);
-
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
-        assert_eq!(client.get_non_profit_partner(&id), None);
-
-        let name = soroban_sdk::String::from_str(&env, "Trees For The Future");
-        let tax_id = soroban_sdk::String::from_str(&env, "52-1234567");
-
-        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
-
-        let info = client.get_non_profit_partner(&id).unwrap();
-        assert_eq!(info.partner_address, partner);
-        assert_eq!(info.name, name);
-        assert_eq!(info.tax_id, tax_id);
-        assert!(info.is_verified);
-    }
+    // Campaign Insurance Pool Tests (Issue #851)
+    // -----------------------------------------------------------------------
 
     #[test]
-    fn test_issue_tax_certificate_success() {
+    fn test_insurance_pool_funded_and_two_year_claim() {
         let env = Env::default();
         env.mock_all_auths();
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &20_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+
+        client.contribute(&sponsor, &id, &10_000);
+        client.verify_campaign(&id);
+        client.claim_funds(&id);
+
+        // Insurance pool should now be funded with 1% of 10,000 = 100 tokens
+        let pool = client.get_insurance_pool_balance(&token_addr);
+        assert_eq!(pool, 100);
+
+        // Tree loss occurs within 2 years (e.g. at 1 year = 1_000 + 31_536_000)
+        set_time(&env, 1_000 + 31_536_000);
+        assert_eq!(client.is_within_insurance_coverage(&id), true);
+        client.mark_trees_died(&id);
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::VerificationFailed);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #38)")]
+    fn test_tree_loss_after_two_years_rejected_by_insurance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &20_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.contribute(&sponsor, &id, &10_000);
+        client.verify_campaign(&id);
+        client.claim_funds(&id);
+
+        // Advance beyond 2 years (63_072_000s)
+        set_time(&env, 1_000 + 63_072_001);
+        assert_eq!(client.is_within_insurance_coverage(&id), false);
+
+        // Must panic with InsuranceWindowExpired (#35)
+        client.mark_trees_died(&id);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
 
@@ -5492,101 +5650,46 @@ mod tests {
 
         // Adding to i128::MAX must panic with ArithmeticOverflow (#15)
         client.safe_add_amounts(&i128::MAX, &1);
-        let token_admin = Address::generate(&env);
-        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
-        let creator = Address::generate(&env);
-        let sponsor = Address::generate(&env);
-        let partner = Address::generate(&env);
-
-        token_admin_client.mint(&sponsor, &5_000);
-
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        let name = soroban_sdk::String::from_str(&env, "Reforest Action NonProfit");
-        let tax_id = soroban_sdk::String::from_str(&env, "EIN-987654321");
-        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
-
-        // Sponsor contributes 3,000 stroops
-        client.contribute(&sponsor, &id, &3_000);
-
-        // Issue tax certificate
-        let cert = client.issue_tax_certificate(&id, &sponsor);
-        assert_eq!(cert.certificate_id, 1);
-        assert_eq!(cert.campaign_id, id);
-        assert_eq!(cert.sponsor, sponsor);
-        assert_eq!(cert.non_profit_partner, partner);
-        assert_eq!(cert.contribution_amount, 3_000);
-        assert_eq!(cert.eligible_deduction_amount, 3_000);
-
-        // Check get_tax_certificate
-        let retrieved = client.get_tax_certificate(&id, &sponsor).unwrap();
-        assert_eq!(retrieved, cert);
-    }
+    // Seasonal Bonus Multiplier Tests (Issue #875)
+    // -----------------------------------------------------------------------
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #28)")]
-    fn test_issue_tax_certificate_fails_without_partner() {
+    fn test_rainy_season_co2_multiplier() {
         let env = Env::default();
         env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let token_admin = Address::generate(&env);
-        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
-        let creator = Address::generate(&env);
-        let sponsor = Address::generate(&env);
-
-        token_admin_client.mint(&sponsor, &5_000);
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        client.contribute(&sponsor, &id, &1_000);
-
-        // Fails with NonProfitPartnerNotFound
-        client.issue_tax_certificate(&id, &sponsor);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #12)")]
-    fn test_issue_tax_certificate_fails_without_contribution() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        let sponsor = Address::generate(&env);
-        let partner = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
-        let name = soroban_sdk::String::from_str(&env, "Green Earth Foundation");
-        let tax_id = soroban_sdk::String::from_str(&env, "EIN-11223344");
-        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+        // May 15, 2026 (rainy season -> 2x multiplier)
+        set_time(&env, 1_778_800_000);
+        let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000);
+        assert_eq!(client.get_co2_multiplier(&id_rainy), 2);
+        assert_eq!(client.get_co2_multiplier_bps(&id_rainy), 20_000);
+        assert_eq!(client.calculate_carbon_credits(&id_rainy, &1_000), 2_000);
 
-        // Fails with NoContributionFound
-        client.issue_tax_certificate(&id, &sponsor);
+        // January 15, 2026 (non-rainy season -> 1x multiplier)
+        set_time(&env, 1_768_400_000);
+        let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000);
+        assert_eq!(client.get_co2_multiplier(&id_dry), 1);
+        assert_eq!(client.get_co2_multiplier_bps(&id_dry), 10_000);
+        assert_eq!(client.calculate_carbon_credits(&id_dry, &1_000), 1_000);
     }
 
     #[test]
-    #[should_panic(expected = "Error(Contract, #29)")]
-    fn test_issue_tax_certificate_duplicate_fails() {
+    fn test_earth_month_arbor_day_bonus_multiplier() {
         let env = Env::default();
         env.mock_all_auths();
-        set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
-        let token_admin = Address::generate(&env);
-        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
         let creator = Address::generate(&env);
-        let sponsor = Address::generate(&env);
-        let partner = Address::generate(&env);
+        let token = Address::generate(&env);
 
-        token_admin_client.mint(&sponsor, &5_000);
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        let name = soroban_sdk::String::from_str(&env, "Clean Air Alliance");
-        let tax_id = soroban_sdk::String::from_str(&env, "EIN-55667788");
-        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
-
-        client.contribute(&sponsor, &id, &2_000);
-        client.issue_tax_certificate(&id, &sponsor);
-
-        // Second call fails with CertificateAlreadyIssued
-        client.issue_tax_certificate(&id, &sponsor);
+        // April 15, 2026 (Earth Month / Arbor Day -> 1.5x / 15,000 bps)
+        set_time(&env, 1_776_200_000);
+        let id_earth_month = client.create_campaign(&creator, &token, &10_000, &5_000, &1_776_300_000);
+        assert_eq!(client.get_co2_multiplier_bps(&id_earth_month), 15_000);
+        // 1,000 trees * 1.5 = 1,500 carbon credits
+        assert_eq!(client.calculate_carbon_credits(&id_earth_month, &1_000), 1_500);
     }
     #[test]
     fn test_calculate_and_distribute_bonuses() {
@@ -5666,12 +5769,133 @@ mod tests {
         assert_eq!(carbon_client.balance(&treasury), 500);
         assert_eq!(bonus_client.balance(&planter), 0);
     }
+
+    // -----------------------------------------------------------------------
+    // Tax Deduction Certification Tests (Issue #880)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_register_non_profit_partner() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token = Address::generate(&env);
+        let creator = Address::generate(&env);
+        let partner = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let name = soroban_sdk::String::from_str(&env, "Trees For All Foundation");
+        let tax_id = soroban_sdk::String::from_str(&env, "52-1234567");
+
+        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+
+        let info = client.get_non_profit_partner(&id).unwrap();
+        assert_eq!(info.partner_address, partner);
+        assert_eq!(info.name, name);
+        assert_eq!(info.tax_id, tax_id);
+    }
+
+    #[test]
+    fn test_issue_tax_certificate_success() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+        let partner = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &5_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let name = soroban_sdk::String::from_str(&env, "Reforest Action NonProfit");
+        let tax_id = soroban_sdk::String::from_str(&env, "EIN-987654321");
+        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+
+        // Sponsor contributes 3,000 stroops
+        client.contribute(&sponsor, &id, &3_000);
+
+        // Issue tax certificate
+        let cert = client.issue_tax_certificate(&id, &sponsor);
+        assert_eq!(cert.certificate_id, 1);
+        assert_eq!(cert.campaign_id, id);
+        assert_eq!(cert.sponsor, sponsor);
+        assert_eq!(cert.non_profit_partner, partner);
+        assert_eq!(cert.contribution_amount, 3_000);
+        assert_eq!(cert.eligible_deduction_amount, 3_000);
+
+        // Check get_tax_certificate
+        let retrieved = client.get_tax_certificate(&id, &sponsor).unwrap();
+        assert_eq!(retrieved, cert);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #28)")]
+    fn test_issue_tax_certificate_fails_without_partner() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &5_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.contribute(&sponsor, &id, &1_000);
+
+        // Fails with NonProfitPartnerNotFound (#28)
+        client.issue_tax_certificate(&id, &sponsor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #12)")]
+    fn test_issue_tax_certificate_fails_without_contribution() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+        let partner = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let name = soroban_sdk::String::from_str(&env, "Green Earth Foundation");
+        let tax_id = soroban_sdk::String::from_str(&env, "EIN-11223344");
+        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+
+        // Fails with NoContributionFound (#12)
+        client.issue_tax_certificate(&id, &sponsor);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #29)")]
+    fn test_issue_tax_certificate_duplicate_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+        let partner = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &5_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let name = soroban_sdk::String::from_str(&env, "Clean Air Alliance");
+        let tax_id = soroban_sdk::String::from_str(&env, "EIN-55667788");
+        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+
+        client.contribute(&sponsor, &id, &2_000);
+        client.issue_tax_certificate(&id, &sponsor);
+
+        // Second call fails with CertificateAlreadyIssued (#29)
+        client.issue_tax_certificate(&id, &sponsor);
+    }
 }
-
-
-
-
-
-
-
-
