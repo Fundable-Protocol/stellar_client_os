@@ -29,7 +29,71 @@ pub enum OptionalAddress {
 /// self-documenting.
 #[contracttype]
 #[derive(Clone)]
+
+#[contracttype]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum EscrowStatus {
+    Held = 0,
+    Verified = 1,
+    Released = 2,
+    Disputed = 3,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowAccount {
+    pub campaign_id: u64,
+    pub verifier: Address,
+    pub total_escrowed: i128,
+    pub released_amount: i128,
+    pub status: EscrowStatus,
+    pub is_verified: bool,
+    pub trees_planted: u64,
+    pub target_trees: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowAccountCreatedEvent {
+    pub campaign_id: u64,
+    pub verifier: Address,
+    pub target_trees: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowDepositEvent {
+    pub campaign_id: u64,
+    pub depositor: Address,
+    pub amount: i128,
+    pub total_escrowed: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowVerifiedEvent {
+    pub campaign_id: u64,
+    pub verifier: Address,
+    pub trees_planted: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowFundsReleasedEvent {
+    pub campaign_id: u64,
+    pub creator: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EscrowDisputedEvent {
+    pub campaign_id: u64,
+    pub reason: Symbol,
+}
+
 pub enum DataKey {
+    CampaignEscrow(u64),
     /// Global admin address (instance storage).
     Admin,
     /// Running total of campaigns created (instance storage).
@@ -672,6 +736,18 @@ pub enum Error {
     ProofNotFound = 39,
     /// Tree mortality occurred outside the 2-year insurance coverage window.
     InsuranceWindowExpired = 38,
+    /// Escrow account has not been initialized for this campaign.
+    EscrowNotInitialized = 38,
+    /// Escrow account has already been initialized for this campaign.
+    EscrowAlreadyInitialized = 39,
+    /// Escrow funds cannot be released before trees are verified planted.
+    EscrowNotVerified = 40,
+    /// Escrow funds have already been released.
+    EscrowAlreadyReleased = 41,
+    /// Caller is not the authorized verifier for this campaign escrow.
+    UnauthorizedVerifier = 42,
+    /// Escrow account is currently disputed.
+    EscrowDisputed = 43,
 }
 
 // ---------------------------------------------------------------------------
@@ -3182,6 +3258,199 @@ impl CampaignFundingContract {
         now <= campaign.created_at.saturating_add(TWO_YEARS_SECS)
     }
 
+
+    // -----------------------------------------------------------------------
+    // Campaign Escrow Management (Issue #864)
+    // -----------------------------------------------------------------------
+
+    /// Initialize an escrow holding account for a campaign with a designated verifier.
+    pub fn initialize_campaign_escrow(
+        env: Env,
+        campaign_id: u64,
+        verifier: Address,
+        target_trees: u64,
+    ) {
+        Self::assert_initialized(&env);
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        if env.storage().persistent().has(&DataKey::CampaignEscrow(campaign_id)) {
+            panic_with_error!(&env, Error::EscrowAlreadyInitialized);
+        }
+
+        let escrow = EscrowAccount {
+            campaign_id,
+            verifier: verifier.clone(),
+            total_escrowed: 0,
+            released_amount: 0,
+            status: EscrowStatus::Held,
+            is_verified: false,
+            trees_planted: 0,
+            target_trees,
+        };
+
+        env.storage().persistent().set(&DataKey::CampaignEscrow(campaign_id), &escrow);
+
+        env.events().publish(
+            ("EscrowCreated", campaign_id),
+            EscrowAccountCreatedEvent {
+                campaign_id,
+                verifier,
+                target_trees,
+            },
+        );
+    }
+
+    /// Retrieve the escrow account details for a campaign.
+    pub fn get_campaign_escrow(env: Env, campaign_id: u64) -> EscrowAccount {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CampaignEscrow(campaign_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::EscrowNotInitialized))
+    }
+
+    /// Deposit funds into the campaign escrow (held until verification).
+    pub fn deposit_to_campaign_escrow(
+        env: Env,
+        campaign_id: u64,
+        depositor: Address,
+        amount: i128,
+    ) {
+        depositor.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
+        let mut escrow: EscrowAccount = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CampaignEscrow(campaign_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::EscrowNotInitialized));
+
+        if escrow.status == EscrowStatus::Released {
+            panic_with_error!(&env, Error::EscrowAlreadyReleased);
+        }
+        if escrow.status == EscrowStatus::Disputed {
+            panic_with_error!(&env, Error::EscrowDisputed);
+        }
+
+        escrow.total_escrowed = escrow.total_escrowed.checked_add(amount).unwrap();
+        env.storage().persistent().set(&DataKey::CampaignEscrow(campaign_id), &escrow);
+
+        env.events().publish(
+            ("EscrowDeposit", campaign_id),
+            EscrowDepositEvent {
+                campaign_id,
+                depositor,
+                amount,
+                total_escrowed: escrow.total_escrowed,
+            },
+        );
+    }
+
+    /// Designated verifier approves the tree planting verification, transitioning escrow to Verified.
+    pub fn approve_tree_verification(
+        env: Env,
+        campaign_id: u64,
+        trees_planted: u64,
+    ) {
+        let mut escrow: EscrowAccount = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CampaignEscrow(campaign_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::EscrowNotInitialized));
+
+        escrow.verifier.require_auth();
+
+        if escrow.status == EscrowStatus::Released {
+            panic_with_error!(&env, Error::EscrowAlreadyReleased);
+        }
+
+        escrow.is_verified = true;
+        escrow.status = EscrowStatus::Verified;
+        escrow.trees_planted = trees_planted;
+
+        env.storage().persistent().set(&DataKey::CampaignEscrow(campaign_id), &escrow);
+
+        env.events().publish(
+            ("EscrowVerified", campaign_id),
+            EscrowVerifiedEvent {
+                campaign_id,
+                verifier: escrow.verifier,
+                trees_planted,
+            },
+        );
+    }
+
+    /// Release escrowed funds to the campaign creator once tree verification is completed.
+    pub fn release_escrow_to_creator(
+        env: Env,
+        campaign_id: u64,
+    ) -> i128 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        let mut escrow: EscrowAccount = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CampaignEscrow(campaign_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::EscrowNotInitialized));
+
+        if !escrow.is_verified || escrow.status != EscrowStatus::Verified {
+            panic_with_error!(&env, Error::EscrowNotVerified);
+        }
+        if escrow.status == EscrowStatus::Released {
+            panic_with_error!(&env, Error::EscrowAlreadyReleased);
+        }
+
+        let release_amt = escrow.total_escrowed - escrow.released_amount;
+        escrow.released_amount = escrow.total_escrowed;
+        escrow.status = EscrowStatus::Released;
+
+        env.storage().persistent().set(&DataKey::CampaignEscrow(campaign_id), &escrow);
+
+        env.events().publish(
+            ("EscrowReleased", campaign_id),
+            EscrowFundsReleasedEvent {
+                campaign_id,
+                creator: campaign.creator,
+                amount: release_amt,
+            },
+        );
+
+        release_amt
+    }
+
+    /// Place campaign escrow into dispute.
+    pub fn dispute_campaign_escrow(
+        env: Env,
+        campaign_id: u64,
+        reason: Symbol,
+    ) {
+        let mut escrow: EscrowAccount = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CampaignEscrow(campaign_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::EscrowNotInitialized));
+
+        escrow.verifier.require_auth();
+
+        if escrow.status == EscrowStatus::Released {
+            panic_with_error!(&env, Error::EscrowAlreadyReleased);
+        }
+
+        escrow.status = EscrowStatus::Disputed;
+        env.storage().persistent().set(&DataKey::CampaignEscrow(campaign_id), &escrow);
+
+        env.events().publish(
+            ("EscrowDisputed", campaign_id),
+            EscrowDisputedEvent {
+                campaign_id,
+                reason,
+            },
+        );
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
@@ -5629,12 +5898,75 @@ mod tests {
         assert_eq!(carbon_client.balance(&treasury), 500);
         assert_eq!(bonus_client.balance(&planter), 0);
     }
+
+    // -----------------------------------------------------------------------
+    // Campaign Escrow Tests (Issue #864)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_escrow_hold_and_release_upon_verifier_approval() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let verifier = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+
+        // 1. Initialize escrow holding account
+        client.initialize_campaign_escrow(&id, &verifier, &500);
+        let escrow = client.get_campaign_escrow(&id);
+        assert_eq!(escrow.status, EscrowStatus::Held);
+        assert_eq!(escrow.is_verified, false);
+        assert_eq!(escrow.total_escrowed, 0);
+
+        // 2. Deposit sponsor funds into escrow
+        client.deposit_to_campaign_escrow(&id, &sponsor, &5_000);
+        let escrow_after = client.get_campaign_escrow(&id);
+        assert_eq!(escrow_after.total_escrowed, 5_000);
+        assert_eq!(escrow_after.released_amount, 0);
+
+        // 3. Verifier approves tree planting verification
+        client.approve_tree_verification(&id, &500);
+        let escrow_verified = client.get_campaign_escrow(&id);
+        assert_eq!(escrow_verified.is_verified, true);
+        assert_eq!(escrow_verified.status, EscrowStatus::Verified);
+        assert_eq!(escrow_verified.trees_planted, 500);
+
+        // 4. Release escrow funds to creator
+        let released = client.release_escrow_to_creator(&id);
+        assert_eq!(released, 5_000);
+
+        let escrow_released = client.get_campaign_escrow(&id);
+        assert_eq!(escrow_released.status, EscrowStatus::Released);
+        assert_eq!(escrow_released.released_amount, 5_000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #40)")]
+    fn test_escrow_release_fails_if_unverified() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let verifier = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &10_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.initialize_campaign_escrow(&id, &verifier, &500);
+        client.deposit_to_campaign_escrow(&id, &sponsor, &5_000);
+
+        // Cannot release funds before verification! (Panics with EscrowNotVerified #40)
+        client.release_escrow_to_creator(&id);
+    }
 }
-
-
-
-
-
-
-
-
