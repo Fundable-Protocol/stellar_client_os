@@ -29,7 +29,28 @@ pub enum OptionalAddress {
 /// self-documenting.
 #[contracttype]
 #[derive(Clone)]
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SpeciesPlantingRecordedEvent {
+    pub campaign_id: u64,
+    pub species_code: BytesN<32>,
+    pub count: u64,
+    pub new_diversity_score: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiversityScoreUpdatedEvent {
+    pub campaign_id: u64,
+    pub diversity_score: u32,
+    pub distinct_species: u32,
+}
+
 pub enum DataKey {
+    CampaignSpeciesList(u64),
+    CampaignSpeciesCount(u64, BytesN<32>),
+    CampaignDiversityScore(u64),
     /// Global admin address (instance storage).
     Admin,
     /// Running total of campaigns created (instance storage).
@@ -97,12 +118,6 @@ pub enum DataKey {
     GroupSponsorshipCount(u64),
     /// Group sponsorship details keyed by campaign and group ID.
     GroupSponsorship(u64, u64),
-    /// Distinct tree species codes registered for a campaign (persistent storage).
-    CampaignSpeciesList(u64),
-    /// Count of trees for a specific species in a campaign (persistent storage).
-    CampaignSpeciesCount(u64, BytesN<32>),
-    /// Cached diversity score in basis points (0..10_000) for a campaign.
-    CampaignDiversityScore(u64),
 }
 
 /// Current lifecycle state of a campaign.
@@ -327,6 +342,13 @@ pub struct SpeciesProofVerifiedEvent {
     pub campaign_id: u64,
     pub planting_id: u64,
     pub species_code: BytesN<32>,
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InsurancePoolFundedEvent {
+    pub campaign_id: u64,
+    pub token: Address,
+    pub amount: i128,
+    pub pool_balance: i128,
 /// Contribution event used when a sponsor chooses anonymity on public surfaces.
 ///
 /// The contributor address is deliberately omitted. Soroban ledger data and the
@@ -338,21 +360,6 @@ pub struct AnonymousContributionMadeEvent {
     pub campaign_id: u64,
     pub amount: i128,
     pub total_raised: i128,
-#[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SpeciesPlantingRecordedEvent {
-    pub campaign_id: u64,
-    pub species_code: BytesN<32>,
-    pub count: u64,
-    pub new_diversity_score: u32,
-}
-
-#[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DiversityScoreUpdatedEvent {
-    pub campaign_id: u64,
-    pub diversity_score: u32,
-    pub distinct_species: u32,
 }
 
 /// Emitted when a campaign transitions lifecycle states.
@@ -684,6 +691,8 @@ pub enum Error {
     SpeciesMismatch = 38,
     /// Tree species proof has not been submitted for this planting batch.
     ProofNotFound = 39,
+    /// Tree mortality occurred outside the 2-year insurance coverage window.
+    InsuranceWindowExpired = 38,
 }
 
 // ---------------------------------------------------------------------------
@@ -944,6 +953,23 @@ impl CampaignFundingContract {
         Self::record_status_change(&env, count, CampaignStatus::Active);
 
         CampaignCreatedEvent {
+        
+        let co2_multiplier = Self::calculate_co2_multiplier(now);
+        let co2_multiplier_bps = if Self::get_month_from_timestamp(now) >= 5 && Self::get_month_from_timestamp(now) <= 10 {
+            20_000
+        } else if Self::get_month_from_timestamp(now) == 4 {
+            15_000
+        } else {
+            10_000
+        };
+        env.storage().persistent().set(&DataKey::Co2Multiplier(count), &co2_multiplier);
+        env.storage().persistent().set(&DataKey::Co2MultiplierBps(count), &co2_multiplier_bps);
+        env.storage().persistent().extend_ttl(&DataKey::Co2Multiplier(count), LEDGER_THRESHOLD, LEDGER_BUMP);
+        env.storage().persistent().extend_ttl(&DataKey::Co2MultiplierBps(count), LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.events().publish(
+            ("CampaignCreated", count),
+            CampaignCreatedEvent {
                 campaign_id: count,
                 creator,
                 token,
@@ -1079,6 +1105,13 @@ impl CampaignFundingContract {
 
         if campaign.status != CampaignStatus::Claimed {
             panic_with_error!(&env, Error::CampaignNotSuccessful);
+        }
+
+        // Tree loss must occur within the 2-year insurance coverage window (2 * 365 * 86,400s)
+        const TWO_YEARS_SECS: u64 = 63_072_000;
+        let now = env.ledger().timestamp();
+        if now > campaign.created_at.saturating_add(TWO_YEARS_SECS) {
+            panic_with_error!(&env, Error::InsuranceWindowExpired);
         }
 
         campaign.status = CampaignStatus::VerificationFailed;
@@ -1485,6 +1518,30 @@ impl CampaignFundingContract {
         Self::save_campaign(&env, campaign_id, &campaign);
 
         let token_client = token::Client::new(&env, &campaign.token);
+
+        // Deduct and fund insurance pool (1% of campaign funds)
+        let insurance_fee_rate = Self::get_insurance_fee_rate(env.clone());
+        let insurance_amount = if insurance_fee_rate > 0 {
+            (gross * (insurance_fee_rate as i128)) / 10_000
+        } else {
+            0
+        };
+        if insurance_amount > 0 {
+            let pool_key = DataKey::InsurancePool(campaign.token.clone());
+            let current_pool: i128 = env.storage().instance().get(&pool_key).unwrap_or(0);
+            let new_pool = current_pool.saturating_add(insurance_amount);
+            env.storage().instance().set(&pool_key, &new_pool);
+
+            env.events().publish(
+                ("InsurancePoolFunded", campaign_id),
+                InsurancePoolFundedEvent {
+                    campaign_id,
+                    token: campaign.token.clone(),
+                    amount: insurance_amount,
+                    pool_balance: new_pool,
+                },
+            );
+        }
 
         // Transfer protocol fee
         if fee > 0 {
@@ -2901,6 +2958,67 @@ impl CampaignFundingContract {
         };
 
         (current_trees, next_threshold, progress_bps)
+    // Seasonal Bonus Multiplier (Issue #875)
+    // -----------------------------------------------------------------------
+
+    /// Convert a Unix timestamp to month (1-12) using civil calendar algorithm.
+    fn get_month_from_timestamp(timestamp: u64) -> u32 {
+        let days = (timestamp / 86_400) as i64;
+        let z = days + 719_468;
+        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+        let doe = (z - era * 146_097) as u32;
+        let yoe = (doe - doe / 1020 + doe / 1460 - doe / 36524) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        if mp < 10 {
+            mp + 3
+        } else {
+            mp - 9
+        }
+    }
+
+    /// Calculate seasonal carbon credit bonus multiplier for a given creation timestamp.
+    /// - Rainy season (May to October / months 5-10): 2x
+    /// - Earth Month & Arbor Day (April / month 4): 1.5x (15,000 bps)
+    /// - Standard baseline: 1x (10,000 bps)
+    pub fn calculate_co2_multiplier(timestamp: u64) -> u32 {
+        let month = Self::get_month_from_timestamp(timestamp);
+        if month >= 5 && month <= 10 {
+            2
+        } else {
+            1
+        }
+    }
+
+    /// Retrieve the integer CO2 multiplier for a campaign (1x, 2x).
+    pub fn get_co2_multiplier(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        env.storage()
+            .persistent()
+            .get(&DataKey::Co2Multiplier(campaign_id))
+            .unwrap_or_else(|| Self::calculate_co2_multiplier(campaign.created_at))
+    }
+
+    /// Retrieve the precision basis point multiplier for a campaign.
+    /// - April (Earth Month / Arbor Day): 15,000 bps (1.5x)
+    /// - May-October (Rainy season): 20,000 bps (2.0x)
+    /// - Otherwise: 10,000 bps (1.0x baseline)
+    pub fn get_co2_multiplier_bps(env: Env, campaign_id: u64) -> u32 {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        let month = Self::get_month_from_timestamp(campaign.created_at);
+        if month >= 5 && month <= 10 {
+            20_000
+        } else if month == 4 {
+            15_000
+        } else {
+            10_000
+        }
+    }
+
+    /// Calculate carbon credits awarded for verified trees with seasonal multiplier applied.
+    pub fn calculate_carbon_credits(env: Env, campaign_id: u64, verified_trees: u64) -> u64 {
+        let multiplier_bps = Self::get_co2_multiplier_bps(env, campaign_id);
+        ((verified_trees as u128) * (multiplier_bps as u128) / 10_000) as u64
     }
 
     // -----------------------------------------------------------------------
@@ -2915,17 +3033,6 @@ impl CampaignFundingContract {
         species_code: BytesN<32>,
         target_count: u64,
     ) {
-    // Campaign Tree Species Diversity Scoring (Issue #855)
-    // -----------------------------------------------------------------------
-
-    /// Record a verified tree planting with its species identifier.
-    /// Updates the campaign's tree species index and recomputes the diversity score.
-    pub fn record_tree_species(
-        env: Env,
-        campaign_id: u64,
-        species_code: BytesN<32>,
-        count: u64,
-    ) -> u32 {
         Self::assert_initialized(&env);
         let campaign = Self::load_campaign(&env, campaign_id);
         campaign.creator.require_auth();
@@ -2985,20 +3092,6 @@ impl CampaignFundingContract {
         for i in 0..declared.len() {
             if declared.get(i).unwrap().species_code == species_code {
                 matches_declaration = true;
-        if count == 0 {
-            panic_with_error!(&env, Error::InvalidAmount);
-        }
-
-        let mut species_list: Vec<BytesN<32>> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::CampaignSpeciesList(campaign_id))
-            .unwrap_or_else(|| Vec::new(&env));
-
-        let mut found = false;
-        for i in 0..species_list.len() {
-            if species_list.get(i).unwrap() == species_code {
-                found = true;
                 break;
             }
         }
@@ -3083,6 +3176,68 @@ impl CampaignFundingContract {
     /// Safe checked addition for campaign contributions.
     pub fn safe_add_amounts(env: Env, a: i128, b: i128) -> i128 {
         CheckedMath::add(a, b).unwrap_or_else(|_| panic_with_error!(&env, Error::ArithmeticOverflow))
+    // Campaign Insurance Pool Protection (Issue #851)
+    // -----------------------------------------------------------------------
+
+    /// Retrieve the configured insurance fee rate in basis points (default 100 bps = 1%).
+    pub fn get_insurance_fee_rate(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InsuranceFeeRate)
+            .unwrap_or(100)
+    }
+
+    /// Retrieve the current insurance pool balance for a token.
+    pub fn get_insurance_pool_balance(env: Env, token: Address) -> i128 {
+        env.storage()
+            .instance()
+            .get(&DataKey::InsurancePool(token))
+            .unwrap_or(0)
+    }
+
+    /// Check if a campaign is within its 2-year tree loss insurance coverage window.
+    pub fn is_within_insurance_coverage(env: Env, campaign_id: u64) -> bool {
+        let campaign = Self::load_campaign(&env, campaign_id);
+        const TWO_YEARS_SECS: u64 = 63_072_000;
+        let now = env.ledger().timestamp();
+        now <= campaign.created_at.saturating_add(TWO_YEARS_SECS)
+    }
+
+
+    // -----------------------------------------------------------------------
+    // Campaign Tree Species Diversity Scoring (Issue #855)
+    // -----------------------------------------------------------------------
+
+    /// Record a verified tree planting with its species identifier.
+    /// Updates the campaign's tree species index and recomputes the diversity score.
+    pub fn record_tree_species(
+        env: Env,
+        campaign_id: u64,
+        species_code: BytesN<32>,
+        count: u64,
+    ) -> u32 {
+        Self::assert_initialized(&env);
+        let campaign = Self::load_campaign(&env, campaign_id);
+        campaign.creator.require_auth();
+
+        if count == 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
+        let mut species_list: Vec<BytesN<32>> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CampaignSpeciesList(campaign_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        let mut found = false;
+        for i in 0..species_list.len() {
+            if species_list.get(i).unwrap() == species_code {
+                found = true;
+                break;
+            }
+        }
+
         if !found {
             species_list.push_back(species_code.clone());
             env.storage().persistent().set(&DataKey::CampaignSpeciesList(campaign_id), &species_list);
@@ -3122,7 +3277,6 @@ impl CampaignFundingContract {
                 let c: u64 = env.storage().persistent().get(&DataKey::CampaignSpeciesCount(campaign_id, sp)).unwrap_or(0);
                 sum_sq = sum_sq.saturating_add((c as u128) * (c as u128));
             }
-            // Simpson D = sum(n*(n-1)) / (N*(N-1))
             let max_possible_sq = total_trees * total_trees;
             if max_possible_sq > 0 {
                 let simpson_concentration = (sum_sq * 5_000) / max_possible_sq;
@@ -5370,15 +5524,62 @@ mod tests {
 
     #[test]
     fn test_species_declaration_and_proof_verification() {
-    // Campaign Tree Species Diversity Tests (Issue #855)
+    // Campaign Insurance Pool Tests (Issue #851)
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_campaign_species_diversity_scoring_and_eligibility() {
+    fn test_insurance_pool_funded_and_two_year_claim() {
         let env = Env::default();
         env.mock_all_auths();
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &20_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+
+        client.contribute(&sponsor, &id, &10_000);
+        client.verify_campaign(&id);
+        client.claim_funds(&id);
+
+        // Insurance pool should now be funded with 1% of 10,000 = 100 tokens
+        let pool = client.get_insurance_pool_balance(&token_addr);
+        assert_eq!(pool, 100);
+
+        // Tree loss occurs within 2 years (e.g. at 1 year = 1_000 + 31_536_000)
+        set_time(&env, 1_000 + 31_536_000);
+        assert_eq!(client.is_within_insurance_coverage(&id), true);
+        client.mark_trees_died(&id);
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::VerificationFailed);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #38)")]
+    fn test_tree_loss_after_two_years_rejected_by_insurance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &20_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        client.contribute(&sponsor, &id, &10_000);
+        client.verify_campaign(&id);
+        client.claim_funds(&id);
+
+        // Advance beyond 2 years (63_072_000s)
+        set_time(&env, 1_000 + 63_072_001);
+        assert_eq!(client.is_within_insurance_coverage(&id), false);
+
+        // Must panic with InsuranceWindowExpired (#35)
+        client.mark_trees_died(&id);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
 
@@ -5481,36 +5682,46 @@ mod tests {
 
         // Adding to i128::MAX must panic with ArithmeticOverflow (#15)
         client.safe_add_amounts(&i128::MAX, &1);
+    // Seasonal Bonus Multiplier Tests (Issue #875)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_rainy_season_co2_multiplier() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
         let token = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &100_000, &50_000, &10_000);
+        // May 15, 2026 (rainy season -> 2x multiplier)
+        set_time(&env, 1_778_800_000);
+        let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000);
+        assert_eq!(client.get_co2_multiplier(&id_rainy), 2);
+        assert_eq!(client.get_co2_multiplier_bps(&id_rainy), 20_000);
+        assert_eq!(client.calculate_carbon_credits(&id_rainy, &1_000), 2_000);
 
-        // Initially 0 species and 0 diversity score
-        assert_eq!(client.get_campaign_diversity_score(&id), 0);
-        assert_eq!(client.is_carbon_credit_diversity_eligible(&id), false);
+        // January 15, 2026 (non-rainy season -> 1x multiplier)
+        set_time(&env, 1_768_400_000);
+        let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000);
+        assert_eq!(client.get_co2_multiplier(&id_dry), 1);
+        assert_eq!(client.get_co2_multiplier_bps(&id_dry), 10_000);
+        assert_eq!(client.calculate_carbon_credits(&id_dry, &1_000), 1_000);
+    }
 
-        // Add single species (monoculture) -> low score
-        let sp1 = BytesN::from_array(&env, &[1u8; 32]);
-        let score1 = client.record_tree_species(&id, &sp1, &500);
-        assert!(score1 > 0);
-        assert_eq!(client.get_species_tree_count(&id, &sp1), 500);
+    #[test]
+    fn test_earth_month_arbor_day_bonus_multiplier() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
 
-        // Add 3 more diverse species
-        let sp2 = BytesN::from_array(&env, &[2u8; 32]);
-        let sp3 = BytesN::from_array(&env, &[3u8; 32]);
-        let sp4 = BytesN::from_array(&env, &[4u8; 32]);
-
-        client.record_tree_species(&id, &sp2, &500);
-        client.record_tree_species(&id, &sp3, &500);
-        let score4 = client.record_tree_species(&id, &sp4, &500);
-
-        // Diversity score increases with species richness and even distribution
-        assert!(score4 > score1);
-        assert_eq!(client.get_campaign_species(&id).len(), 4);
-
-        // With 4 species evenly distributed and 2,000 total trees, check eligibility
-        let eligible = client.is_carbon_credit_diversity_eligible(&id);
-        assert_eq!(eligible, true);
+        // April 15, 2026 (Earth Month / Arbor Day -> 1.5x / 15,000 bps)
+        set_time(&env, 1_776_200_000);
+        let id_earth_month = client.create_campaign(&creator, &token, &10_000, &5_000, &1_776_300_000);
+        assert_eq!(client.get_co2_multiplier_bps(&id_earth_month), 15_000);
+        // 1,000 trees * 1.5 = 1,500 carbon credits
+        assert_eq!(client.calculate_carbon_credits(&id_earth_month, &1_000), 1_500);
     }
     #[test]
     fn test_calculate_and_distribute_bonuses() {
@@ -5590,12 +5801,47 @@ mod tests {
         assert_eq!(carbon_client.balance(&treasury), 500);
         assert_eq!(bonus_client.balance(&planter), 0);
     }
+
+    // -----------------------------------------------------------------------
+    // Campaign Tree Species Diversity Tests (Issue #855)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_campaign_species_diversity_scoring_and_eligibility() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let creator = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let id = client.create_campaign(&creator, &token, &100_000, &50_000, &10_000);
+
+        // Initially 0 species and 0 diversity score
+        assert_eq!(client.get_campaign_diversity_score(&id), 0);
+        assert_eq!(client.is_carbon_credit_diversity_eligible(&id), false);
+
+        // Add single species (monoculture) -> low score
+        let sp1 = BytesN::from_array(&env, &[1u8; 32]);
+        let score1 = client.record_tree_species(&id, &sp1, &500);
+        assert!(score1 > 0);
+        assert_eq!(client.get_species_tree_count(&id, &sp1), 500);
+
+        // Add 3 more diverse species
+        let sp2 = BytesN::from_array(&env, &[2u8; 32]);
+        let sp3 = BytesN::from_array(&env, &[3u8; 32]);
+        let sp4 = BytesN::from_array(&env, &[4u8; 32]);
+
+        client.record_tree_species(&id, &sp2, &500);
+        client.record_tree_species(&id, &sp3, &500);
+        let score4 = client.record_tree_species(&id, &sp4, &500);
+
+        // Diversity score increases with species richness and even distribution
+        assert!(score4 > score1);
+        assert_eq!(client.get_campaign_species(&id).len(), 4);
+
+        // With 4 species evenly distributed and 2,000 total trees, check eligibility
+        let eligible = client.is_carbon_credit_diversity_eligible(&id);
+        assert_eq!(eligible, true);
+    }
 }
-
-
-
-
-
-
-
-
