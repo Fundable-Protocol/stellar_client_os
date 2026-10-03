@@ -6,6 +6,7 @@ import {
 } from "@/lib/translation";
 import { listCreditListings, createCreditListing, purchaseCreditListing } from "@/services/carbon-credit-market.service";
 import {
+  autoTranslate,
   detectLanguage,
   isSupportedTranslationLocale,
   localizeCampaign,
@@ -98,9 +99,6 @@ async function postCampaign(request: Request) {
         country?: unknown;
       };
     };
-    if (body.autoTranslate) {
-      return Response.json({ error: "Automatic translation is not configured; provide reviewed translations instead" }, { status: 501 });
-    }
     if (!body.creator || !body.name || !body.goalAmount) {
       return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
     }
@@ -220,12 +218,30 @@ async function postCampaign(request: Request) {
       );
     }
 
-    const description = body.description ?? "";
+const description = body.description ?? "";
     const language = body.language ?? detectLanguage(description);
     const translations = body.translations ?? {};
-    // Language detection is metadata only; translations are supplied explicitly.
+    // Language detection and auto-translation
     const description = body.description ?? "";
     const language = body.language ? normalizeTranslationLocale(body.language)! : detectLanguage(description);
+    let translations = body.translations ?? {};
+    if (body.autoTranslate) {
+      translations = {
+        ...autoTranslate(description, SUPPORTED_TRANSLATION_LOCALES),
+        ...translations,
+      };
+    }
+
+    // Campaign insurance pool: 1% of goal funds allocated to protect against tree loss within 2 years.
+    const goalAmountBigInt = BigInt(body.goalAmount);
+    const insurancePoolAmount = (goalAmountBigInt / 100n).toString();
+    const insurancePool = {
+      amount: insurancePoolAmount,
+      contributionRate: 0.01,
+      coverageWindowMs: 2 * 365 * 24 * 60 * 60 * 1000,
+      claimedAmount: "0",
+      status: "active" as const,
+    };
 
     const campaign = await createCampaign({
       creator: body.creator,
@@ -244,8 +260,9 @@ async function postCampaign(request: Request) {
       network: body.network,
       nonprofitPartner,
       language,
-      translations: body.translations,
+      translations,
       localizedContent: body.localizedContent,
+      insurancePool,
     });
     return Response.json(campaign, { status: 201 });
   } catch {

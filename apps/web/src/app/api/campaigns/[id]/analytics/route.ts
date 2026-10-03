@@ -5,7 +5,9 @@ import {
   recordCampaignRefund,
   recordCampaignView,
   recordCampaignCreditSale,
-} from "../../../../../services/campaign-analytics.service";
+} from "../../../../services/campaign-analytics.service";
+import { fundInsurancePool } from "../../../../services/campaign-insurance.service";
+import { isDonationToken } from "@/types/campaign-insurance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,13 +90,13 @@ function normalize100(value: number): number {
 
 export function calculateSustainabilityScore(inputs: SustainabilityInputs): number {
   const treeSpeciesDiversity = normalize100(inputs.treeSpeciesDiversity ?? 0);
-  const regionClomateImpact = normalize100(inputs.regionClomateImpact ?? 0);
+  const regionClimateImpact = normalize100(inputs.regionClimateImpact ?? 0);
   const soilHealthImprovement = normalize100(inputs.soilHealthImprovement ?? 0);
   const biodiversityPotential = normalize100(inputs.biodiversityPotential ?? 0);
 
   const weighted =
     treeSpeciesDiversity * 0.3 +
-    regionClomateImpact * 0.25 +
+    regionClimateImpact * 0.25 +
     soilHealthImprovement * 0.25 +
     biodiversityPotential * 0.2;
 
@@ -120,7 +122,7 @@ function extractSustainabilityInputs(analytics: unknown | null | undefined): Sus
 
   return {
     treeSpeciesDiversity: toNumber(source.treeSpeciesDiversity),
-    regionClomateImpact: toNumber(source.regionClimateImpact),
+    regionClimateImpact: toNumber(source.regionClimateImpact),
     soilHealthImprovement: toNumber(source.soilHealthImprovement),
     biodiversityPotential: toNumber(source.biodiversityPotential),
   };
@@ -157,6 +159,7 @@ export async function POST(
       viewerId?: string;
       sponsor?: string;
       amount?: string;
+      token?: string;
       buyer?: string;
       credits?: string;
     };
@@ -165,6 +168,9 @@ export async function POST(
     } else if (body.event === "contribution") {
       if (!body.amount || !body.sponsor) return noStore({ error: "amount and sponsor are required" }, { status: 400 });
       await recordCampaignContribution(campaignId, body.amount, body.sponsor);
+      const token = body.token ?? "XLM";
+      if (!isDonationToken(token)) return noStore({ error: "Unsupported token" }, { status: 400 });
+      await fundInsurancePool(campaignId, body.amount, token);
     } else if (body.event === "refund") {
       await recordCampaignRefund(campaignId);
     } else if (body.event === "credit_sale") {
