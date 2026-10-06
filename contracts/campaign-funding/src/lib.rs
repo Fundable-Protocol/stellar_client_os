@@ -693,6 +693,10 @@ pub enum Error {
     ProofNotFound = 39,
     /// Tree mortality occurred outside the 2-year insurance coverage window.
     InsuranceWindowExpired = 38,
+    /// The non-profit partner has not been registered for this campaign.
+    NonProfitPartnerNotFound = 28,
+    /// Tax certificate has already been issued for this sponsor and campaign.
+    CertificateAlreadyIssued = 29,
 }
 
 // ---------------------------------------------------------------------------
