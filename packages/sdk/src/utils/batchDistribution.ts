@@ -9,7 +9,7 @@
  */
 
 import { AssembledTransaction } from '@stellar/stellar-sdk/contract';
-import type { DistributorClient, AddressParam } from '../DistributorClient';
+import type { DistributorClient, AddressParam } from '../DistributorClient.js';
 
 function assertPositiveInt(n: number, name: string): void {
   if (!Number.isInteger(n) || n <= 0) {

@@ -6,6 +6,9 @@ import {
   indexSize,
   PHashError,
 } from "@/services/phash.service";
+import { CampaignVerificationAuditService } from "@/services/campaign-verification-audit.service";
+
+const auditService = new CampaignVerificationAuditService();
 
 /** Maximum accepted upload size: 10 MB */
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
@@ -135,12 +138,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const campaignId = formData.get("campaignId");
+    const uploader = formData.get("uploader") || "submitter";
+    let auditEntry = null;
+    if (campaignId && typeof campaignId === "string") {
+      try {
+        auditEntry = await auditService.logPhotoUploaded(
+          campaignId.trim(),
+          typeof uploader === "string" ? uploader.trim() : "submitter",
+          result.hash
+        );
+      } catch (logErr) {
+        console.warn("[/api/milestone-photos] Failed to log audit activity:", logErr);
+      }
+    }
+
     return NextResponse.json(
       {
         accepted: true,
         hash: result.hash,
         hammingDistance: result.hammingDistance,
         duplicateOf: null,
+        auditEntry,
         message: "Photo accepted and indexed successfully.",
       },
       { status: 200 }

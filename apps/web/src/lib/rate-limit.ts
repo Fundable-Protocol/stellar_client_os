@@ -43,15 +43,64 @@ export interface TierConfig {
 }
 
 export type CampaignApiTier = "basic" | "pro" | "enterprise";
-export interface CampaignApiTierConfig { id: CampaignApiTier; hourlyLimit: number; windowMs: number; description: string; }
+export interface CampaignApiTierConfig {
+  id: CampaignApiTier;
+  hourlyLimit: number;
+  windowMs: number;
+  description: string;
+}
+
 export const CAMPAIGN_API_RATE_LIMIT_TIERS: Record<CampaignApiTier, CampaignApiTierConfig> = {
-  basic: { id: "basic", hourlyLimit: 100, windowMs: 3_600_000, description: "Basic campaign API access" },
-  pro: { id: "pro", hourlyLimit: 1_000, windowMs: 3_600_000, description: "Pro campaign API access" },
-  enterprise: { id: "enterprise", hourlyLimit: 10_000, windowMs: 3_600_000, description: "Enterprise campaign API access" },
+  basic: {
+    id: "basic",
+    hourlyLimit: 100,
+    windowMs: 3_600_000,
+    description: "Basic campaign tier (<$10,000 funding): 100 req/hr",
+  },
+  pro: {
+    id: "pro",
+    hourlyLimit: 1_000,
+    windowMs: 3_600_000,
+    description: "Pro campaign tier ($10,000 - $50,000 funding): 1,000 req/hr",
+  },
+  enterprise: {
+    id: "enterprise",
+    hourlyLimit: 10_000,
+    windowMs: 3_600_000,
+    description: "Enterprise campaign tier (>$50,000 funding): 10,000 req/hr",
+  },
 };
-export function resolveCampaignApiTier(apiKey?: string | null): CampaignApiTierConfig {
-  if (apiKey?.startsWith("pk_live_enterprise_") || apiKey?.startsWith("enterprise_")) return CAMPAIGN_API_RATE_LIMIT_TIERS.enterprise;
-  if (apiKey?.startsWith("pk_live_pro_") || apiKey?.startsWith("pro_")) return CAMPAIGN_API_RATE_LIMIT_TIERS.pro;
+
+/**
+ * Resolves the campaign API rate limit tier based on campaign funding size (USD/XLM equivalent).
+ * - basic: < 10,000 USD (100 req/hr)
+ * - pro: 10,000 - 50,000 USD (1,000 req/hr)
+ * - enterprise: > 50,000 USD (10,000 req/hr)
+ */
+export function resolveCampaignApiTierByFunding(fundingAmountUsd: number): CampaignApiTierConfig {
+  if (fundingAmountUsd >= 50_000) return CAMPAIGN_API_RATE_LIMIT_TIERS.enterprise;
+  if (fundingAmountUsd >= 10_000) return CAMPAIGN_API_RATE_LIMIT_TIERS.pro;
+  return CAMPAIGN_API_RATE_LIMIT_TIERS.basic;
+}
+
+export function resolveCampaignApiTier(
+  identifierOrKey?: string | null,
+  fundingAmount?: number | null
+): CampaignApiTierConfig {
+  if (fundingAmount !== undefined && fundingAmount !== null && !isNaN(fundingAmount)) {
+    return resolveCampaignApiTierByFunding(fundingAmount);
+  }
+  if (!identifierOrKey) return CAMPAIGN_API_RATE_LIMIT_TIERS.basic;
+  const lower = identifierOrKey.toLowerCase();
+  if (lower === "enterprise" || lower.startsWith("pk_live_enterprise_") || lower.startsWith("enterprise_")) {
+    return CAMPAIGN_API_RATE_LIMIT_TIERS.enterprise;
+  }
+  if (lower === "pro" || lower.startsWith("pk_live_pro_") || lower.startsWith("pro_")) {
+    return CAMPAIGN_API_RATE_LIMIT_TIERS.pro;
+  }
+  if (lower === "basic" || lower.startsWith("pk_live_basic_") || lower.startsWith("basic_")) {
+    return CAMPAIGN_API_RATE_LIMIT_TIERS.basic;
+  }
   return CAMPAIGN_API_RATE_LIMIT_TIERS.basic;
 }
 

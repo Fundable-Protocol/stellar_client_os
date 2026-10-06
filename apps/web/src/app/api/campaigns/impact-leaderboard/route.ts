@@ -10,8 +10,10 @@ import {
  *
  * Returns the top campaigns for each impact board: most trees planted, most CO2
  * sequestered per year, most sponsors, fastest completion, and most diverse
- * species mix. Read-only and unauthenticated, like the other public campaign
- * endpoints.
+ * species mix. The species board scores each campaign by tree species
+ * diversity — more distinct species means higher environmental value and
+ * greater potential carbon credits. Read-only and unauthenticated, like the
+ * other public campaign endpoints.
  *
  * # Query parameters
  *   - network — Soroban network (testnet | mainnet), default `testnet`.

@@ -53,7 +53,7 @@ export interface CampaignImpactReportInput {
 // -- Helpers -------------------------------------------------------------------
 
 function trunc(s: string, max: number): string {
-  return s.length <= max ? s : `${s.slice(0, max - 1)}\u2026`;
+  return s.length <= max ? s : `${s.slice(0, max - 3)}...`;
 }
 
 function drawRule(page: PDFPage, y: number): void {
@@ -125,7 +125,7 @@ export async function buildCampaignImpactReportPdf(
   const { campaign } = input;
 
   const pdf = await PDFDocument.create();
-  pdf.setTitle(`${campaign.name} — Impact Report`);
+  pdf.setTitle(`${campaign.name} - Impact Report`);
   pdf.setAuthor("Fundable Protocol");
   pdf.setSubject("Campaign impact: trees, CO2, sponsors");
   pdf.setCreationDate(generatedAt);
@@ -148,7 +148,7 @@ export async function buildCampaignImpactReportPdf(
     x: MARGIN, y: cursor, font: regular, size: 9, color: C.muted,
   });
   if (campaign.location) {
-    const locLabel = `\u{1F4CD} ${trunc(campaign.location, 60)}`;
+    const locLabel = `Location: ${trunc(campaign.location, 60)}`;
     page.drawText(locLabel, {
       x: MARGIN + 140, y: cursor, font: regular, size: 9, color: C.muted,
     });
@@ -167,7 +167,7 @@ export async function buildCampaignImpactReportPdf(
   const cardW   = (CW - 24) / 4;
   const cards: [string, string, typeof C.primary][] = [
     ["Trees planted",     campaign.treeCount.toLocaleString(),           C.primary],
-    ["CO\u2082 / year",  `${totalCo2.toFixed(1)} kg`,                   C.green  ],
+    ["CO2 / year",  `${totalCo2.toFixed(1)} kg`,                   C.green  ],
     ["Sponsors",          campaign.sponsorCount.toLocaleString(),        C.primary],
     ["Raised / Goal",     `${campaign.raisedAmount} / ${campaign.goalAmount}`, C.dark],
   ];
@@ -194,7 +194,7 @@ export async function buildCampaignImpactReportPdf(
     const cols = [
       { label: "Species",        x: MARGIN,       w: 180 },
       { label: "Trees",          x: MARGIN + 188, w: 70  },
-      { label: "CO\u2082 / yr (kg)", x: MARGIN + 266, w: 100 },
+      { label: "CO2 / yr (kg)", x: MARGIN + 266, w: 100 },
       { label: "% of forest",    x: MARGIN + 374, w: 90  },
     ];
     cols.forEach(col => {
@@ -270,7 +270,7 @@ export async function buildCampaignImpactReportPdf(
     if (campaign.sponsors.length > MAX_SPONSORS) {
       cursor -= 6;
       page.drawText(
-        `… and ${(campaign.sponsors.length - MAX_SPONSORS).toLocaleString()} more sponsors`,
+        `... and ${(campaign.sponsors.length - MAX_SPONSORS).toLocaleString()} more sponsors`,
         { x: MARGIN, y: cursor, font: oblique, size: 8, color: C.muted },
       );
       cursor -= 14;

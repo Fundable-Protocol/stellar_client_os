@@ -1,6 +1,5 @@
 import {
   CommunityMembership,
-  CommunityPlatform,
   CommunitySpace,
   CreateCommunitySpaceInput,
   JoinCommunityInput,

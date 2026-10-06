@@ -135,6 +135,7 @@ export class BalanceWatcher {
   private watchers: Map<string, WatcherRecord> = new Map();
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private isRunning: boolean = false;
+  private pollPromise: Promise<void> | null = null;
 
   constructor(options: BalanceWatcherOptions) {
     this.rpcServer = new SorobanRpc.Server(options.rpcUrl);
@@ -163,6 +164,20 @@ export class BalanceWatcher {
     token: string,
     callback: BalanceCallback,
   ): () => void {
+    const unsubscribe = this.addWatcher(address, token, callback);
+
+    if (!this.isRunning) {
+      this.start();
+    }
+
+    return unsubscribe;
+  }
+
+  private addWatcher(
+    address: string,
+    token: string,
+    callback: BalanceCallback,
+  ): () => void {
     const key = this.getWatcherKey(address, token);
 
     if (!this.watchers.has(key)) {
@@ -176,10 +191,6 @@ export class BalanceWatcher {
 
     const record = this.watchers.get(key)!;
     record.callbacks.add(callback);
-
-    if (!this.isRunning) {
-      this.start();
-    }
 
     return () => this.unwatch(address, token, callback);
   }
@@ -225,8 +236,12 @@ export class BalanceWatcher {
     callback: BalanceCallback,
   ): () => void {
     const token = stream.token;
-    const unsubSender = this.watch(stream.sender, token, callback);
-    const unsubRecipient = this.watch(stream.recipient, token, callback);
+    const unsubSender = this.addWatcher(stream.sender, token, callback);
+    const unsubRecipient = this.addWatcher(stream.recipient, token, callback);
+
+    if (!this.isRunning) {
+      this.start();
+    }
 
     return () => {
       unsubSender();
@@ -298,8 +313,13 @@ export class BalanceWatcher {
       void this.pollBalances();
     }, this.pollInterval);
 
-    // Initial poll immediately so callers get a balance update right away
-    void this.pollBalances();
+    // Defer the initial poll so a batch of synchronous watch registrations is
+    // included before the first RPC requests are created.
+    queueMicrotask(() => {
+      if (this.isRunning) {
+        void this.pollBalances();
+      }
+    });
   }
 
   /**
@@ -397,7 +417,22 @@ export class BalanceWatcher {
   /**
    * Poll all watched address/token pairs and notify callbacks on changes.
    */
-  private async pollBalances(): Promise<void> {
+  private pollBalances(): Promise<void> {
+    if (this.pollPromise) {
+      return this.pollPromise;
+    }
+
+    const pollPromise = this.pollAllBalances();
+    const trackedPoll = pollPromise.finally(() => {
+      if (this.pollPromise === trackedPoll) {
+        this.pollPromise = null;
+      }
+    });
+    this.pollPromise = trackedPoll;
+    return trackedPoll;
+  }
+
+  private async pollAllBalances(): Promise<void> {
     const promises = Array.from(this.watchers.values()).map(
       async (record) => {
         try {

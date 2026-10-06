@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ContractDeployer } from '../deployer/ContractDeployer';
+import { ContractDeployer } from '../deployer/ContractDeployer.js';
 import {
   DeployerError,
   InvalidWasmError,
@@ -21,7 +21,7 @@ import {
   ContractInstantiationError,
   FeeEstimationError,
   DeploymentTimeoutError,
-} from '../deployer/errors';
+} from '../deployer/errors.js';
 
 // ---------------------------------------------------------------------------
 // WASM fixtures
@@ -103,7 +103,7 @@ vi.mock('@stellar/stellar-sdk', async () => {
         fromXDR: vi.fn(() => ({
           resources: vi.fn(() => ({
             instructions: vi.fn(() => 1_000_000),
-            readBytes: vi.fn(() => 4096),
+            diskReadBytes: vi.fn(() => 4096),
             writeBytes: vi.fn(() => 2048),
             footprint: vi.fn(() => ({
               readOnly: vi.fn(() => new Array(3)),

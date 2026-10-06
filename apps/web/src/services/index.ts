@@ -104,3 +104,8 @@ export {
   CampaignInsuranceClaimService,
   campaignInsuranceClaimService,
 } from './campaign-insurance-claim.service';
+export {
+  CampaignImpactNftService,
+  campaignImpactNftService,
+  ImpactNFTError,
+} from './campaign-impact-nft.service';

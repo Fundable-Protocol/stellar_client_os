@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Bricolage_Grotesque, Geist, Geist_Mono } from "next/font/google";
+import { Bricolage_Grotesque, Geist, Geist_Mono } from "next-font/google";
 import "./globals.css";
 import { StellarWalletProvider } from "../providers/StellarWalletProvider";
 import { Navbar } from "@/components/organisms/navbar";
@@ -9,6 +9,7 @@ import { ToastProvider } from "@/providers/ToastProvider";
 import ReactQueryProvider from "@/providers/ReactQueryProvider";
 import { RootErrorBoundary } from "@/components/ui/root-error-boundary";
 import { SocialProvider } from "@/providers/SocialProvider";
+import { HighContrastProvider } from "@/providers/HighContrastProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,19 +45,21 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${bricolageGrotesque.variable} antialiased`}
       >
-        <ReactQueryProvider>
-          <StellarWalletProvider>
-            <SocialProvider>
-              <RootErrorBoundary>
-                <Navbar />
-                <AppProvider>
-                  {children}
-                </AppProvider>
-                <WalletModal />
-              </RootErrorBoundary>
-            </SocialProvider>
-          </StellarWalletProvider>
-        </ReactQueryProvider>
+        <HighContrastProvider>
+          <ReactQueryProvider>
+            <StellarWalletProvider>
+              <SocialProvider>
+                <RootErrorBoundary>
+                  <Navbar />
+                  <AppProvider>
+                    {children}
+                  </AppProvider>
+                  <WalletModal />
+                </RootErrorBoundary>
+              </SocialProvider>
+            </StellarWalletProvider>
+          </ReactQueryProvider>
+        </HighContrastProvider>
         <ToastProvider />
       </body>
     </html>
