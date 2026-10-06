@@ -39,6 +39,8 @@ export interface SustainabilityScoreResult {
   breakdown: SustainabilityBreakdown[];
 }
 
+const SPECIES_DIVERSITY_WEIGHTS = [0, 10, 25, 45, 70, 100] as const;
+
 const SUSTAINABILITY_WEIGHTS: Record<keyof SustainabilityInputs, number> = {
   treeSpeciesDiversity: 0.3,
   regionClimateImpact: 0.25,
@@ -115,7 +117,7 @@ const gradeStyles: Record<SustainabilityScoreResult["grade"], string> = {
  * index derived from tree species diversity, region climate impact,
  * soil health improvement, and biodiversity potential.
  */
-export const CampaignImpactWidgetModal: React.FC < CampaignImpactWidgetModalProps> = ({
+export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps> = ({
   isOpen,
   onClose,
   campaignId,
@@ -127,6 +129,7 @@ export const CampaignImpactWidgetModal: React.FC < CampaignImpactWidgetModalProp
   const [theme, setTheme] = useState<WidgetTheme>("forest");
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState("");
+  const [speciesCount, setSpeciesCount] = useState(0);
   const [sustainabilityInputs, setSustainabilityInputs] = useState<SustainabilityInputs>({
     treeSpeciesDiversity: 0.72,
     regionClimateImpact: 0.68,
@@ -139,6 +142,22 @@ export const CampaignImpactWidgetModal: React.FC < CampaignImpactWidgetModalProp
       setOrigin(window.location.origin);
     }
   }, []);
+
+  useEffect(() => {
+    if (!isOpen || !campaignId) return;
+    let cancelled = false;
+    fetch(`/api/campaigns/${campaignId}/species`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        const count = Array.isArray(data.species) ? data.species.length : Number(data.count) || 0;
+        setSpeciesCount(count);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, campaignId]);
 
   if (!isOpen) return null;
 
@@ -162,6 +181,9 @@ export const CampaignImpactWidgetModal: React.FC < CampaignImpactWidgetModalProp
     setSustainabilityInputs((prev) => ({ ...prev, [key]: clamp01(value / 100) }));
   };
 
+  const diversityScore =
+    SPECIES_DIVERSITY_WEIGHTS[Math.min(speciesCount, SPECIES_DIVERSITY_WEIGHTS.length - 1)];
+
   return (
     <div
       role="dialog"
@@ -177,7 +199,7 @@ export const CampaignImpactWidgetModal: React.FC < CampaignImpactWidgetModalProp
               Embed Campaign Widget
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-Embed real-time tree and CO ₃ Impact on your website or blog.
+Embed real-time tree and CO₂ impact on your website or blog.
             </p>
           </div>
           <button
@@ -208,18 +230,37 @@ Embed real-time tree and CO ₃ Impact on your website or blog.
                   key={t.id}
                   type="button"
                   onClick={() => setTheme(t.id)}
-                  className={`
-                    p-2.5 rounded-xl border text-left transition
-                    ${theme === t.id
+                  className={`p-2.5 rounded-xl border text-left transition ${
+                    theme === t.id
                       ? "border-emerald-500 bg-emerald-950/40 text-white"
                       : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-600"
-                    }
                   }`}
                 >
                   <div className="font-semibold text-sm">{t.label}</div>
                   <div className="text-[10px] text-slate-400 mt-0.5">{t.desc}</div>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Species Diversity Score */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+              Species Diversity Score
+            </label>
+            <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm text-slate-300">
+                  {speciesCount} {speciesCount === 1 ? "species" : "species"} detected
+                </span>
+                <span className="text-sm font-bold text-emerald-400">{diversityScore}/100</span>
+              </div>
+              <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-all"
+                  style={{ width: `${diversityScore}%` }}
+                />
+              </div>
             </div>
           </div>
 

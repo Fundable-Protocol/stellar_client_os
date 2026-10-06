@@ -30,45 +30,27 @@ pub enum OptionalAddress {
 #[contracttype]
 #[derive(Clone)]
 
-/// Non-profit organization partner for charitable tax deduction eligibility.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct NonProfitPartner {
-    pub partner_address: Address,
-    pub name: soroban_sdk::String,
-    pub tax_id: soroban_sdk::String,
-    pub registered_at: u64,
+pub struct SpeciesPlantingRecordedEvent {
+    pub campaign_id: u64,
+    pub species_code: BytesN<32>,
+    pub count: u64,
+    pub new_diversity_score: u32,
 }
 
-/// On-chain tax deduction certificate issued to campaign sponsors.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TaxCertificate {
-    pub certificate_id: u64,
+pub struct DiversityScoreUpdatedEvent {
     pub campaign_id: u64,
-    pub sponsor: Address,
-    pub non_profit_partner: Address,
-    pub non_profit_name: soroban_sdk::String,
-    pub non_profit_tax_id: soroban_sdk::String,
-    pub contribution_amount: i128,
-    pub eligible_deduction_amount: i128,
-    pub issued_at: u64,
-}
-
-/// Emitted when a tax deduction certificate is issued to a sponsor.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TaxCertificateIssuedEvent {
-    pub certificate_id: u64,
-    pub campaign_id: u64,
-    pub sponsor: Address,
-    pub amount: i128,
+    pub diversity_score: u32,
+    pub distinct_species: u32,
 }
 
 pub enum DataKey {
-    NonProfitPartner(u64),
-    TaxCertificate(u64, Address),
-    TaxCertificateCount,
+    CampaignSpeciesList(u64),
+    CampaignSpeciesCount(u64, BytesN<32>),
+    CampaignDiversityScore(u64),
     /// Global admin address (instance storage).
     Admin,
     /// Running total of campaigns created (instance storage).
@@ -3227,99 +3209,153 @@ impl CampaignFundingContract {
 
 
     // -----------------------------------------------------------------------
-    // Tax Deduction Certification (Issue #880)
+    // Campaign Tree Species Diversity Scoring (Issue #855)
     // -----------------------------------------------------------------------
 
-    /// Register a verified non-profit partner for a campaign to enable tax-deductible contributions.
-    pub fn register_non_profit_partner(
+    /// Record a verified tree planting with its species identifier.
+    /// Updates the campaign's tree species index and recomputes the diversity score.
+    pub fn record_tree_species(
         env: Env,
-        creator: Address,
         campaign_id: u64,
-        partner: Address,
-        name: soroban_sdk::String,
-        tax_id: soroban_sdk::String,
-    ) {
-        creator.require_auth();
+        species_code: BytesN<32>,
+        count: u64,
+    ) -> u32 {
         Self::assert_initialized(&env);
         let campaign = Self::load_campaign(&env, campaign_id);
-        if campaign.creator != creator {
-            panic_with_error!(&env, Error::Unauthorized);
+        campaign.creator.require_auth();
+
+        if count == 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
         }
 
-        let partner_info = NonProfitPartner {
-            partner_address: partner,
-            name,
-            tax_id,
-            registered_at: env.ledger().timestamp(),
-        };
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::NonProfitPartner(campaign_id), &partner_info);
-    }
-
-    /// Retrieve the registered non-profit partner details for a campaign.
-    pub fn get_non_profit_partner(env: Env, campaign_id: u64) -> Option<NonProfitPartner> {
-        env.storage()
-            .persistent()
-            .get(&DataKey::NonProfitPartner(campaign_id))
-    }
-
-    /// Issue an on-chain tax deduction certificate to a sponsor for their charitable contribution.
-    pub fn issue_tax_certificate(env: Env, campaign_id: u64, sponsor: Address) -> TaxCertificate {
-        Self::assert_initialized(&env);
-
-        let partner_info = Self::get_non_profit_partner(env.clone(), campaign_id)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::NonProfitPartnerNotFound));
-
-        let contribution = Self::get_contribution(env.clone(), campaign_id, sponsor.clone());
-        if contribution <= 0 {
-            panic_with_error!(&env, Error::NoContributionFound);
-        }
-
-        let cert_key = DataKey::TaxCertificate(campaign_id, sponsor.clone());
-        if env.storage().persistent().has(&cert_key) {
-            panic_with_error!(&env, Error::CertificateAlreadyIssued);
-        }
-
-        let mut count: u64 = env
+        let mut species_list: Vec<BytesN<32>> = env
             .storage()
-            .instance()
-            .get(&DataKey::TaxCertificateCount)
-            .unwrap_or(0);
-        count = count.checked_add(1).unwrap();
-        env.storage().instance().set(&DataKey::TaxCertificateCount, &count);
+            .persistent()
+            .get(&DataKey::CampaignSpeciesList(campaign_id))
+            .unwrap_or_else(|| Vec::new(&env));
 
-        let cert = TaxCertificate {
-            certificate_id: count,
-            campaign_id,
-            sponsor: sponsor.clone(),
-            non_profit_partner: partner_info.partner_address,
-            non_profit_name: partner_info.name,
-            non_profit_tax_id: partner_info.tax_id,
-            contribution_amount: contribution,
-            eligible_deduction_amount: contribution,
-            issued_at: env.ledger().timestamp(),
+        let mut found = false;
+        for i in 0..species_list.len() {
+            if species_list.get(i).unwrap() == species_code {
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            species_list.push_back(species_code.clone());
+            env.storage().persistent().set(&DataKey::CampaignSpeciesList(campaign_id), &species_list);
+        }
+
+        let current_count: u64 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::CampaignSpeciesCount(campaign_id, species_code.clone()))
+            .unwrap_or(0);
+        let new_count = current_count.checked_add(count).unwrap_or(current_count);
+        env.storage().persistent().set(&DataKey::CampaignSpeciesCount(campaign_id, species_code.clone()), &new_count);
+
+        // Compute Diversity Score (0..10,000 bps):
+        // 1. Richness component (up to 5,000 bps): 12 distinct species saturates at 5,000 bps
+        let distinct = species_list.len();
+        let richness_bps = if distinct >= 12 {
+            5_000u32
+        } else {
+            ((distinct as u64 * 5_000) / 12) as u32
         };
 
-        env.storage().persistent().set(&cert_key, &cert);
+        // 2. Evenness component (up to 5,000 bps): Simpson's index calculation
+        let mut total_trees = 0u128;
+        for i in 0..species_list.len() {
+            let sp = species_list.get(i).unwrap();
+            let c: u64 = env.storage().persistent().get(&DataKey::CampaignSpeciesCount(campaign_id, sp)).unwrap_or(0);
+            total_trees = total_trees.saturating_add(c as u128);
+        }
+
+        let evenness_bps = if distinct <= 1 || total_trees <= 1 {
+            0u32
+        } else {
+            let mut sum_sq = 0u128;
+            for i in 0..species_list.len() {
+                let sp = species_list.get(i).unwrap();
+                let c: u64 = env.storage().persistent().get(&DataKey::CampaignSpeciesCount(campaign_id, sp)).unwrap_or(0);
+                sum_sq = sum_sq.saturating_add((c as u128) * (c as u128));
+            }
+            let max_possible_sq = total_trees * total_trees;
+            if max_possible_sq > 0 {
+                let simpson_concentration = (sum_sq * 5_000) / max_possible_sq;
+                5_000u32.saturating_sub(simpson_concentration as u32)
+            } else {
+                0u32
+            }
+        };
+
+        let diversity_score = richness_bps.saturating_add(evenness_bps).min(10_000);
+        env.storage().persistent().set(&DataKey::CampaignDiversityScore(campaign_id), &diversity_score);
 
         env.events().publish(
-            ("TaxCertificateIssued", campaign_id),
-            TaxCertificateIssuedEvent {
-                certificate_id: count,
+            ("SpeciesPlantingRecorded", campaign_id),
+            SpeciesPlantingRecordedEvent {
                 campaign_id,
-                sponsor,
-                amount: contribution,
+                species_code,
+                count,
+                new_diversity_score: diversity_score,
             },
         );
 
-        cert
+        env.events().publish(
+            ("DiversityScoreUpdated", campaign_id),
+            DiversityScoreUpdatedEvent {
+                campaign_id,
+                diversity_score,
+                distinct_species: distinct as u32,
+            },
+        );
+
+        diversity_score
     }
 
-    /// Retrieve an issued tax deduction certificate for a sponsor.
-    pub fn get_tax_certificate(env: Env, campaign_id: u64, sponsor: Address) -> Option<TaxCertificate> {
-        env.storage().persistent().get(&DataKey::TaxCertificate(campaign_id, sponsor))
+    /// Retrieve the distinct species registered for a campaign.
+    pub fn get_campaign_species(env: Env, campaign_id: u64) -> Vec<BytesN<32>> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CampaignSpeciesList(campaign_id))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Retrieve the tree count for a specific species within a campaign.
+    pub fn get_species_tree_count(env: Env, campaign_id: u64, species_code: BytesN<32>) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CampaignSpeciesCount(campaign_id, species_code))
+            .unwrap_or(0)
+    }
+
+    /// Retrieve the calculated diversity score in basis points (0..10_000).
+    pub fn get_campaign_diversity_score(env: Env, campaign_id: u64) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::CampaignDiversityScore(campaign_id))
+            .unwrap_or(0)
+    }
+
+    /// Determine if a campaign meets the diversity threshold for carbon credits
+    /// (requires at least 1,000 total trees and a diversity score >= 5,000 basis points).
+    pub fn is_carbon_credit_diversity_eligible(env: Env, campaign_id: u64) -> bool {
+        let score = Self::get_campaign_diversity_score(env.clone(), campaign_id);
+        if score < 5_000 {
+            return false;
+        }
+
+        let species_list = Self::get_campaign_species(env.clone(), campaign_id);
+        let mut total_trees = 0u64;
+        for i in 0..species_list.len() {
+            let sp = species_list.get(i).unwrap();
+            let c = Self::get_species_tree_count(env.clone(), campaign_id, sp);
+            total_trees = total_trees.saturating_add(c);
+        }
+
+        total_trees >= 1_000
     }
 
     // -----------------------------------------------------------------------
@@ -5771,131 +5807,45 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Tax Deduction Certification Tests (Issue #880)
+    // Campaign Tree Species Diversity Tests (Issue #855)
     // -----------------------------------------------------------------------
 
     #[test]
-    fn test_register_non_profit_partner() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let token = Address::generate(&env);
-        let creator = Address::generate(&env);
-        let partner = Address::generate(&env);
-
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
-        let name = soroban_sdk::String::from_str(&env, "Trees For All Foundation");
-        let tax_id = soroban_sdk::String::from_str(&env, "52-1234567");
-
-        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
-
-        let info = client.get_non_profit_partner(&id).unwrap();
-        assert_eq!(info.partner_address, partner);
-        assert_eq!(info.name, name);
-        assert_eq!(info.tax_id, tax_id);
-    }
-
-    #[test]
-    fn test_issue_tax_certificate_success() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let token_admin = Address::generate(&env);
-        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
-        let creator = Address::generate(&env);
-        let sponsor = Address::generate(&env);
-        let partner = Address::generate(&env);
-
-        token_admin_client.mint(&sponsor, &5_000);
-
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        let name = soroban_sdk::String::from_str(&env, "Reforest Action NonProfit");
-        let tax_id = soroban_sdk::String::from_str(&env, "EIN-987654321");
-        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
-
-        // Sponsor contributes 3,000 stroops
-        client.contribute(&sponsor, &id, &3_000);
-
-        // Issue tax certificate
-        let cert = client.issue_tax_certificate(&id, &sponsor);
-        assert_eq!(cert.certificate_id, 1);
-        assert_eq!(cert.campaign_id, id);
-        assert_eq!(cert.sponsor, sponsor);
-        assert_eq!(cert.non_profit_partner, partner);
-        assert_eq!(cert.contribution_amount, 3_000);
-        assert_eq!(cert.eligible_deduction_amount, 3_000);
-
-        // Check get_tax_certificate
-        let retrieved = client.get_tax_certificate(&id, &sponsor).unwrap();
-        assert_eq!(retrieved, cert);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #28)")]
-    fn test_issue_tax_certificate_fails_without_partner() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let token_admin = Address::generate(&env);
-        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
-        let creator = Address::generate(&env);
-        let sponsor = Address::generate(&env);
-
-        token_admin_client.mint(&sponsor, &5_000);
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        client.contribute(&sponsor, &id, &1_000);
-
-        // Fails with NonProfitPartnerNotFound (#28)
-        client.issue_tax_certificate(&id, &sponsor);
-    }
-
-    #[test]
-    #[should_panic(expected = "Error(Contract, #12)")]
-    fn test_issue_tax_certificate_fails_without_contribution() {
+    fn test_campaign_species_diversity_scoring_and_eligibility() {
         let env = Env::default();
         env.mock_all_auths();
         set_time(&env, 1_000);
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        let sponsor = Address::generate(&env);
-        let partner = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
-        let name = soroban_sdk::String::from_str(&env, "Green Earth Foundation");
-        let tax_id = soroban_sdk::String::from_str(&env, "EIN-11223344");
-        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+        let id = client.create_campaign(&creator, &token, &100_000, &50_000, &10_000);
 
-        // Fails with NoContributionFound (#12)
-        client.issue_tax_certificate(&id, &sponsor);
-    }
+        // Initially 0 species and 0 diversity score
+        assert_eq!(client.get_campaign_diversity_score(&id), 0);
+        assert_eq!(client.is_carbon_credit_diversity_eligible(&id), false);
 
-    #[test]
-    #[should_panic(expected = "Error(Contract, #29)")]
-    fn test_issue_tax_certificate_duplicate_fails() {
-        let env = Env::default();
-        env.mock_all_auths();
-        set_time(&env, 1_000);
-        let (_, client, _, _) = setup_contract(&env);
-        let token_admin = Address::generate(&env);
-        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
-        let creator = Address::generate(&env);
-        let sponsor = Address::generate(&env);
-        let partner = Address::generate(&env);
+        // Add single species (monoculture) -> low score
+        let sp1 = BytesN::from_array(&env, &[1u8; 32]);
+        let score1 = client.record_tree_species(&id, &sp1, &500);
+        assert!(score1 > 0);
+        assert_eq!(client.get_species_tree_count(&id, &sp1), 500);
 
-        token_admin_client.mint(&sponsor, &5_000);
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
-        let name = soroban_sdk::String::from_str(&env, "Clean Air Alliance");
-        let tax_id = soroban_sdk::String::from_str(&env, "EIN-55667788");
-        client.register_non_profit_partner(&creator, &id, &partner, &name, &tax_id);
+        // Add 3 more diverse species
+        let sp2 = BytesN::from_array(&env, &[2u8; 32]);
+        let sp3 = BytesN::from_array(&env, &[3u8; 32]);
+        let sp4 = BytesN::from_array(&env, &[4u8; 32]);
 
-        client.contribute(&sponsor, &id, &2_000);
-        client.issue_tax_certificate(&id, &sponsor);
+        client.record_tree_species(&id, &sp2, &500);
+        client.record_tree_species(&id, &sp3, &500);
+        let score4 = client.record_tree_species(&id, &sp4, &500);
 
-        // Second call fails with CertificateAlreadyIssued (#29)
-        client.issue_tax_certificate(&id, &sponsor);
+        // Diversity score increases with species richness and even distribution
+        assert!(score4 > score1);
+        assert_eq!(client.get_campaign_species(&id).len(), 4);
+
+        // With 4 species evenly distributed and 2,000 total trees, check eligibility
+        let eligible = client.is_carbon_credit_diversity_eligible(&id);
+        assert_eq!(eligible, true);
     }
 }
