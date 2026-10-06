@@ -21,6 +21,20 @@ function noStore<T>(body: T, init?: ResponseInit): Response {
   return Response.json(body, { ...init, headers: { ...NO_STORE_HEADERS, ...(init?.headers ?? {}) } });
 }
 
+const INSURANCE_RATE = 0.01;
+const INSURANCE_WINDOW_YEARS = 2;
+const DEAD_REFUND_RATE = 0.5;
+
+function computeInsurancePool(fundsRaised: number): number {
+  return Math.round(fundsRaised * INSURANCE_RATE * 100) / 100;
+}
+
+function computeInsuranceRefund(pool: number, deadTrees: number, totalTrees: number): number {
+  if (totalTrees <= 0 || deadTrees <= 0) return 0;
+  const ratio = Math.min(deadTrees / totalTrees, 1);
+  return Math.round(pool * ratio * DEAD_REFUND_RATE * 100) / 100;
+}
+
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const url = new URL(request.url);
   const hasLanguageParameter = url.searchParams.has("language");
@@ -94,6 +108,12 @@ speciesCount?: number;
       !Number.isFinite(Number(body.co2Sequestration))
     )) {
       return noStore({ error: "co2Sequestration must be a non-negative decimal string in metric tonnes" }, { status: 400 });
+    }
+if (body.fundsRaised !== undefined && (!Number.isFinite(body.fundsRaised) || body.fundsRaised < 0)) {
+      return noStore({ error: "fundsRaised must be a non-negative number" }, { status: 400 });
+    }
+    if (body.deadTrees !== undefined && (!Number.isSafeInteger(body.deadTrees) || body.deadTrees < 0)) {
+      return noStore({ error: "deadTrees must be a non-negative whole number" }, { status: 400 });
     }
     if (body.countries !== undefined && (!Array.isArray(body.countries) || body.countries.some((c) => typeof c !== "string"))) {
       return noStore({ error: "countries must be an array of strings" }, { status: 400 });

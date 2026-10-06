@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useAccount, useSignMessage } from "wagmi";
 
 interface InsuranceClaimModalProps {
@@ -12,6 +12,8 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [poolBalance, setPoolBalance] = useState<number | null>(null);
+  const [refundPercent, setRefundPercent] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
@@ -35,6 +37,27 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
     const fileList = Array.from(event.target.files ?? []);
     setFiles(fileList);
   };
+
+useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const loadPool = async () => {
+      try {
+        const response = await fetch(`/api/campaigns/${campaignId}/insurance-pool`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled) return;
+        setPoolBalance(typeof data.poolBalance === "number" ? data.poolBalance : null);
+        setRefundPercent(typeof data.refundPercent === "number" ? data.refundPercent : null);
+      } catch {
+        // Pool info is best-effort; claim submission still works without it.
+      }
+    };
+    loadPool();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, campaignId]);
 
   const handleFetchQuote = async () => {
     if (!isConnected || !address) {
@@ -60,13 +83,16 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
       setIsFetchingQuote(false);
     }
   };
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     reset();
     const failureDescriptionTrimmed = evidence.trim();
     if (!failureDescriptionTrimmed) {
       setError("Please describe how the campaign failed.");
+      return;
+    }
+    if (refundPercent !== null && refundPercent <= 0) {
+      setError("The insurance pool is currently empty. No refund is available.");
       return;
     }
     if (files.length === 0) {
@@ -124,6 +150,16 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
               <h3 className="text-lg font-semibold text-gray-900">Submit Insurance Claim</h3>
               <p className="mt-1 text-sm text-gray-600">Provide evidence that the campaign failed to receive your payout.</p>
             </div>
+            {poolBalance !== null && (
+              <div className="mt-4 rounded-md bg-indigo-50 p-3 text-sm text-indigo-800" role="status">
+                <p className="font-medium">Insurance Pool Balance: {poolBalance.toFixed(2)}</p>
+                {refundPercent !== null && (
+                  <p className="mt-1 text-indigo-700">
+                    Eligible sponsors may receive up to {refundPercent}% refund if tree loss is verified within 2 years of planting.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="mt-6">
               <label className="block text-sm font-medium text-gray-700" htmlFor="failure-description">
                 Failure Description

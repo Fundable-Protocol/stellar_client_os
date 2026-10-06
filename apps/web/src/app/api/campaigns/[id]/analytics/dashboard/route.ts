@@ -7,6 +7,8 @@ import {
   recordTrafficSource,
 } from "../../../../../../services/campaign-analytics-dashboard.service";
 import { getCampaignAnalytics } from "../../../../../../services/campaign-analytics.service";
+import { fundInsurancePool } from "../../../../../../services/campaign-insurance.service";
+import { isDonationToken } from "@/types/campaign-insurance";
 import {
   buyCarbonCredits,
   listCarbonCreditOffers,
@@ -15,7 +17,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const reValidate = 0;
+export const revalidate = 0;
 
 const TrafficSourceSchema = z.object({
   source: z.enum(["direct", "search", "social", "referral", "newsletter"]),
@@ -33,6 +35,7 @@ const ContributionSchema = z.object({
   backerId: z.string().min(1),
   region: z.string().optional(),
   at: z.number().optional(),
+  token: z.string().optional(),
 });
 
 const CarbonSellSchema = z.object({
@@ -68,7 +71,7 @@ type SustainabilityInputs = z.infer<typeof SustainabilityInputsSchema>;
 function computeSustainabilityScore(inputs: SustainabilityInputs) {
   const weighted =
     inputs.treeSpeciesDiversity * SustainabilityScoreWeights.treeSpeciesDiversity +
-    inputs.regionClmateImpact * SustainabilityScoreWeights.regionClmateImpact +
+    inputs.regionClimateImpact * SustainabilityScoreWeights.regionClimateImpact +
     inputs.soilHealthImprovement * SustainabilityScoreWeights.soilHealthImprovement +
     inputs.biodiversityPotential * SustainabilityScoreWeights.biodiversityPotential;
   const score = Math.round(weighted * 100);
@@ -124,6 +127,9 @@ export async function GET(
  *   { event: "contribution", amount, backerId, region? }
  *   { event: "sell_carbon_credits", sellerId, amount, pricePerTon }
  *   { event: "buy_carbon_credits", buyerId, listingId, amount }
+ *
+ * Contributions automatically fund the campaign insurance pool at 1% of the
+ * contributed amount.
  */
 export async function POST(
   request: NextRequest,
@@ -150,6 +156,11 @@ export async function POST(
         return noStore({ error: "Invalid contribution payload", details: parsed.error.flatten() }, { status: 400 });
       }
       await recordBackerContribution(id, parsed.data);
+      const token = parsed.data.token ?? "XLM";
+      if (!isDonationToken(token)) {
+        return noStore({ error: "Unsupported token" }, { status: 400 });
+      }
+      await fundInsurancePool(id, parsed.data.amount, token);
     } else if (body.event === "sell_carbon_credits") {
       const parsed = CarbonSellSchema.safeParse(body);
       if (!parsed.success) {
