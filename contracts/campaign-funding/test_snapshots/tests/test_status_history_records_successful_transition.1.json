@@ -273,6 +273,14 @@
                 "map": [
                   {
                     "key": {
+                      "symbol": "co2_multiplier"
+                    },
+                    "val": {
+                      "u32": 1
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "created_at"
                     },
                     "val": {
