@@ -69,9 +69,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       autoTranslate?: boolean;
       treeCount?: number;
       co2Sequestration?: string;
-fundsRaised?: number;
-      deadTrees?: number;
-      insuranceWindowEnded?: boolean;
+speciesCount?: number;
       countries?: string[];
       location?: string;
     };
@@ -101,6 +99,9 @@ fundsRaised?: number;
     if (body.treeCount !== undefined && (!Number.isSafeInteger(body.treeCount) || body.treeCount < 0)) {
       return noStore({ error: "treeCount must be a non-negative whole number" }, { status: 400 });
     }
+    if (body.speciesCount !== undefined && (!Number.isSafeInteger(body.speciesCount) || body.speciesCount < 0)) {
+      return noStore({ error: "speciesCount must be a non-negative whole number" }, { status: 400 });
+    }
     if (body.co2Sequestration !== undefined && (
       typeof body.co2Sequestration !== "string" ||
       !/^\d+(?:\.\d+)?$/.test(body.co2Sequestration) ||
@@ -125,18 +126,7 @@ if (body.fundsRaised !== undefined && (!Number.isFinite(body.fundsRaised) || bod
       if (!body.changedBy) return noStore({ error: "changedBy is required when changing status" }, { status: 400 });
       updated = await transitionCampaignStatus(campaign, body.status, body.changedBy, body.reason);
     }
-const fundsRaised = body.fundsRaised ?? updated.fundsRaised ?? 0;
-    const insurancePool = computeInsurancePool(fundsRaised);
-    const deadTrees = body.deadTrees ?? updated.deadTrees ?? 0;
-    const totalTrees = body.treeCount ?? updated.treeCount ?? 0;
-    const insuranceWindowEnded = body.insuranceWindowEnded ?? updated.insuranceWindowEnded ?? false;
-    const insuranceRefund = insuranceWindowEnded
-      ? computeInsuranceRefund(insurancePool, deadTrees, totalTrees)
-      : 0;
-    const language = body.language ?? updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
-    const translations = body.translations ?? updated.translations ?? {};
-    const description = body.description ?? updated.description ?? "";
-    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined || body.fundsRaised !== undefined || body.deadTrees !== undefined || body.insuranceWindowEnded !== undefined || body.countries !== undefined || body.location !== undefined) {
+if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined || body.speciesCount !== undefined) {
       const language = body.language ? normalizeTranslationLocale(body.language)! : updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
       const translations = { ...updated.translations, ...body.translations };
       const description = body.description ?? updated.description ?? "";
@@ -153,12 +143,7 @@ const fundsRaised = body.fundsRaised ?? updated.fundsRaised ?? 0;
         localizedContent,
         treeCount: body.treeCount ?? updated.treeCount,
         co2Sequestration: body.co2Sequestration ?? updated.co2Sequestration,
-fundsRaised,
-        insurancePool,
-        deadTrees,
-        insuranceWindowEnded,
-        insuranceWindowYears: INSURANCE_WINDOW_YEARS,
-        insuranceRefund,
+speciesCount: body.speciesCount ?? updated.speciesCount,
         countries: body.countries ?? updated.countries,
         location: body.location ?? updated.location,
         updatedAt: Date.now(),
