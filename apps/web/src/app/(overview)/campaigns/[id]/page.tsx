@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   Crown,
   TreePine,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -401,6 +402,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           >
             <AlertTriangle className="mr-1.5 h-3.5 w-3.5" /> Submit Insurance Claim
           </Button>
+          <a
+            href={`/api/reports/campaign/${id}`}
+            download
+            aria-label="Download campaign impact report as PDF"
+            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-600/40 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-950/40"
+          >
+            <Download className="h-3.5 w-3.5" /> Impact Report
+          </a>
         </div>
       </div>
 

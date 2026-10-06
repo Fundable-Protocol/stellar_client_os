@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -13,10 +13,10 @@ import {
   MapPin,
   Coins,
   Info,
-  Leaf,
-  Sprout,
-  Droplets,
-  Bird,
+Leaf,
+Sprout,
+Droplets,
+Bird,
 } from "lucide-react";
 import LiveTreeCounter from "./LiveTreeCounter";
 import AnimatedProgressBar from "./AnimatedProgressBar";
@@ -28,6 +28,31 @@ import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignIm
 interface CampaignDetailProps {
   campaignId: string;
 }
+
+// Tree species diversity scoring (v1)
+// Higher species diversity => higher environmental value and carbon credit potential.
+export const calculateSpeciesDiversityScore = (species: string[]): number => {
+  const normalized = Array.from(
+    new Set(
+      species
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s.length > 0 && s !== "general fund")
+    )
+  );
+  const uniqueCount = normalized.length;
+  if (uniqueCount === 0) return 0;
+  // Shannon-like saturating curve: 1 species => 25, 2 => 50, 3 => 75, 4+ => 100
+  const score = Math.min(100, Math.round((uniqueCount / 4) * 100));
+  return score;
+};
+
+export const getDiversityTier = (score: number): string => {
+  if (score >= 85) return "Exceptional";
+  if (score >= 60) return "High";
+  if (score >= 35) return "Moderate";
+  if (score > 0) return "Low";
+  return "None";
+};
 
 // Sample campaign fallback generator for detail page
 const getSampleCampaign = (id: string): CampaignData => ({
@@ -41,7 +66,8 @@ const getSampleCampaign = (id: string): CampaignData => ({
   minTarget: "5000",
   totalRaised: "7250",
   status: id === "2" ? "Paused" : "Active",
-  treeType: id === "2" ? "Aacia" : "Mangrove",
+treeType: id === "2" ? "Acacia" : "Mangrove",
+  treeSpecies: id === "2" ? ["Acacia", "Baobab", "Moringa"] : ["Mangrove", "Kapok", "Brazil Nut", "Rubber Tree"],
   costPerTree: 10,
   treesPlanted: 725,
   targetTrees: 1000,
@@ -173,6 +199,16 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
   const [isCreatorMode, setIsCreatorMode] = useState<boolean>(true);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
+  const speciesList = useMemo<string[]>(() => {
+    if (campaign.treeSpecies && campaign.treeSpecies.length > 0) {
+      return campaign.treeSpecies;
+    }
+    return campaign.treeType && campaign.treeType !== "General Fund" ? [campaign.treeType] : [];
+  }, [campaign.treeSpecies, campaign.treeType]);
+
+  const diversityScore = useMemo(() => calculateSpeciesDiversityScore(speciesList), [speciesList]);
+  const diversityTier = useMemo(() => getDiversityTier(diversityScore), [diversityScore]);
+
   const togglePauseResume = () => {
     if (campaign.status === "Active") {
       setCampaign((prev) => ({ ...prev, status: "Paused" }));
@@ -256,7 +292,13 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-zinc-800/80 text-zinc-300 border border-zinc-700/50">
               {campaign.treeType === "General Fund" ? "💰 General Fund" : `🌰 ${campaign.treeType} Species`}
             </span>
-
+<span
+              className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30"
+              title="Tree species diversity score (v1)"
+            >
+              <Leaf className="inline size-3 mr-1 -mt-0.5" />
+              Diversity: {diversityScore}/100 ({diversityTier})
+            </span>
             {geographicDiversityBonus && (
               <span className="px-3 py-1 rounded-full texe-xs font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/40">
                 🌍 1.2x Geographic Diversity Bonus
@@ -348,6 +390,51 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             currencySymbol="XLM"
           />
         </div>
+      </div>
+
+      {/* Issue: Campaign tree species diversity scoring (v1) */}
+      <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 sm:p-6 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Leaf className="size-4 text-emerald-400" />
+            <h3 className="text-sm font-bold text-zinc-100">Tree Species Diversity</h3>
+          </div>
+          <span className="text-xs font-semibold text-emerald-300">
+            {diversityScore}/100 · {diversityTier}
+          </span>
+        </div>
+
+        <div className="h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all"
+            style={{ width: `${diversityScore}%` }}
+            role="progressbar"
+            aria-valuenow={diversityScore}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Tree species diversity score"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {speciesList.length > 0 ? (
+            speciesList.map((species) => (
+              <span
+                key={species}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-zinc-800/80 text-zinc-200 border border-zinc-700/60"
+              >
+                🌱 {species}
+              </span>
+            ))
+          ) : (
+            <span className="text-[11px] text-zinc-400">No species data available.</span>
+          )}
+        </div>
+
+        <p className="text-[11px] text-zinc-400 leading-relaxed">
+          Higher species diversity increases ecosystem resilience and potential carbon credit value.
+          Score is derived from the number of distinct tree species planted in this campaign.
+        </p>
       </div>
 
       {/* Campaign Impact Calculator (v2) */}
