@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach } from "vitest";
 /**
  * Campaign Analytics Service Tests
  * Issue #1015

@@ -12,10 +12,11 @@ vi.mock("@/services/campaign-sponsorship-receipt.service", async (importOriginal
   verifyCampaignSponsorshipReceipt: verifyMock,
 }));
 
-import { POST, PUT } from "./route";
+import { GET, POST, PUT } from "./route";
 import {
   SponsorshipReceiptError,
   buildSponsorshipReceipt,
+  encodeSponsorshipReceiptToken,
   type SponsorshipReceiptInput,
 } from "@/lib/sponsorship-receipt";
 
@@ -243,7 +244,7 @@ describe("PUT /api/campaigns/:id/sponsorship-receipt", () => {
     expect(verifyMock).not.toHaveBeenCalled();
   });
   it.each([
-    ["a receipt", { transactionHash: TRANSACTION_HASH }, "receipt is required"],
+    ["a receipt", { transactionHash: TRANSACTION_HASH }, "receipt or token is required"],
     ["a transaction hash", { receipt: {} }, "transactionHash is required"],
   ])("requires %s", async (_label, payload, message) => {
     const response = await PUT(
@@ -306,5 +307,121 @@ describe("PUT /api/campaigns/:id/sponsorship-receipt", () => {
     expect(response.status).toBe(502);
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+});
+
+describe("receipt tokens (issue #926)", () => {
+  it("issues a token and a display summary with the receipt", async () => {
+    const response = await POST(
+      request(url, { method: "POST", body: JSON.stringify(input()) }) as never,
+      params as never,
+    );
+    const body = await json<{
+      receipt: Parameters<typeof encodeSponsorshipReceiptToken>[0];
+      token: string;
+      summary: { treeCount: number; species: string; plantingLocation: string; expectedCo2PerYearKg: number };
+      verification: { tokenLookup: string };
+    }>(response);
+
+    expect(response.status).toBe(201);
+    expect(body.token).toBe(encodeSponsorshipReceiptToken(body.receipt));
+    expect(body.summary).toMatchObject({
+      treeCount: 100,
+      species: "Oak",
+      plantingLocation: "Nyeri, Kenya",
+      expectedCo2PerYearKg: 4200,
+    });
+    expect(body.verification.tokenLookup).toBe(
+      `/api/campaigns/${CAMPAIGN}/sponsorship-receipt?token=<token>`,
+    );
+  });
+
+  it("opens a token without touching the ledger", async () => {
+    const receipt = buildSponsorshipReceipt(input());
+    const token = encodeSponsorshipReceiptToken(receipt);
+
+    const response = await GET(
+      request(`${url}?token=${encodeURIComponent(token)}`) as never,
+      params as never,
+    );
+    const body = await json<{
+      success: boolean;
+      receipt: { receiptId: string };
+      summary: { species: string };
+      receiptHashMatchesContent: boolean;
+      verification: unknown;
+    }>(response);
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.receipt.receiptId).toBe(receipt.receiptId);
+    expect(body.summary.species).toBe("Oak");
+    expect(body.receiptHashMatchesContent).toBe(true);
+    expect(body.verification).toBeNull();
+    expect(verifyMock).not.toHaveBeenCalled();
+  });
+
+  it("verifies a token against the ledger when a transaction hash is given", async () => {
+    const receipt = buildSponsorshipReceipt(input());
+    verifyMock.mockResolvedValue(verification({ receiptId: receipt.receiptId }));
+
+    const response = await GET(
+      request(
+        `${url}?token=${encodeSponsorshipReceiptToken(receipt)}&transactionHash=${TRANSACTION_HASH}`,
+      ) as never,
+      params as never,
+    );
+    const body = await json<{ verification: { verified: boolean; status: string } }>(response);
+
+    expect(response.status).toBe(200);
+    expect(body.verification).toMatchObject({ verified: true, status: "verified" });
+    expect(verifyMock).toHaveBeenCalledWith(receipt, TRANSACTION_HASH);
+  });
+
+  it("requires a token", async () => {
+    const response = await GET(request(url) as never, params as never);
+
+    expect(response.status).toBe(400);
+    await expect(json<{ error: string }>(response)).resolves.toMatchObject({
+      error: "token is required",
+    });
+  });
+
+  it("rejects a malformed token", async () => {
+    const response = await GET(request(`${url}?token=nope`) as never, params as never);
+
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects a token for another campaign", async () => {
+    const token = encodeSponsorshipReceiptToken(
+      buildSponsorshipReceipt(input({ campaignId: OTHER_CAMPAIGN })),
+    );
+
+    const response = await GET(request(`${url}?token=${token}`) as never, params as never);
+
+    expect(response.status).toBe(400);
+    await expect(json<{ error: string }>(response)).resolves.toMatchObject({
+      error: "receipt does not belong to this campaign",
+    });
+  });
+
+  it("verifies a receipt sent as a token in the PUT body", async () => {
+    const receipt = buildSponsorshipReceipt(input());
+    verifyMock.mockResolvedValue(verification());
+
+    const response = await PUT(
+      request(url, {
+        method: "PUT",
+        body: JSON.stringify({
+          token: encodeSponsorshipReceiptToken(receipt),
+          transactionHash: TRANSACTION_HASH,
+        }),
+      }) as never,
+      params as never,
+    );
+
+    expect(response.status).toBe(200);
+    expect(verifyMock).toHaveBeenCalledWith(receipt, TRANSACTION_HASH);
   });
 });

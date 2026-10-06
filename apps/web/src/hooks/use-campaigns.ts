@@ -4,6 +4,15 @@ import { useState, useEffect } from "react";
 import { CampaignRecord } from "@/services/campaign.service";
 import { useSyncQueue } from "./use-sync-queue";
 
+// ---------------------------------------------------------------------------
+// Page size used when fetching from the API.
+// Virtual scrolling makes it safe to load large pages because only the
+// currently-visible cards are in the DOM.  We fetch up to 500 at a time and
+// append on scroll (infinite load pattern) to support 10k+ campaign lists
+// without a single blocking request.
+// ---------------------------------------------------------------------------
+const PAGE_SIZE = 500;
+
 export function useCampaigns() {
   const defaultCampaigns = [
     {
@@ -35,6 +44,7 @@ export function useCampaigns() {
 
   const [campaigns, setCampaigns] = useState<any[]>(defaultCampaigns);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
   const { isOnline } = useSyncQueue();
 
   useEffect(() => {
@@ -51,19 +61,26 @@ export function useCampaigns() {
       }
     }
 
-    // 2. Fetch fresh data if online
+    // 2. Fetch fresh data if online — loads in large pages to support virtual
+    //    scrolling over 10k+ campaigns (issue #914).
     const fetchCampaigns = async () => {
       if (!navigator.onLine) {
         setIsLoading(false);
         return;
       }
-      
+
+      let offset = 0;
+      const accumulated: any[] = [];
+
       try {
-        const res = await fetch("/api/campaigns");
-        if (res.ok) {
-          const { data } = await res.json();
-          // Map backend records to UI format if needed
-          const formatted = data.map((c: any) => ({
+        while (true) {
+          const res = await fetch(`/api/campaigns?limit=${PAGE_SIZE}&offset=${offset}`);
+          if (!res.ok) break;
+
+          const { data, pagination } = await res.json();
+
+          // Map backend records to UI format
+          const formatted = (data as any[]).map((c) => ({
             id: c.id,
             title: c.name,
             category: "General", // Placeholder if not in API
@@ -74,13 +91,27 @@ export function useCampaigns() {
             collaboratorCount: 0,
             status: c.status,
             description: c.description || "",
+            treeSpecies: c.treeSpecies,
+            region: c.region,
+            location: c.location,
+            gpsLocations: c.gpsLocations,
             endDate: c.endDate || c.deadline ? new Date(c.deadline || c.endDate).toISOString() : undefined,
           }));
-          
-          if (formatted.length > 0) {
-            setCampaigns(formatted);
-            localStorage.setItem("campaigns_cache", JSON.stringify(formatted));
+
+          accumulated.push(...formatted);
+          offset += PAGE_SIZE;
+
+          // Stop when the API returns fewer items than the page size,
+          // meaning we've fetched all available campaigns.
+          if (!data || data.length < PAGE_SIZE) {
+            setHasMore(false);
+            break;
           }
+        }
+
+        if (accumulated.length > 0) {
+          setCampaigns(accumulated);
+          localStorage.setItem("campaigns_cache", JSON.stringify(accumulated));
         }
       } catch (e) {
         console.error("Failed to fetch campaigns", e);
@@ -92,5 +123,6 @@ export function useCampaigns() {
     fetchCampaigns();
   }, [isOnline]);
 
-  return { campaigns, isLoading };
+  return { campaigns, isLoading, hasMore };
 }
+

@@ -1,42 +1,51 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 import {
   waitForTransaction,
   signAndWait,
   type TransactionWaitResult,
   type WaitForTransactionOptions,
-} from "../utils/transactions";
+} from "../utils/transactions.js";
 
 /**
  * Mock AssembledTransaction for testing
  */
 function createMockAssembledTx<T = unknown>(result?: T, hash?: string) {
   return {
-    hash: hash || "abc123def456",
+    signed: {
+      hash: () => ({ toString: () => hash || "abc123def456" }),
+    },
     result,
-    signAndSend: vi.fn(),
+    signAndSend: vi.fn(async ({ signTransaction }: { signTransaction?: (xdr: string) => Promise<unknown> } = {}) => {
+      if (signTransaction) await signTransaction("unsigned-xdr");
+    }),
   } as any;
 }
 
 /**
- * Mock SorobanRpc.Server methods
+ * Mock Stellar RPC server methods
  */
 const mockGetTransaction = vi.fn();
 
 vi.mock("@stellar/stellar-sdk", async () => {
-  const actual = await vi.importActual("@stellar/stellar-sdk");
+  const actual = await vi.importActual<typeof import("@stellar/stellar-sdk")>(
+    "@stellar/stellar-sdk",
+  );
   return {
     ...actual,
-    SorobanRpc: {
-      ...actual.SorobanRpc,
+    rpc: {
+      ...actual.rpc,
       Server: vi.fn().mockImplementation(() => ({
         getTransaction: mockGetTransaction,
       })),
-      GetTransactionStatus: {
+      Api: {
+        ...actual.rpc.Api,
+        GetTransactionStatus: {
         SUCCESS: "SUCCESS",
         FAILED: "FAILED",
         PENDING: "PENDING",
         NOT_FOUND: "NOT_FOUND",
+        },
       },
     },
   };
@@ -55,7 +64,7 @@ describe("waitForTransaction", () => {
     it("resolves when transaction reaches SUCCESS status", async () => {
       const tx = createMockAssembledTx(42n, "txhash123");
       mockGetTransaction.mockResolvedValue({
-        status: SorobanRpc.GetTransactionStatus.SUCCESS,
+        status: rpc.Api.GetTransactionStatus.SUCCESS,
         ledger: 12345,
       });
 
@@ -72,13 +81,13 @@ describe("waitForTransaction", () => {
       // First call returns PENDING, second returns PENDING, third returns SUCCESS
       mockGetTransaction
         .mockResolvedValueOnce({
-          status: SorobanRpc.GetTransactionStatus.PENDING,
+          status: "PENDING",
         })
         .mockResolvedValueOnce({
-          status: SorobanRpc.GetTransactionStatus.PENDING,
+          status: "PENDING",
         })
         .mockResolvedValueOnce({
-          status: SorobanRpc.GetTransactionStatus.SUCCESS,
+          status: rpc.Api.GetTransactionStatus.SUCCESS,
           ledger: 54321,
         });
 
@@ -102,10 +111,10 @@ describe("waitForTransaction", () => {
     it("handles custom poll interval", async () => {
       const tx = createMockAssembledTx(null, "txdemo");
       mockGetTransaction.mockResolvedValueOnce({
-        status: SorobanRpc.GetTransactionStatus.PENDING,
+        status: "PENDING",
       });
       mockGetTransaction.mockResolvedValueOnce({
-        status: SorobanRpc.GetTransactionStatus.SUCCESS,
+        status: rpc.Api.GetTransactionStatus.SUCCESS,
         ledger: 9999,
       });
 
@@ -130,10 +139,10 @@ describe("waitForTransaction", () => {
 
       mockGetTransaction
         .mockResolvedValueOnce({
-          status: SorobanRpc.GetTransactionStatus.PENDING,
+          status: "PENDING",
         })
         .mockResolvedValueOnce({
-          status: SorobanRpc.GetTransactionStatus.SUCCESS,
+          status: rpc.Api.GetTransactionStatus.SUCCESS,
           ledger: 7777,
         });
 
@@ -168,7 +177,7 @@ describe("waitForTransaction", () => {
     it("throws when transaction FAILED status is returned", async () => {
       const tx = createMockAssembledTx(null, "txfailed");
       mockGetTransaction.mockResolvedValue({
-        status: SorobanRpc.GetTransactionStatus.FAILED,
+        status: rpc.Api.GetTransactionStatus.FAILED,
         ledger: 11111,
       });
 
@@ -182,7 +191,7 @@ describe("waitForTransaction", () => {
 
       // Always return PENDING to simulate never confirming
       mockGetTransaction.mockResolvedValue({
-        status: SorobanRpc.GetTransactionStatus.PENDING,
+        status: "PENDING",
       });
 
       vi.useFakeTimers();
@@ -190,11 +199,13 @@ describe("waitForTransaction", () => {
         timeout: 2000,
         pollInterval: 500,
       });
+      const rejection = expect(promise).rejects.toThrow(
+        /Transaction confirmation timeout after 2000ms/,
+      );
 
       await vi.runAllTimersAsync();
+      await rejection;
       vi.useRealTimers();
-
-      await expect(promise).rejects.toThrow(/Transaction confirmation timeout after 2000ms/);
     });
 
     it("includes transaction hash in timeout error message", async () => {
@@ -202,7 +213,7 @@ describe("waitForTransaction", () => {
       const tx = createMockAssembledTx(null, txHash);
 
       mockGetTransaction.mockResolvedValue({
-        status: SorobanRpc.GetTransactionStatus.PENDING,
+        status: "PENDING",
       });
 
       vi.useFakeTimers();
@@ -210,11 +221,11 @@ describe("waitForTransaction", () => {
         timeout: 1000,
         pollInterval: 300,
       });
+      const rejection = expect(promise).rejects.toThrow(txHash);
 
       await vi.runAllTimersAsync();
+      await rejection;
       vi.useRealTimers();
-
-      await expect(promise).rejects.toThrow(txHash);
     });
 
     it("handles RPC not found errors gracefully", async () => {
@@ -224,7 +235,7 @@ describe("waitForTransaction", () => {
       mockGetTransaction
         .mockRejectedValueOnce(new Error("not found"))
         .mockResolvedValueOnce({
-          status: SorobanRpc.GetTransactionStatus.SUCCESS,
+          status: rpc.Api.GetTransactionStatus.SUCCESS,
           ledger: 6666,
         });
 
@@ -258,26 +269,26 @@ describe("waitForTransaction", () => {
       const tx = createMockAssembledTx(null, "txdefault");
 
       mockGetTransaction.mockResolvedValue({
-        status: SorobanRpc.GetTransactionStatus.PENDING,
+        status: "PENDING",
       });
 
       vi.useFakeTimers();
       const promise = waitForTransaction(tx, "https://test.stellar.org", {
         pollInterval: 1000,
       });
+      const rejection = expect(promise).rejects.toThrow("timeout");
 
       // Simulate advancing time just past 60 seconds
-      vi.advanceTimersByTime(61000);
+      await vi.advanceTimersByTimeAsync(61000);
+      await rejection;
       vi.useRealTimers();
-
-      await expect(promise).rejects.toThrow("timeout");
     });
 
     it("respects custom timeout value", async () => {
       const tx = createMockAssembledTx(null, "txcustom");
 
       mockGetTransaction.mockResolvedValue({
-        status: SorobanRpc.GetTransactionStatus.PENDING,
+        status: "PENDING",
       });
 
       vi.useFakeTimers();
@@ -285,11 +296,11 @@ describe("waitForTransaction", () => {
         timeout: 5000,
         pollInterval: 1000,
       });
+      const rejection = expect(promise).rejects.toThrow("timeout");
 
-      vi.advanceTimersByTime(5500);
+      await vi.advanceTimersByTimeAsync(6500);
+      await rejection;
       vi.useRealTimers();
-
-      await expect(promise).rejects.toThrow("timeout");
     });
 
     it("uses default poll interval of 1 second", async () => {
@@ -298,10 +309,10 @@ describe("waitForTransaction", () => {
 
       mockGetTransaction
         .mockResolvedValueOnce({
-          status: SorobanRpc.GetTransactionStatus.PENDING,
+          status: "PENDING",
         })
         .mockResolvedValueOnce({
-          status: SorobanRpc.GetTransactionStatus.SUCCESS,
+          status: rpc.Api.GetTransactionStatus.SUCCESS,
           ledger: 1234,
         });
 
@@ -326,7 +337,7 @@ describe("waitForTransaction", () => {
       const tx = createMockAssembledTx(streamId, "txbigint");
 
       mockGetTransaction.mockResolvedValue({
-        status: SorobanRpc.GetTransactionStatus.SUCCESS,
+        status: rpc.Api.GetTransactionStatus.SUCCESS,
         ledger: 4444,
       });
 
@@ -340,7 +351,7 @@ describe("waitForTransaction", () => {
       const tx = createMockAssembledTx(null, "txnull");
 
       mockGetTransaction.mockResolvedValue({
-        status: SorobanRpc.GetTransactionStatus.SUCCESS,
+        status: rpc.Api.GetTransactionStatus.SUCCESS,
         ledger: 5555,
       });
 
@@ -357,7 +368,7 @@ describe("waitForTransaction", () => {
       const tx = createMockAssembledTx(complexResult, "txcomplex");
 
       mockGetTransaction.mockResolvedValue({
-        status: SorobanRpc.GetTransactionStatus.SUCCESS,
+        status: rpc.Api.GetTransactionStatus.SUCCESS,
         ledger: 6666,
       });
 
@@ -382,7 +393,7 @@ describe("signAndWait", () => {
     const signer = vi.fn().mockResolvedValue("signed-xdr-data");
 
     mockGetTransaction.mockResolvedValue({
-      status: SorobanRpc.GetTransactionStatus.SUCCESS,
+      status: rpc.Api.GetTransactionStatus.SUCCESS,
       ledger: 8888,
     });
 
@@ -429,10 +440,10 @@ describe("signAndWait", () => {
 
     mockGetTransaction
       .mockResolvedValueOnce({
-        status: SorobanRpc.GetTransactionStatus.PENDING,
+        status: "PENDING",
       })
       .mockResolvedValueOnce({
-        status: SorobanRpc.GetTransactionStatus.SUCCESS,
+        status: rpc.Api.GetTransactionStatus.SUCCESS,
         ledger: 9999,
       });
 
@@ -465,7 +476,7 @@ describe("signAndWait", () => {
     mockGetTransaction
       .mockRejectedValueOnce(new Error("not found"))
       .mockResolvedValueOnce({
-        status: SorobanRpc.GetTransactionStatus.SUCCESS,
+        status: rpc.Api.GetTransactionStatus.SUCCESS,
         ledger: 3333,
       });
 

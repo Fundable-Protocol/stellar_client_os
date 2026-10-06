@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PaymentStreamClient } from "../PaymentStreamClient";
-import { Address } from "@stellar/stellar-sdk";
+import { PaymentStreamClient } from "../PaymentStreamClient.js";
+import { Address, Keypair } from "@stellar/stellar-sdk";
 
 // ---------------------------------------------------------------------------
 // Mock the generated contract client at the module level so no RPC calls
@@ -34,7 +34,7 @@ const mockContractClient = {
   initialize: vi.fn(),
 };
 
-vi.mock("../generated/payment-stream/src/index", () => ({
+vi.mock("../generated/payment-stream/src/index.js", () => ({
   Client: vi.fn().mockImplementation(() => mockContractClient),
 }));
 
@@ -48,9 +48,9 @@ const VALID_OPTIONS = {
 };
 
 const SENDER = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
-const RECIPIENT = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+const RECIPIENT = Keypair.random().publicKey();
 const TOKEN = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
-const DELEGATE = "GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+const DELEGATE = Keypair.random().publicKey();
 const STREAM_ID = 1n;
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ describe("PaymentStreamClient", () => {
     });
 
     it("passes options through to the generated ContractClient", async () => {
-      const { Client } = await import("../generated/payment-stream/src/index");
+      const { Client } = await import("../generated/payment-stream/src/index.js");
       expect(Client).toHaveBeenCalledWith(VALID_OPTIONS);
     });
   });

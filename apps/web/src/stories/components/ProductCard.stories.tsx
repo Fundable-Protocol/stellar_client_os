@@ -4,7 +4,7 @@ import FeatureCard from '../../components/modules/dashboard/FeatureCard';
 
 const meta: Meta = {
     title: 'Components/ProductCard',
-    component: FeatureCard as any,
+    component: FeatureCard,
 };
 
 export default meta;

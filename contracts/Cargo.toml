@@ -9,6 +9,7 @@ members = [
     "soulbound-badge",
     "verifier-penalty",
     "planter",
+    "campaign-verification-audit",
     "dispute-arbiter",
     "timelock",
     "upgrade-proxy",

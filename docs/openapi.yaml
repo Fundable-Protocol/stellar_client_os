@@ -19,6 +19,8 @@ info:
 
     Standard rate-limiting headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`)
     are returned on all responses. Exceeded limits return `429 Too Many Requests` with a `Retry-After` header.
+<<<<<<< HEAD
+=======
     GraphQL analytics, webhook subscriptions, campaign metadata IPFS pinning,
     creator stats, and verification SLA guarantees.
 
@@ -27,6 +29,7 @@ info:
     30 req/min for Creation APIs, 10 req/min for Execution APIs).
     Rate limit headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, `Retry-After`)
     are included on all responses. For detailed policy, see `docs/campaign-api-rate-limits.md`.
+>>>>>>> upstream/main
   license:
     name: MIT
     url: https://opensource.org/license/mit/
@@ -209,7 +212,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Campaigns]
-      summary: Update campaign metadata or status
+      summary: Update campaign metadata, status, or impact totals
       operationId: updateCampaign
       parameters:
         - $ref: '#/components/parameters/CampaignId'
@@ -244,6 +247,44 @@ paths:
             text/csv:
               schema: { type: string, format: binary }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/campaigns/{id}/impact:
+    get:
+      tags: [Campaigns]
+      summary: Query historical campaign ecological impact over time
+      operationId: getCampaignImpactHistory
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - name: date
+          in: query
+          required: false
+          description: ISO date (YYYY-MM-DD) or timestamp to query historical impact for a specific date
+          schema: { type: string }
+        - name: startDate
+          in: query
+          required: false
+          schema: { type: string }
+        - name: endDate
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Historical impact metrics including tree count, CO2 sequestration, and sponsor count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      campaignId: { type: string }
+                      campaignName: { type: string }
+                      currentImpact: { type: object }
+                      impactAtDate: { type: object }
+                      timeline: { type: array, items: { type: object } }
         '404': { $ref: '#/components/responses/NotFound' }
   /api/certificates:
     post:
@@ -752,6 +793,160 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/mobile/push/subscribe:
+    post:
+      tags: [MobilePush]
+      summary: Register mobile push subscription
+      description: Subscribe a device to receive campaign milestone push notifications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberAddress, endpoint, keys]
+              properties:
+                subscriberAddress:
+                  type: string
+                  description: Stellar wallet address of the subscriber
+                campaignId:
+                  type: string
+                  description: Target campaign ID or '*' for all sponsored campaigns
+                  default: '*'
+                endpoint:
+                  type: string
+                keys:
+                  type: object
+                  properties:
+                    p256dh: { type: string }
+                    auth: { type: string }
+                deviceType:
+                  type: string
+                  enum: [mobile_ios, mobile_android, mobile_web, unknown]
+                enabledMilestones:
+                  type: array
+                  items:
+                    type: string
+                    enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+      responses:
+        '201':
+          description: Subscription registered
+        '400':
+          description: Validation error
+    delete:
+      tags: [MobilePush]
+      summary: Unregister mobile push subscription
+      parameters:
+        - in: query
+          name: endpoint
+          schema: { type: string }
+          required: false
+        - in: query
+          name: id
+          schema: { type: string }
+          required: false
+      responses:
+        '200':
+          description: Subscription removed
+        '404':
+          description: Subscription not found
+    get:
+      tags: [MobilePush]
+      summary: Get subscriptions for a wallet
+      parameters:
+        - in: query
+          name: address
+          schema: { type: string }
+          required: false
+      responses:
+        '200':
+          description: List of subscriptions
+
+  /api/mobile/push/preferences:
+    put:
+      tags: [MobilePush]
+      summary: Update milestone push preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberAddress, enabledMilestones]
+              properties:
+                subscriberAddress: { type: string }
+                campaignId: { type: string, default: '*' }
+                enabledMilestones:
+                  type: array
+                  items:
+                    type: string
+                    enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+      responses:
+        '200':
+          description: Preferences updated
+
+  /api/mobile/push/notify:
+    post:
+      tags: [MobilePush]
+      summary: Dispatch milestone push notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [campaignId, milestone]
+              properties:
+                campaignId: { type: string }
+                campaignTitle: { type: string }
+                milestone:
+                  type: string
+                  enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+                details: { type: object }
+                deepLinkUrl: { type: string }
+      responses:
+        '200':
+          description: Milestone notifications dispatched
+
+  /api/campaigns/{id}/verification-audit:
+    get:
+      tags: [CampaignAudit]
+      summary: Retrieve immutable campaign verification audit trail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Complete audit trail
+    post:
+      tags: [CampaignAudit]
+      summary: Log verification activity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [activityType, actor, details]
+              properties:
+                activityType:
+                  type: string
+                  enum: [submitted_for_review, verifier_comments, photo_uploaded, approved, rejected]
+                actor: { type: string }
+                details: { type: string }
+                txHash: { type: string }
+                campaignTitle: { type: string }
+      responses:
+        '201':
+          description: Activity logged to immutable trail
+
 components:
   securitySchemes:
     apiKeyAuth:
@@ -862,6 +1057,8 @@ components:
           type: string
           format: uri
           example: https://fundable.network/pricing
+<<<<<<< HEAD
+=======
     CampaignStatus:
       type: string
       enum: [DRAFT, PENDING_VERIFICATION, ACTIVE, PAUSED, COMPLETED, FAILED]
@@ -880,6 +1077,10 @@ components:
         raisedAmount: { type: string, pattern: '^\\d+$' }
         sponsorCount: { type: integer, minimum: 0 }
         treeCount: { type: integer, minimum: 0 }
+        co2Sequestration: { type: string, description: 'Cumulative CO2 sequestration in metric tonnes' }
+        impactMilestonesReached:
+          type: array
+          items: { type: string, enum: [1000_trees, 5000_trees, 10_tons_co2] }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         statusChangedAt: { type: string, format: date-time }
@@ -931,6 +1132,8 @@ components:
         status: { $ref: '#/components/schemas/CampaignStatus' }
         changedBy: { type: string }
         reason: { type: string }
+        treeCount: { type: integer, minimum: 0, description: 'Cumulative trees planted; crossing 1000 or 5000 emits a campaign_milestone_reached webhook' }
+        co2Sequestration: { type: string, pattern: '^\d+(\.\d+)?$', description: 'Cumulative CO2 sequestration in metric tonnes; crossing 10 emits a campaign_milestone_reached webhook' }
     Pagination:
       type: object
       required: [limit, offset, count]
@@ -938,6 +1141,7 @@ components:
         limit: { type: integer }
         offset: { type: integer }
         count: { type: integer }
+>>>>>>> upstream/main
     Error:
       type: object
       required: [error]

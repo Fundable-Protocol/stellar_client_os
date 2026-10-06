@@ -31,15 +31,32 @@ export async function POST(
 ) {
   try {
     const campaignId = params.id;
-    const body = await request.json();
-    const { campaignTitle, creatorAddress, backers, transactions } = body;
+    const {
+      campaignTitle,
+      creatorAddress,
+      backers,
+      transactions,
+      campaignSnapshot,
+      plantingBatches,
+      verificationEvents,
+      submittedLocation,
+    } = body;
 
     const report = await fraudDetectionService.analyzeCampaign({
       campaignId,
       campaignTitle,
       creatorAddress,
+      location,
+      treeCount,
+      targetTrees,
+      campaignDurationDays,
+      verifications,
       backers,
       transactions,
+      campaignSnapshot,
+      plantingBatches,
+      verificationEvents,
+      submittedLocation,
     });
 
     const securityStatus = await fraudDetectionService.getSecurityStatus(campaignId);

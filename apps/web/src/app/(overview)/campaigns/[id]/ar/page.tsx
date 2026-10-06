@@ -30,7 +30,7 @@ export default function CampaignARPage({
         treesPlanted={campaign.treesPlanted}
         location={campaign.location}
         onClose={() => {
-          router.push(`/campaigns/${campaign.id}`);
+          router.push(`/campaigns/${campaign.id}/carbon-credits`);
         }}
       />
     </div>

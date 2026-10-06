@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ContractDeployer } from '../deployer/ContractDeployer';
+import { ContractDeployer } from '../deployer/ContractDeployer.js';
 import {
   DeployerError,
   InvalidWasmError,
@@ -8,7 +8,7 @@ import {
   ContractInstantiationError,
   FeeEstimationError,
   DeploymentTimeoutError,
-} from '../deployer/errors';
+} from '../deployer/errors.js';
 
 // ---------------------------------------------------------------------------
 // Minimal valid WASM buffer (magic number 0x00 0x61 0x73 0x6D + version)
@@ -72,7 +72,7 @@ vi.mock('@stellar/stellar-sdk', async () => {
         fromXDR: vi.fn(() => ({
           resources: vi.fn(() => ({
             instructions: vi.fn(() => 1000),
-            readBytes: vi.fn(() => 512),
+            diskReadBytes: vi.fn(() => 512),
             writeBytes: vi.fn(() => 256),
             footprint: vi.fn(() => ({
               readOnly: vi.fn(() => []),
@@ -96,7 +96,10 @@ vi.mock('@stellar/stellar-sdk', async () => {
       ContractIdPreimageFromAddress: vi.fn(() => ({})),
     },
     hash: vi.fn(() => Buffer.from('a'.repeat(64), 'hex')),
-    Address: vi.fn().mockImplementation((addr: string) => ({ addr })),
+    Address: vi.fn().mockImplementation((addr: string) => ({
+      addr,
+      toScAddress: vi.fn(() => ({})),
+    })),
   };
 });
 

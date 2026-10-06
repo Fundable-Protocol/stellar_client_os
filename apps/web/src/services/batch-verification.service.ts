@@ -48,6 +48,8 @@ export interface BatchPhotoRef {
   hash?: string;
   /** EXIF GPS of the photo, when present. */
   gps?: { latitude: number; longitude: number } | null;
+  /** Tree species identified in this photo proof (Issue #906) */
+  species?: string;
 }
 
 export interface BatchSubmission {
@@ -88,6 +90,8 @@ export interface CreateBatchInput {
   region: BatchRegion;
   treeCount: number;
   photos: BatchPhotoRef[];
+  /** Expected or declared tree species for the campaign (Issue #906) */
+  treeSpecies?: string;
 }
 
 // ── Errors ────────────────────────────────────────────────────────────────────
@@ -173,6 +177,18 @@ export function validateBatchInput(input: CreateBatchInput): void {
 
   if (!Array.isArray(input.photos) || input.photos.length === 0) {
     throw new BatchValidationError("at least one photo is required");
+  }
+
+  // Issue #906: Require uploaded photos to match declared species to prevent fraud
+  if (input.treeSpecies) {
+    const normalizedDeclared = input.treeSpecies.trim().toLowerCase();
+    for (const p of input.photos) {
+      if (p.species && p.species.trim().toLowerCase() !== normalizedDeclared) {
+        throw new BatchValidationError(
+          `Uploaded photo species '${p.species}' does not match declared campaign species '${input.treeSpecies}'`
+        );
+      }
+    }
   }
   if (input.photos.length > MAX_PHOTOS_PER_BATCH) {
     throw new BatchValidationError(`more than ${MAX_PHOTOS_PER_BATCH} photos per batch is not allowed`);
