@@ -1,4 +1,5 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
+import { useAccount, useSignMessage } from "wagmi";
 
 interface InsuranceClaimModalProps {
   open: boolean;
@@ -11,12 +12,20 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [poolBalance, setPoolBalance] = useState<number | null>(null);
+  const [refundPercent, setRefundPercent] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { address, isConnected } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const [underwriterQuote, setUnderwriterQuote] = useState<{ premium: number; coverage: number; quoteId: string } | null>(null);
+  const [isFetchingQuote, setIsFetchingQuote] = useState(false);
 
   const reset = () => {
     setEvidence("");
     setFiles([]);
     setError(null);
+    setUnderwriterQuote(null);
+    setIsFetchingQuote(false);
   };
 
   const handleClose = () => {
@@ -29,6 +38,51 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
     setFiles(fileList);
   };
 
+useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const loadPool = async () => {
+      try {
+        const response = await fetch(`/api/campaigns/${campaignId}/insurance-pool`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled) return;
+        setPoolBalance(typeof data.poolBalance === "number" ? data.poolBalance : null);
+        setRefundPercent(typeof data.refundPercent === "number" ? data.refundPercent : null);
+      } catch {
+        // Pool info is best-effort; claim submission still works without it.
+      }
+    };
+    loadPool();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, campaignId]);
+
+  const handleFetchQuote = async () => {
+    if (!isConnected || !address) {
+      setError("Please connect your wallet to request an underwriter quote.");
+      return;
+    }
+    setIsFetchingQuote(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}/insurance-quote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sponsorAddress: address }),
+      });
+      if (!response.ok) {
+        throw new Error("Unable to retrieve an underwriter quote. Please try again.");
+      }
+      const quote = await response.json();
+      setUnderwriterQuote(quote);
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : "An unexpected error occurred.");
+    } finally {
+      setIsFetchingQuote(false);
+    }
+  };
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     reset();
@@ -37,8 +91,16 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
       setError("Please describe how the campaign failed.");
       return;
     }
+    if (refundPercent !== null && refundPercent <= 0) {
+      setError("The insurance pool is currently empty. No refund is available.");
+      return;
+    }
     if (files.length === 0) {
       setError("Please attach at least one proof file.");
+      return;
+    }
+    if (!underwriterQuote) {
+      setError("Please request an underwriter quote before submitting your claim.");
       return;
     }
 
@@ -49,6 +111,13 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
       const formData = new FormData();
       formData.append("failureDescription", failureDescriptionTrimmed);
       formData.append("proofFiles", files);
+      formData.append("quoteId", underwriterQuote.quoteId);
+      formData.append("sponsorAddress", address ?? "");
+
+      const signature = await signMessageAsync({
+        message: `Insurance claim for campaign ${campaignId} with quote ${underwriterQuote.quoteId}`,
+      });
+      formData.append("signature", signature);
 
       const response = await fetch(`/api/campaigns/${campaignId}/insurance-claim`, {
         method: "POST",
@@ -81,6 +150,16 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
               <h3 className="text-lg font-semibold text-gray-900">Submit Insurance Claim</h3>
               <p className="mt-1 text-sm text-gray-600">Provide evidence that the campaign failed to receive your payout.</p>
             </div>
+            {poolBalance !== null && (
+              <div className="mt-4 rounded-md bg-indigo-50 p-3 text-sm text-indigo-800" role="status">
+                <p className="font-medium">Insurance Pool Balance: {poolBalance.toFixed(2)}</p>
+                {refundPercent !== null && (
+                  <p className="mt-1 text-indigo-700">
+                    Eligible sponsors may receive up to {refundPercent}% refund if tree loss is verified within 2 years of planting.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="mt-6">
               <label className="block text-sm font-medium text-gray-700" htmlFor="failure-description">
                 Failure Description
@@ -118,6 +197,35 @@ const InsuranceClaimModal: React.FC<InsuranceClaimModalProps> = ({ open, onClose
                     </li>
                   ))}
                 </ul>
+              )}
+            </div>
+
+            <div className="mt-6 rounded-md border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-900">Underwriter Coverage</h4>
+                  <p className="mt-1 text-xs text-gray-600">Request a guaranteed payout quote from our verification underwriters.</p>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
+                  onClick={handleFetchQuote}
+                  disabled={isFetchingQuote || isSubmitting}
+                >
+                  {isFetchingQuote ? "Fetching..." : underwriterQuote ? "Refresh Quote" : "Get Quote"}
+                </button>
+              </div>
+              {underwriterQuote && (
+                <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <dt className="text-gray-500">Premium</dt>
+                    <dd className="font-medium text-gray-900">{underwriterQuote.premium} ETH</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Coverage</dt>
+                    <dd className="font-medium text-gray-900">{underwriterQuote.coverage} ETH</dd>
+                  </div>
+                </dl>
               )}
             </div>
 

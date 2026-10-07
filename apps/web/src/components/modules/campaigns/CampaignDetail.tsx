@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -13,19 +13,46 @@ import {
   MapPin,
   Coins,
   Info,
-  Leaf,
-  Sprout,
-  Droplets,
-  Bird,
+Leaf,
+Sprout,
+Droplets,
+Bird,
 } from "lucide-react";
 import LiveTreeCounter from "./LiveTreeCounter";
 import AnimatedProgressBar from "./AnimatedProgressBar";
+import { CampaignData, CampaignStatus } from "@/types/campaign";
+import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 import { CampaignData } from "@/types/campaign";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
 
 interface CampaignDetailProps {
   campaignId: string;
 }
+
+// Tree species diversity scoring (v1)
+// Higher species diversity => higher environmental value and carbon credit potential.
+export const calculateSpeciesDiversityScore = (species: string[]): number => {
+  const normalized = Array.from(
+    new Set(
+      species
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s.length > 0 && s !== "general fund")
+    )
+  );
+  const uniqueCount = normalized.length;
+  if (uniqueCount === 0) return 0;
+  // Shannon-like saturating curve: 1 species => 25, 2 => 50, 3 => 75, 4+ => 100
+  const score = Math.min(100, Math.round((uniqueCount / 4) * 100));
+  return score;
+};
+
+export const getDiversityTier = (score: number): string => {
+  if (score >= 85) return "Exceptional";
+  if (score >= 60) return "High";
+  if (score >= 35) return "Moderate";
+  if (score > 0) return "Low";
+  return "None";
+};
 
 // Sample campaign fallback generator for detail page
 const getSampleCampaign = (id: string): CampaignData => ({
@@ -39,13 +66,15 @@ const getSampleCampaign = (id: string): CampaignData => ({
   minTarget: "5000",
   totalRaised: "7250",
   status: id === "2" ? "Paused" : "Active",
-  treeType: id === "2" ? "Acacia" : "Mangrove",
+treeType: id === "2" ? "Acacia" : "Mangrove",
+  treeSpecies: id === "2" ? ["Acacia", "Baobab", "Moringa"] : ["Mangrove", "Kapok", "Brazil Nut", "Rubber Tree"],
   costPerTree: 10,
   treesPlanted: 725,
   targetTrees: 1000,
   createdAt: Date.now() / 1000 - 86400 * 10,
   deadline: Date.now() / 1000 + 86400 * 20,
   location: "Amazon Basin, South America",
+  countries: id === "2" ? ["Kenya", "Tanzania", "Uganda"] : ["Brazil", "Peru", "Colombia"],
 });
 
 interface SustainabilityScoreInputs {
@@ -170,6 +199,16 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
   const [isCreatorMode, setIsCreatorMode] = useState<boolean>(true);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
+  const speciesList = useMemo<string[]>(() => {
+    if (campaign.treeSpecies && campaign.treeSpecies.length > 0) {
+      return campaign.treeSpecies;
+    }
+    return campaign.treeType && campaign.treeType !== "General Fund" ? [campaign.treeType] : [];
+  }, [campaign.treeSpecies, campaign.treeType]);
+
+  const diversityScore = useMemo(() => calculateSpeciesDiversityScore(speciesList), [speciesList]);
+  const diversityTier = useMemo(() => getDiversityTier(diversityScore), [diversityScore]);
+
   const togglePauseResume = () => {
     if (campaign.status === "Active") {
       setCampaign((prev) => ({ ...prev, status: "Paused" }));
@@ -185,11 +224,14 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
   const totalRaisedNum = Number(campaign.totalRaised);
   const targetAmountNum = Number(campaign.targetAmount);
   const minTargetNum = Number(campaign.minTarget);
+  const countries = campaign.countries ?? [];
+  const geographicDiversityBonus = countries.length > 1;
 
   const sustainabilityInputs = getSustainabilityInputs(campaign);
   const sustainabilityScore = computeSustainabilityScore(sustainabilityInputs);
 
   return (
+    <div className="campaign-accessible w-full space-y-6">
     <main className="w-full space-y-6" aria-labelledby="campaign-detail-title">
       {/* Top Navigation Bar */}
       <div className="flex items-center justify-between">
@@ -202,6 +244,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
         </Link>
 
         <div className="flex items-center gap-3">
+          <CampaignAccessibilityControls />
           <button
             type="button"
             onClick={() => setIsCreatorMode((prev) => !prev)}
@@ -236,8 +279,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span
-              className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                campaign.status === "Active"
+              className={`px-3 py-1 rounded-full texe-xs font-bold uppercase tracking-wider ${ compaign.status === "Active"
                   ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
                   : campaign.status === "Paused"
                   ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
@@ -248,8 +290,20 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             </span>
 
             <span className="px-3 py-1 rounded-full text-xs font-semibold bg-zinc-800/80 text-zinc-300 border border-zinc-700/50">
-              {campaign.treeType === "General Fund" ? "💼 General Fund" : `🌲 ${campaign.treeType} Species`}
+              {campaign.treeType === "General Fund" ? "💰 General Fund" : `🌰 ${campaign.treeType} Species`}
             </span>
+<span
+              className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/30"
+              title="Tree species diversity score (v1)"
+            >
+              <Leaf className="inline size-3 mr-1 -mt-0.5" />
+              Diversity: {diversityScore}/100 ({diversityTier})
+            </span>
+            {geographicDiversityBonus && (
+              <span className="px-3 py-1 rounded-full texe-xs font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/40">
+                🌍 1.2x Geographic Diversity Bonus
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2 text-xs text-zinc-400">
@@ -257,6 +311,17 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             <span>{campaign.location}</span>
           </div>
         </div>
+
+{countries.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
+            <span className="font-semibold text-emerald-400">Countries:</span>
+            {countries.map((country) => (
+              <span key={country} className="px-2.5 py-0.5 rounded-full bg-zinc-800/70 border border-zinc-700/50 text-zinc-200">
+                {country}
+              </span>
+            ))}
+          </div>
+        )}
 
         <h1 id="campaign-detail-title" className="text-2xl sm:text-4xl font-black text-white tracking-tight">
           {campaign.title}
@@ -272,7 +337,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             <div className="flex items-center gap-2">
               <ShieldCheck className="size-5 text-emerald-400" />
               <div>
-                <h4 className="text-xs font-bold text-zinc-200">Campaign Creator Management</h4>
+                <h4 className="texe-xs font-bold text-zinc-200">Campaign Creator Management</h4>
                 <p className="text-[11px] text-zinc-400">
                   Pause or resume accepting sponsorships on-chain.
                 </p>
@@ -283,8 +348,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
               type="button"
               aria-label={campaign.status === "Active" ? "Pause fundraising" : "Resume fundraising"}
               onClick={togglePauseResume}
-              className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${
-                campaign.status === "Active"
+              className={` inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md ${ campaign.status === "Active"
                   ? "bg-amber-500 text-zinc-950 hover:bg-amber-400"
                   : "bg-emerald-500 text-zinc-950 hover:bg-emerald-400"
               }`}
@@ -326,6 +390,51 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             currencySymbol="XLM"
           />
         </div>
+      </div>
+
+      {/* Issue: Campaign tree species diversity scoring (v1) */}
+      <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 sm:p-6 space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Leaf className="size-4 text-emerald-400" />
+            <h3 className="text-sm font-bold text-zinc-100">Tree Species Diversity</h3>
+          </div>
+          <span className="text-xs font-semibold text-emerald-300">
+            {diversityScore}/100 · {diversityTier}
+          </span>
+        </div>
+
+        <div className="h-2 w-full rounded-full bg-zinc-800 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-cyan-400 transition-all"
+            style={{ width: `${diversityScore}%` }}
+            role="progressbar"
+            aria-valuenow={diversityScore}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Tree species diversity score"
+          />
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {speciesList.length > 0 ? (
+            speciesList.map((species) => (
+              <span
+                key={species}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-zinc-800/80 text-zinc-200 border border-zinc-700/60"
+              >
+                🌱 {species}
+              </span>
+            ))
+          ) : (
+            <span className="text-[11px] text-zinc-400">No species data available.</span>
+          )}
+        </div>
+
+        <p className="text-[11px] text-zinc-400 leading-relaxed">
+          Higher species diversity increases ecosystem resilience and potential carbon credit value.
+          Score is derived from the number of distinct tree species planted in this campaign.
+        </p>
       </div>
 
       {/* Campaign Impact Calculator (v2) */}
@@ -436,8 +545,8 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
 
       {/* Contract & Campaign Specs Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
-          <div className="flex items-center gap-2 text-zinc-400 text-xs">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
+          <div className="flex items-center gap-2 text-zinc-400 texe-xs">
             <User className="size-4 text-emerald-400" />
             <span>Campaign Creator</span>
           </div>
@@ -446,7 +555,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
           <div className="flex items-center gap-2 text-zinc-400 text-xs">
             <Coins className="size-4 text-emerald-400" />
             <span>Funding Asset Token</span>
@@ -456,8 +565,8 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
-          <div className="flex items-center gap-2 text-zinc-400 text-xs">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
+          <div className="flex items-center gap-2 text-zinc-400 texe-xs">
             <Clock className="size-4 text-emerald-400" />
             <span>Campaign Deadline</span>
           </div>

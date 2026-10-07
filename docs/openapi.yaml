@@ -19,8 +19,9 @@ info:
 
     Standard rate-limiting headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`)
     are returned on all responses. Exceeded limits return `429 Too Many Requests` with a `Retry-After` header.
+
     GraphQL analytics, webhook subscriptions, campaign metadata IPFS pinning,
-    creator stats, and verification SLA guarantees.
+    creator stats, the NGO partnership marketplace, and verification SLA guarantees.
 
     ## Rate Limits & Throttling
     All endpoints enforce sliding-window rate limiting (60 req/min for Read APIs,
@@ -61,6 +62,12 @@ tags:
     description: Public geographic stream queries
   - name: Webhooks
     description: Subscription registration and event dispatch
+  - name: NGOs
+    description: NGO directory, onboarding and verification
+  - name: Campaign partnerships
+    description: Partner campaigns with verified NGOs
+
+paths:
   /api/campaigns/trending:
     get:
       tags: [Campaigns]
@@ -116,10 +123,6 @@ tags:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /api/certificates:
-
-
-paths:
   /api/campaigns:
     get:
       tags: [Campaigns]
@@ -244,6 +247,44 @@ paths:
             text/csv:
               schema: { type: string, format: binary }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/campaigns/{id}/impact:
+    get:
+      tags: [Campaigns]
+      summary: Query historical campaign ecological impact over time
+      operationId: getCampaignImpactHistory
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - name: date
+          in: query
+          required: false
+          description: ISO date (YYYY-MM-DD) or timestamp to query historical impact for a specific date
+          schema: { type: string }
+        - name: startDate
+          in: query
+          required: false
+          schema: { type: string }
+        - name: endDate
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Historical impact metrics including tree count, CO2 sequestration, and sponsor count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      campaignId: { type: string }
+                      campaignName: { type: string }
+                      currentImpact: { type: object }
+                      impactAtDate: { type: object }
+                      timeline: { type: array, items: { type: object } }
         '404': { $ref: '#/components/responses/NotFound' }
   /api/certificates:
     post:
@@ -749,6 +790,478 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/mobile/push/subscribe:
+    post:
+      tags: [MobilePush]
+      summary: Register mobile push subscription
+      description: Subscribe a device to receive campaign milestone push notifications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberAddress, endpoint, keys]
+              properties:
+                subscriberAddress:
+                  type: string
+                  description: Stellar wallet address of the subscriber
+                campaignId:
+                  type: string
+                  description: Target campaign ID or '*' for all sponsored campaigns
+                  default: '*'
+                endpoint:
+                  type: string
+                keys:
+                  type: object
+                  properties:
+                    p256dh: { type: string }
+                    auth: { type: string }
+                deviceType:
+                  type: string
+                  enum: [mobile_ios, mobile_android, mobile_web, unknown]
+                enabledMilestones:
+                  type: array
+                  items:
+                    type: string
+                    enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+      responses:
+        '201':
+          description: Subscription registered
+        '400':
+          description: Validation error
+    delete:
+      tags: [MobilePush]
+      summary: Unregister mobile push subscription
+      parameters:
+        - in: query
+          name: endpoint
+          schema: { type: string }
+          required: false
+        - in: query
+          name: id
+          schema: { type: string }
+          required: false
+      responses:
+        '200':
+          description: Subscription removed
+        '404':
+          description: Subscription not found
+    get:
+      tags: [MobilePush]
+      summary: Get subscriptions for a wallet
+      parameters:
+        - in: query
+          name: address
+          schema: { type: string }
+          required: false
+      responses:
+        '200':
+          description: List of subscriptions
+
+  /api/mobile/push/preferences:
+    put:
+      tags: [MobilePush]
+      summary: Update milestone push preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberAddress, enabledMilestones]
+              properties:
+                subscriberAddress: { type: string }
+                campaignId: { type: string, default: '*' }
+                enabledMilestones:
+                  type: array
+                  items:
+                    type: string
+                    enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+      responses:
+        '200':
+          description: Preferences updated
+
+  /api/mobile/push/notify:
+    post:
+      tags: [MobilePush]
+      summary: Dispatch milestone push notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [campaignId, milestone]
+              properties:
+                campaignId: { type: string }
+                campaignTitle: { type: string }
+                milestone:
+                  type: string
+                  enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+                details: { type: object }
+                deepLinkUrl: { type: string }
+      responses:
+        '200':
+          description: Milestone notifications dispatched
+
+  /api/campaigns/{id}/verification-audit:
+    get:
+      tags: [CampaignAudit]
+      summary: Retrieve immutable campaign verification audit trail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Complete audit trail
+    post:
+      tags: [CampaignAudit]
+      summary: Log verification activity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [activityType, actor, details]
+              properties:
+                activityType:
+                  type: string
+                  enum: [submitted_for_review, verifier_comments, photo_uploaded, approved, rejected]
+                actor: { type: string }
+                details: { type: string }
+                txHash: { type: string }
+                campaignTitle: { type: string }
+      responses:
+        '201':
+          description: Activity logged to immutable trail
+
+  /api/ngos:
+    get:
+      tags: [NGOs]
+      summary: Search the partner-eligible NGO directory
+      description: |
+        Lists partner-eligible NGOs. By default only VERIFIED profiles are
+        returned; pass `status=ALL` (or an explicit status) to include unseen
+        or rejected profiles. Results are sorted newest first.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Free-text search over name and description.
+          schema: { type: string }
+        - name: service
+          in: query
+          required: false
+          description: Only NGOs offering this service.
+          schema:
+            type: string
+            enum: [LAND_ACCESS, PLANTING_LABOR, VERIFICATION]
+        - name: country
+          in: query
+          required: false
+          description: Case-insensitive country filter.
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          description: Filter by verification status. Defaults to VERIFIED.
+          schema:
+            type: string
+            enum: [ALL, PENDING, VERIFIED, REJECTED]
+            default: VERIFIED
+      responses:
+        '200':
+          description: Matching NGOs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NGOListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [NGOs]
+      summary: Register a new NGO profile
+      description: |
+        Onboards an NGO into the marketplace. The profile starts in
+        `PENDING` verification status and appears in the directory only
+        after an admin approves it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterNGOSchema'
+      responses:
+        '201':
+          description: NGO registered for review. Returns the pending profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NGOProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/ngos/{id}:
+    get:
+      tags: [NGOs]
+      summary: Fetch a single NGO profile
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The NGO profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NGOProfile'
+        '404':
+          description: No NGO with the given id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      tags: [NGOs]
+      summary: Review an NGO verification application (admin only)
+      description: |
+        Updates an NGO's verification verdict. Requires
+        `Authorization: Bearer <ADMIN_API_KEY>`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NGOReviewRequest'
+      responses:
+        '200':
+          description: NGO updated with the new verdict.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NGOProfile'
+        '400':
+          description: Invalid verdict value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid admin credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No NGO with the given id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/campaigns/{id}/partnerships:
+    get:
+      tags: [Campaign partnerships]
+      summary: List a campaign's partnership requests
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, ACCEPTED, REJECTED, COMPLETED, CANCELED]
+      responses:
+        '200':
+          description: The campaign's partnership requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnershipListResponse'
+        '404':
+          description: Unknown campaign.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Campaign partnerships]
+      summary: Create a partnership request with a verified NGO
+      description: |
+        Proposes a partnership between the campaign and a verified NGO that
+        offers every requested service. Duplicate active requests between the
+        same campaign and NGO are rejected.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePartnershipRequest'
+      responses:
+        '201':
+          description: Partnership request created in PENDING status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PartnershipRequest'
+        '400':
+          description: Invalid body or NGO does not offer the requested services.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown campaign or NGO.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: NGO not verified, or duplicate active partnership.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/campaigns/{id}/partnerships/{requestId}:
+    get:
+      tags: [Campaign partnerships]
+      summary: Fetch one of the campaign's partnership requests
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The partnership request.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PartnershipRequest'
+        '404':
+          description: Unknown campaign, unknown request, or request belongs to another campaign.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      tags: [Campaign partnerships]
+      summary: Advance a partnership request's status
+      description: |
+        Transitions a request to a new status. Valid moves:
+        `PENDING -> ACCEPTED | REJECTED | CANCELED` and
+        `ACCEPTED -> COMPLETED | CANCELED`; the NGO actor is expected to
+        supply the transition.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePartnershipStatusRequest'
+      responses:
+        '200':
+          description: Request transitioned to the new status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PartnershipRequest'
+        '400':
+          description: Invalid status value in the body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown campaign or request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The requested transition is not allowed from the current status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -1396,3 +1909,96 @@ components:
           type: boolean
         message:
           type: string
+    NGOServiceType:
+      type: string
+      enum: [LAND_ACCESS, PLANTING_LABOR, VERIFICATION]
+    NGOVerificationStatus:
+      type: string
+      enum: [PENDING, VERIFIED, REJECTED]
+    NGOProfile:
+      type: object
+      required: [id, name, description, services, country, createdAt, verificationStatus, isVerified]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/NGOServiceType' }
+        country: { type: string }
+        website: { type: string, nullable: true }
+        verificationStatus: { $ref: '#/components/schemas/NGOVerificationStatus' }
+        isVerified: { type: boolean }
+        reviewedBy: { type: string, nullable: true }
+        reviewedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    NGOListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/NGOProfile' }
+    RegisterNGOSchema:
+      type: object
+      required: [name, description, services]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, minLength: 1, maxLength: 2000 }
+        services:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/NGOServiceType' }
+        country: { type: string, maxLength: 100 }
+        website: { type: string, format: uri }
+        submitterWallet: { type: string }
+    NGOReviewRequest:
+      type: object
+      required: [verdict]
+      properties:
+        verdict: { $ref: '#/components/schemas/NGOVerificationStatus' }
+        reviewer: { type: string }
+    PartnershipStatus:
+      type: string
+      enum: [PENDING, ACCEPTED, REJECTED, COMPLETED, CANCELED]
+    PartnershipRequest:
+      type: object
+      required: [id, campaignId, ngoId, ngoName, servicesRequested, status, initiatedBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        campaignId: { type: string }
+        ngoId: { type: string }
+        ngoName: { type: string }
+        servicesRequested:
+          type: array
+          items: { $ref: '#/components/schemas/NGOServiceType' }
+        proposedTerms: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/PartnershipStatus' }
+        initiatedBy: { type: string }
+        updatedBy: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PartnershipListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/PartnershipRequest' }
+    CreatePartnershipRequest:
+      type: object
+      required: [ngoId, servicesRequested]
+      properties:
+        ngoId: { type: string }
+        servicesRequested:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/NGOServiceType' }
+        proposedTerms: { type: string, maxLength: 2000 }
+    UpdatePartnershipStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/PartnershipStatus' }
+        updatedBy: { type: string }

@@ -1,5 +1,41 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { StrKey } from "@stellar/stellar-sdk";
+
+/** Env var holding the shared admin bearer token used for privileged endpoints. */
+export const ADMIN_API_KEY_ENV = "ADMIN_API_KEY";
+
+/**
+ * Returns true when the request carries `Authorization: Bearer <token>` matching
+ * the secret stored in `process.env[envVar]`. An unset secret denies everyone,
+ * so privileged endpoints stay closed until an operator configures them.
+ */
+export function hasAdminToken(request: Request, envVar: string): boolean {
+  const expected = process.env[envVar];
+  if (!expected) return false;
+
+  const header = request.headers.get("authorization") ?? "";
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  if (!match) return false;
+
+  const provided = Buffer.from(match[1]);
+  const secret = Buffer.from(expected);
+  return provided.length === secret.length && timingSafeEqual(provided, secret);
+}
+
+/** Returns true when `value` is a valid Stellar ed25519 public key (G...). */
+export function isStellarAccount(value: string): boolean {
+  return StrKey.isValidEd25519PublicKey(value);
+}
+
+const digest = (value: string) => createHash("sha256").update(value, "utf8").digest();
+
+function bearerToken(request: Request): string | null {
+  const header = request.headers.get("authorization");
+  if (!header) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match ? match[1].trim() : null;
+}
 
 /**
  * Admin API authorization.
@@ -12,22 +48,6 @@ import { NextResponse } from "next/server";
  *
  * The key is read from the header only, never from the query string, so it
  * cannot end up in access logs or browser history.
- */
-export const ADMIN_API_KEY_ENV = "ADMIN_API_KEY";
-
-const digest = (value: string) => createHash("sha256").update(value, "utf8").digest();
-
-function bearerToken(request: Request): string | null {
-  const header = request.headers.get("authorization");
-  if (!header) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  return match ? match[1].trim() : null;
-}
-
-/**
- * Returns `null` when the request carries the admin key, or the response to
- * send instead: 503 when no key is configured, 401 when the key is missing or
- * wrong.
  */
 export function authorizeAdminRequest(
   request: Request,

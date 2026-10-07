@@ -1,4 +1,4 @@
-import { Client as ContractClient } from "./generated/payment-stream/src/index";
+import { Client as ContractClient } from "./generated/payment-stream/src/index.js";
 import {
   AssembledTransaction,
   ClientOptions as ContractClientOptions,
@@ -9,14 +9,14 @@ import {
   StreamMetrics,
   ProtocolMetrics,
   StreamStatus,
-} from "./generated/payment-stream/src/index";
-import { executeWithErrorHandling } from "./utils/errors";
+} from "./generated/payment-stream/src/index.js";
+import { executeWithErrorHandling } from "./utils/errors.js";
 import {
   getStreamHistory,
   getAllStreamHistory,
   StreamHistoryResult,
-} from "./utils/streamHistory";
-import { PaymentStreamContractEvent } from "./utils/events";
+} from "./utils/streamHistory.js";
+import { PaymentStreamContractEvent } from "./utils/events.js";
 
 /**
  * Type alias for address parameters that accept both string and Address objects
@@ -269,25 +269,25 @@ export class PaymentStreamClient {
    */
   public async setDelegate(
     streamId: bigint,
-    delegate: string,
+    delegate: AddressParam,
   ): Promise<AssembledTransaction<null>>;
   public async setDelegate(params: {
     streamId: bigint;
-    delegate: string;
+    delegate: AddressParam;
   }): Promise<AssembledTransaction<null>>;
   public async setDelegate(
-    streamId: bigint | { streamId: bigint; delegate: string },
-    delegate?: string,
+    streamId: bigint | { streamId: bigint; delegate: AddressParam },
+    delegate?: AddressParam,
   ): Promise<AssembledTransaction<null>> {
     let actualStreamId: bigint;
     let actualDelegate: string;
 
     if (typeof streamId === "object") {
       actualStreamId = streamId.streamId;
-      actualDelegate = streamId.delegate;
+      actualDelegate = addressToString(streamId.delegate);
     } else {
       actualStreamId = streamId;
-      actualDelegate = delegate!;
+      actualDelegate = addressToString(delegate!);
     }
 
     return executeWithErrorHandling(

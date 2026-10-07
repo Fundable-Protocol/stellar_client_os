@@ -11,6 +11,7 @@ export default defineConfig({
     exclude: [
       'src/__integration_tests__/**',
       'src/**/__tests__/integration/**',
+      'dist/**',
       '**/node_modules/**',
     ],
 

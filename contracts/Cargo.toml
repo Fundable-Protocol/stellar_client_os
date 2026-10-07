@@ -19,12 +19,14 @@ members = [
     "soulbound-badge",
     "verifier-penalty",
     "planter",
+    "campaign-verification-audit",
     "dispute-arbiter",
     "timelock",
     "upgrade-proxy",
     "sponsor-crowdfunding",
     "sponsor-insurance",
     "campaign-diversity",
+    "tax-deduction-certificate",
 ]
 
 [workspace.package]

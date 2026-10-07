@@ -3,10 +3,12 @@
 import React, { useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Rocket, Plus, Heart, Users, ShieldCheck, ChevronRight, Trophy, Scale, ShoppingBag, Trees, MapPin } from "lucide-react";
+import { Rocket, Plus, Heart, Users, ShieldCheck, ChevronRight, Trophy, Scale, ShoppingBag, Trees, MapPin, Megaphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SuccessStories from "@/components/modules/campaign/success-stories/SuccessStories";
+import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
+import { CampaignSearchPanel } from "@/components/modules/campaign/CampaignSearchPanel";
 import { useCampaigns } from "@/hooks/use-campaigns";
 import { useCampaignWishlist } from "@/hooks/use-campaign-wishlist";
 import {
@@ -28,11 +30,10 @@ const CARD_ESTIMATED_HEIGHT_PX = 280;
 const OVERSCAN_COUNT = 3;
 
 export default function CampaignsDirectoryPage() {
-  const { campaigns } = useCampaigns();
+const { campaigns } = useCampaigns();
   const { toggleWishlist, isInWishlist } = useCampaignWishlist();
   const [treeSpecies, setTreeSpecies] = useState<DiscoveryTreeSpecies | "All">("All");
   const [region, setRegion] = useState<DiscoveryRegion | "All">("All");
-
   const filteredCampaigns = useMemo(
     () => filterCampaignsByDiscoveryOptions(campaigns, { treeSpecies, region }),
     [campaigns, treeSpecies, region],
@@ -66,7 +67,7 @@ export default function CampaignsDirectoryPage() {
   const totalListHeight = virtualizer.getTotalSize();
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
+    <div className="campaign-accessible container mx-auto px-4 py-8 max-w-6xl space-y-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b border-zinc-800 pb-6">
         <div>
@@ -79,6 +80,15 @@ export default function CampaignsDirectoryPage() {
           </p>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <CampaignAccessibilityControls />
+          <Link href="/campaigns/create">
+            <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover-from-purple-700 hover-to-blue-700 shadow-lg shadow-purple-900/30">
+              <Plus className="mr-2 h-4 w-4" /> Create Campaign Wizard (#720)
+            </Button>
+          </Link>
+        </div>
+<div className="flex flex-wrap items-center gap-2">
         <Link href="/campaigns/create">
           <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover:from-purple-700 hover:to-blue-700 shadow-lg shadow-purple-900/30">
             <Plus className="mr-2 h-4 w-4" /> Create Campaign Wizard (#720)
@@ -94,6 +104,12 @@ export default function CampaignsDirectoryPage() {
           <Link href="/campaigns/marketplace">
             <Button variant="outline" className="border-indigo-800 bg-indigo-950/40 text-indigo-300 hover:bg-indigo-900/60 font-semibold text-xs">
               <ShoppingBag className="mr-1.5 h-3.5 w-3.5" /> Creator Marketplace (#786)
+            </Button>
+          </Link>
+
+          <Link href="/campaigns/toolkit">
+            <Button variant="outline" className="border-pink-800 bg-pink-950/40 text-pink-300 hover:bg-pink-900/60 font-semibold text-xs">
+              <Megaphone className="mr-1.5 h-3.5 w-3.5" /> Marketing Templates (#895)
             </Button>
           </Link>
 
@@ -116,11 +132,14 @@ export default function CampaignsDirectoryPage() {
           </Link>
         </div>
       </div>
+      </div>
 
       {/* Success Stories Section */}
       <SuccessStories />
 
-      {/* Filter panel */}
+      <CampaignSearchPanel />
+
+{/* Filter panel */}
       <section aria-label="Filter campaigns" className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-zinc-100">Find campaigns by impact</h2>
@@ -256,7 +275,7 @@ export default function CampaignsDirectoryPage() {
                               />
                             </div>
 
-                            <div className="flex items-center justify-between text-xs pt-1">
+<div className="flex items-center justify-between text-xs pt-1">
                               <div className="flex items-center gap-3 text-zinc-400 text-[11px]">
                                 <span className="flex items-center gap-1">
                                   <Heart className="h-3.5 w-3.5 text-rose-400 fill-rose-400/20" />

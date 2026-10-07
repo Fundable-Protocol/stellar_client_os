@@ -51,7 +51,7 @@ export class CampaignVerificationQueue {
 
   constructor(options: VerificationQueueOptions) {
     this.verifier = options.verifier;
-    this.concurrency = Math.min(Math.max(Math.trunc(options.concurrency ?? 100), 1), 1000);
+    this.concurrency = Math.min(Math.max(Math.trunc(options.concurrency ?? 250), 1), 2000);
     this.maxAttempts = Math.max(Math.trunc(options.maxAttempts ?? 3), 1);
     this.maxQueueSize = Math.max(Math.trunc(options.maxQueueSize ?? 10_000), this.concurrency);
     this.now = options.now ?? (() => Date.now());

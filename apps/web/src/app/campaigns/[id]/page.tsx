@@ -1,10 +1,11 @@
-import { notFound } from "next/navigation";
+﻿import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Leaf } from "lucide-react";
+import { Heart, Leaf } from "lucide-react";
 import CampaignShareButtons from "@/components/campaign/CampaignShareButtons";
 import { getCampaign } from "@/services/campaign.service";
 import { VerificationEvidenceGallery } from "@/components/campaign/VerificationEvidenceGallery";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
+import { CampaignDonationPanel } from "@/components/modules/campaign/donation/CampaignDonationPanel";
 
 export const runtime = "nodejs";
 
@@ -21,7 +22,7 @@ export default async function CampaignPage({
     : 0;
 
   return (
-    <main className="mx-auto max-w-3xl space-y-6 px-6 py-10">
+    <main className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <p className="text-sm font-medium text-fundable-purple-2">Impact campaign</p>
         <h1 className="mt-2 text-3xl font-bold text-zinc-950 dark:text-white">{campaign.name}</h1>
@@ -41,6 +42,10 @@ export default async function CampaignPage({
           <Link href={`/campaigns/${campaign.id}/impact`} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
             <Leaf className="h-4 w-4" />
             Impact Calculator
+          </Link>
+          <Link href={`/campaigns/${campaign.id}/donate`} className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
+            <Heart className="h-4 w-4" />
+            Donate
           </Link>
         </div>
         <div className="mt-6 border-t border-zinc-200 pt-5 dark:border-zinc-800">
@@ -66,6 +71,20 @@ export default async function CampaignPage({
         <CampaignImpactCalculator
           campaignSpeciesId={campaign.treeSpecies ?? undefined}
           campaignTreeCount={campaign.treeCount ?? 10}
+        />
+      </section>
+
+      {/* Direct Charitable Contribution (#865) */}
+      <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="mb-4">
+          <h2 className="text-xl font-bold text-zinc-950 dark:text-white">One-Time Charitable Contribution</h2>
+          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+            Contribute directly to project costs without purchasing specific trees.
+          </p>
+        </div>
+        <CampaignDonationPanel
+          campaignId={campaign.id}
+          campaignName={campaign.name}
         />
       </section>
 

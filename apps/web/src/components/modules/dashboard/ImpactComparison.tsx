@@ -9,6 +9,9 @@
  * Data is fetched from the GraphQL analytics gateway (`/api/graphql`),
  * which aggregates on-chain stream funding volume per sponsor.
  *
+ * Also surfaces a campaign tree species diversity score (issue #v1):
+ * more distinct species = higher environmental value and carbon potential.
+ *
  * States handled:
  *   - Wallet not connected → connect prompt
  *   - Loading               → skeleton placeholders
@@ -19,7 +22,7 @@
 
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Info, Leaf, Sprout, Trophy } from "lucide-react";
+import { Info, Leaf, Sprout, Trees, Trophy } from "lucide-react";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { ConnectWalletPrompt } from "@/components/layouts/ProtectedRoute";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,6 +32,7 @@ import {
   fetchSponsorImpact,
   type RankingBand,
 } from "@/services/impact.service";
+import { fetchCampaignDiversity } from "@/services/diversity.service";
 
 // ── Ranking band presentation ────────────────────────────────────────────────
 
@@ -77,6 +81,50 @@ function formatUsd(volumeUsd: string): string {
 function formatCo2Kg(kg: number): string {
   if (!Number.isFinite(kg)) return "0";
   return kg.toLocaleString("en-US", { maximumFractionDigits: 1 });
+}
+
+// ── Diversity scoring ────────────────────────────────────────────────────────
+
+/**
+ * Diversity score (0–100) derived from the number of distinct tree species
+ * present in the campaign. Uses a saturating curve so early species
+ * contribute more than later ones, matching ecological value heuristics.
+ */
+function computeDiversityScore(speciesCount: number): number {
+  if (!Number.isFinite(speciesCount) || speciesCount <= 0) return 0;
+  const raw = 100 * (1 - Math.exp(-speciesCount / 8));
+  return Math.round(Math.min(100, Math.max(0, raw)));
+}
+
+function diversityTier(score: number): {
+  label: string;
+  badgeClassName: string;
+} {
+  if (score >= 80)
+    return {
+      label: "Exceptional",
+      badgeClassName:
+        "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+    };
+  if (score >= 60)
+    return {
+      label: "High",
+      badgeClassName: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+    };
+  if (score >= 40)
+    return {
+      label: "Moderate",
+      badgeClassName: "bg-teal-500/10 text-teal-400 border-teal-500/30",
+    };
+  if (score >= 20)
+    return {
+      label: "Emerging",
+      badgeClassName: "bg-zinc-500/10 text-zinc-300 border-zinc-500/30",
+    };
+  return {
+    label: "Low",
+    badgeClassName: "bg-zinc-500/10 text-zinc-300 border-zinc-500/30",
+  };
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -162,6 +210,77 @@ function ComparisonBar({
   );
 }
 
+function DiversityCard({
+  speciesCount,
+  score,
+  tier,
+}: {
+  speciesCount: number;
+  score: number;
+  tier: { label: string; badgeClassName: string };
+}) {
+  return (
+    <div
+      data-testid="impact-diversity"
+      className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4"
+    >
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/10">
+            <Trees className="h-5 w-5 text-emerald-400" aria-hidden="true" />
+          </div>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">
+              Tree species diversity
+            </p>
+            <p className="text-lg font-bold text-white">
+              <span data-testid="impact-diversity-score">{score}</span>
+              <span className="ml-1 text-sm font-medium text-zinc-400">
+                / 100
+              </span>
+            </p>
+          </div>
+        </div>
+        <span
+          data-testid="impact-diversity-tier"
+          className={cn(
+            "rounded-full border px-2.5 py-1 text-xs font-medium",
+            tier.badgeClassName
+          )}
+        >
+          {tier.label}
+        </span>
+      </div>
+
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={score}
+        aria-label="Tree species diversity score"
+        className="h-2.5 w-full overflow-hidden rounded-full bg-zinc-800"
+      >
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all"
+          style={{ width: `${Math.max(score, 2)}%` }}
+        />
+      </div>
+
+      <p className="mt-3 text-xs text-zinc-400">
+        <span
+          data-testid="impact-diversity-species"
+          className="font-semibold text-emerald-400"
+        >
+          {speciesCount.toLocaleString("en-US")}
+        </span>{" "}
+        distinct tree{" "}
+        {speciesCount === 1 ? "species" : "species"} in your campaign. Higher
+        diversity increases environmental value and potential carbon credits.
+      </p>
+    </div>
+  );
+}
+
 function LoadingState() {
   return (
     <div className="space-y-6" aria-busy="true" aria-label="Loading impact comparison">
@@ -212,6 +331,19 @@ export function ImpactComparison({ className }: ImpactComparisonProps) {
     enabled: !!address,
   });
 
+  const {
+    data: diversity,
+    isLoading: isDiversityLoading,
+    isError: isDiversityError,
+  } = useQuery({
+    queryKey: ["campaign-diversity", address],
+    queryFn: ({ signal }) =>
+      address
+        ? withAbortSignal(fetchCampaignDiversity(address), signal)
+        : Promise.resolve(null),
+    enabled: !!address,
+  });
+
   const comparison = useMemo(() => {
     if (!data) return null;
 
@@ -225,6 +357,17 @@ export function ImpactComparison({ className }: ImpactComparisonProps) {
       hasData: data.globalSponsorCount > 0 && data.percentile !== null,
     };
   }, [data]);
+
+  const diversityView = useMemo(() => {
+    if (!diversity) return null;
+    const speciesCount = Math.max(0, Math.floor(diversity.speciesCount) || 0);
+    const score = computeDiversityScore(speciesCount);
+    return {
+      speciesCount,
+      score,
+      tier: diversityTier(score),
+    };
+  }, [diversity]);
 
   if (!address) {
     return (
@@ -291,6 +434,15 @@ export function ImpactComparison({ className }: ImpactComparisonProps) {
 
       {!isLoading && !isError && data && comparison && comparison.hasData && (
         <>
+          {/* Tree species diversity */}
+          {!isDiversityLoading && !isDiversityError && diversityView && (
+            <DiversityCard
+              speciesCount={diversityView.speciesCount}
+              score={diversityView.score}
+              tier={diversityView.tier}
+            />
+          )}
+
           {/* My impact vs global average */}
           <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
             <ImpactStat

@@ -11,7 +11,7 @@ import {
   parsePaymentStreamContractEvent,
   PaymentStreamContractEvent,
   ContractEventRaw,
-} from "./events";
+} from "./events.js";
 
 export interface StreamHistoryOptions {
   rpcUrl: string;
