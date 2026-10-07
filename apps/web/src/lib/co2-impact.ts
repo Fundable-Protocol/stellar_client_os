@@ -1,3 +1,5 @@
+import { getCampaignCreditMultiplierBps, getCampaignSeason } from "./campaign-rules";
+
 export interface TreeSpecies {
   id: string;
   label: string;
@@ -165,6 +167,7 @@ export interface Co2ImpactResult {
   co2PerTreePerYearKg: number;
   quantity: number;
   co2Multiplier: number;
+  season: ReturnType<typeof getCampaignSeason>;
   co2PerYearKg: number;
   co2PerYearTonnes: number;
   co2Over10YearsKg: number;
@@ -173,10 +176,15 @@ export interface Co2ImpactResult {
 }
 
 /**
- * Helper to determine if a given date/timestamp falls within rainy season (May - October).
- * (issue #714)
+ * Return whether a date/timestamp falls within the rainy season (May–October UTC).
  */
 export function isRainySeason(dateOrTimestamp?: Date | number): boolean {
+  const date = dateOrTimestamp === undefined
+    ? new Date()
+    : typeof dateOrTimestamp === "number"
+      ? new Date(dateOrTimestamp * 1000)
+      : dateOrTimestamp;
+  return getCampaignSeason(date) === "rainy-season";
   if (dateOrTimestamp === undefined) return false;
   const date =
     typeof dateOrTimestamp === "number"
@@ -187,8 +195,7 @@ export function isRainySeason(dateOrTimestamp?: Date | number): boolean {
 }
 
 /**
- * Compute the projected CO2 offset for a campaign, applying a 2x bonus multiplier
- * for campaigns created during the rainy season (May-October). (issue #714)
+ * Compute projected CO2 offset using the campaign's seasonal credit multiplier.
  *
  * @param speciesId - selected tree species id
  * @param quantity - number of trees (>= 0)
@@ -204,6 +211,10 @@ export function calculateCo2Offset(
   const species = getTreeSpecies(speciesId);
   const qty = normalizeTreeQuantity(quantity);
 
+  const date = dateOrTimestamp === undefined ? new Date() : dateOrTimestamp;
+  const multiplierBps = getCampaignCreditMultiplierBps(date);
+  const co2Multiplier = multiplierBps / 10_000;
+  const rainySeason = isRainySeason(dateOrTimestamp);
   // The rainy-season bonus is a property of a known planting date. Callers
   // without one (projection calculators, growth-stage models) must get a
   // deterministic baseline rather than a multiplier that silently changes
@@ -221,6 +232,7 @@ export function calculateCo2Offset(
     co2PerTreePerYearKg: species.co2PerTreePerYearKg,
     quantity: qty,
     co2Multiplier,
+    season: getCampaignSeason(date),
     co2PerYearKg,
     co2PerYearTonnes: co2PerYearKg / 1000,
     co2Over10YearsKg,

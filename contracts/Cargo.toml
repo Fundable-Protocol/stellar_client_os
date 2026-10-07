@@ -2,9 +2,19 @@
 resolver = "2"
 
 members = [
-    "payment-stream",
+    "campaign-funding",
+    "dispute-arbiter",
     "distributor",
+    "donor-verification",
     "nft-stream",
+    "payment-stream",
+    "planter",
+    "soulbound-badge",
+    "sponsor-crowdfunding",
+    "sponsor-insurance",
+    "timelock",
+    "upgrade-proxy",
+    "verifier-penalty",
     "campaign-funding",
     "soulbound-badge",
     "verifier-penalty",
