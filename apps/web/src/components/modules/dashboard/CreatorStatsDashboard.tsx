@@ -162,6 +162,7 @@ export const CreatorStatsDashboard: React.FC = () => {
                   <th className="px-4 py-3">Sponsors</th>
                   <th className="px-4 py-3">Trees Planted</th>
                   <th className="px-4 py-3">Creator Revenue</th>
+                  <th className="px-4 py-3">Impact Report</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800/60 bg-zinc-900/30">
@@ -192,6 +193,14 @@ export const CreatorStatsDashboard: React.FC = () => {
                         style: "currency",
                         currency: "USD",
                       })}
+                    </td>
+                    <td className="px-4 py-3">
+                      <a
+                        href={`/campaigns/${c.id}/impact-report`}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-400 hover:text-purple-300 hover:underline"
+                      >
+                        View Report
+                      </a>
                     </td>
                   </tr>
                 ))}

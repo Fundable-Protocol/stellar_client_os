@@ -236,6 +236,18 @@ export interface CampaignRecord {
   /** Impact thresholds already reached, including those without subscribers. */
   impactMilestonesReached?: ImpactMilestone[];
   impactAchieved?: boolean;
+  /** Impact report summary generated at campaign close. */
+  impactReport?: CampaignImpactReportSummary;
+}
+
+export interface CampaignImpactReportSummary {
+  id: string;
+  generatedAt: number;
+  closedAt?: number;
+  publicUrl: string;
+  downloadUrl: string;
+  emailSent: boolean;
+  emailSentTo?: string;
 }
 
 export const IMPACT_MILESTONES = ["1000_trees", "5000_trees", "10_tons_co2"] as const;
@@ -1038,6 +1050,12 @@ export async function transitionCampaignStatus(
 
     void campaignImpactNftService.mintCampaignCompletionNFT(campaign.id, { dataSource }).catch((error) => {
       console.error(`[Impact NFT] Failed to auto-mint completion NFT for ${campaign.id}:`, error);
+    });
+
+    void import("./automated-campaign-impact-report.service").then(({ generateCampaignImpactReport }) => {
+      return generateCampaignImpactReport(campaign.id, { dataSource, now });
+    }).catch((error) => {
+      console.error(`[Impact Report] Failed to auto-generate impact report for ${campaign.id}:`, error);
     });
   }
 
