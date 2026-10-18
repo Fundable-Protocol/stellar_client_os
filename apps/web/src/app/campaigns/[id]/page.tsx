@@ -9,6 +9,7 @@ import { CampaignDonationPanel } from "@/components/modules/campaign/donation/Ca
 import { RewardTiersInstalmentCheckout } from "@/components/modules/campaign/instalments/RewardTiersInstalmentCheckout";
 import { InAppSurveyNotificationBanner } from "@/components/modules/campaign/survey/InAppSurveyNotificationBanner";
 import { CreatorSurveyResultsDashboard } from "@/components/modules/campaign/survey/CreatorSurveyResultsDashboard";
+import { CampaignRefundPanel } from "@/components/modules/campaign/refunds/CampaignRefundPanel";
 
 import { CampaignComplianceDocumentsList } from "@/components/modules/campaign/compliance/CampaignComplianceDocumentsList";
 import { RelatedCampaignsShelf } from "@/components/campaign/RelatedCampaignsShelf";
@@ -94,6 +95,12 @@ export default async function CampaignPage({
           campaignName={campaign.name}
         />
       </section>
+
+      <CampaignRefundPanel
+        campaignId={campaign.id}
+        creatorAddress={campaign.creator}
+        closeAt={campaign.durationMs === undefined ? undefined : campaign.createdAt + campaign.durationMs}
+      />
 
       {/* Reward Tiers & Monthly Instalment Plans */}
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
