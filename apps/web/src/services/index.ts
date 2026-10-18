@@ -127,3 +127,10 @@ export {
   setBackerNotificationDataSource,
   InMemoryBackerNotificationPreferencesDataSource,
 } from './backer-notification.service';
+export {
+  RecurringContributionService,
+  recurringContributionService,
+  getRecurringContributionDataSource,
+  setRecurringContributionDataSource,
+  InMemoryRecurringContributionDataSource,
+} from './recurring-contributions.service';

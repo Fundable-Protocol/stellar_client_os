@@ -131,4 +131,49 @@ describe("CampaignDonationPanel (#1001)", () => {
     await waitFor(() => expect(screen.getByTestId("donation-receipt")).toBeTruthy());
     expect(screen.getByText("Anonymous")).toBeTruthy();
   });
+
+  it("toggles between one-time and recurring monthly contribution", () => {
+    renderPanel();
+    const oneTimeBtn = screen.getByTestId("toggle-frequency-one-time");
+    const monthlyBtn = screen.getByTestId("toggle-frequency-monthly");
+
+    expect(oneTimeBtn.getAttribute("aria-checked")).toBe("true");
+    expect(monthlyBtn.getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(monthlyBtn);
+    expect(oneTimeBtn.getAttribute("aria-checked")).toBe("false");
+    expect(monthlyBtn.getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText(/Support this creator automatically every month/i)).toBeTruthy();
+  });
+
+  it("submits recurring monthly contribution with correct payload", async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        json: async () => ({
+          receipt: {
+            ...receipt,
+            frequency: "MONTHLY",
+            isRecurring: true,
+          },
+        }),
+      })
+    );
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId("toggle-frequency-monthly"));
+    fireEvent.change(screen.getByTestId("donation-amount"), { target: { value: "50" } });
+    fireEvent.click(screen.getByTestId("donation-submit"));
+
+    await waitFor(() => expect(screen.getByTestId("donation-receipt")).toBeTruthy());
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/campaigns/camp-1/donations");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      donorAddress: "GDONOR1234ABCD",
+      amount: "50",
+      frequency: "MONTHLY",
+      isRecurring: true,
+    });
+  });
 });

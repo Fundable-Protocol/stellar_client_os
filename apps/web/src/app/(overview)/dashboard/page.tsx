@@ -12,11 +12,13 @@ import MentorshipPanel from "@/components/modules/dashboard/MentorshipPanel";
 import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
 import { StaffPicksSection } from "@/components/modules/campaign/StaffPicksSection";
 import { BackerNotificationPreferencePanel } from "@/components/modules/dashboard/BackerNotificationPreferencePanel";
+import { BackerSubscriptionsManager } from "@/components/modules/dashboard/BackerSubscriptionsManager";
 
 const DashboardPage = async () => {
     return (
         <main className="h-full overflow-y-auto space-y-4 md:space-y-12 py-10">
             <StatsOverview />
+            <BackerSubscriptionsManager />
             <BackerNotificationPreferencePanel />
             <StaffPicksSection />
             <CreatorStatsDashboard />
