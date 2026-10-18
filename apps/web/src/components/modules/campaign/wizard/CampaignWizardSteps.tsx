@@ -13,6 +13,7 @@ import {
   TOKEN_OPTIONS,
   MilestoneItem,
 } from "./campaign-wizard-config";
+import { CampaignABTestingEditor } from "../ab-testing";
 
 interface StepProps {
   data: CampaignWizardData;
@@ -173,6 +174,14 @@ export function DetailsStep({ data, errors, updateField }: StepProps) {
             className="mt-1.5 border-zinc-700 bg-zinc-900 text-zinc-100 placeholder:text-zinc-500"
           />
           {errors.imageUrl && <p className="mt-1 text-xs text-rose-400">{errors.imageUrl}</p>}
+        </div>
+
+        <div className="pt-4 border-t border-zinc-800">
+          <CampaignABTestingEditor
+            campaignId="new-campaign"
+            defaultHeadline={data.title || "Support Our Green Future"}
+            defaultHeroImageUrl={data.imageUrl || undefined}
+          />
         </div>
       </div>
     </div>

@@ -127,3 +127,7 @@ export {
   setBackerNotificationDataSource,
   InMemoryBackerNotificationPreferencesDataSource,
 } from './backer-notification.service';
+export {
+  CampaignABTestingService,
+  campaignABTestingService,
+} from './campaign-ab-testing.service';

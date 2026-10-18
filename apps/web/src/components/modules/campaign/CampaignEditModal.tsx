@@ -95,7 +95,7 @@ export const CampaignEditModal: React.FC<CampaignEditModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 text-white shadow-2xl">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 text-white shadow-2xl">
         <div className="flex justify-between items-center pb-4 border-b border-slate-800">
           <h2 className="text-xl font-bold text-emerald-400">Edit Campaign Details</h2>
           <button
@@ -107,9 +107,41 @@ export const CampaignEditModal: React.FC<CampaignEditModalProps> = ({
           </button>
         </div>
 
+        <div className="flex gap-2 border-b border-slate-800 mt-4 mb-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab("general")}
+            className={`px-3 py-1.5 text-sm font-medium rounded-t border-b-2 transition-colors ${
+              activeTab === "general"
+                ? "border-emerald-500 text-emerald-400 bg-slate-800/40"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            General Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("ab-testing")}
+            className={`px-3 py-1.5 text-sm font-medium rounded-t border-b-2 transition-colors ${
+              activeTab === "ab-testing"
+                ? "border-emerald-500 text-emerald-400 bg-slate-800/40"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            A/B Testing Tools
+          </button>
+        </div>
+
         {!isEditable ? (
           <div className="py-6 text-center text-amber-400">
             Campaign details cannot be modified once launched or completed.
+          </div>
+        ) : activeTab === "ab-testing" ? (
+          <div className="pt-2">
+            <CampaignABTestingEditor
+              campaignId={campaign.id.toString()}
+              defaultHeadline={campaign.name || "Support Our Green Future"}
+            />
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="mt-4 space-y-4">
