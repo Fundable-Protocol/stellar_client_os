@@ -17,8 +17,9 @@ describe("CampaignShareButtons", () => {
     );
   });
 
-  it("encodes provider-specific share parameters", () => {
+  it("encodes provider-specific share parameters and canonical URL", () => {
     const links = buildCampaignShareLinks(props);
+    expect(links.canonicalUrl).toBe(props.shareUrl);
     expect(new URL(links.twitter).searchParams.get("text")).toContain("Trees & clean water");
     expect(new URL(links.twitter).searchParams.get("url")).toBe(props.shareUrl);
     expect(new URL(links.facebook).searchParams.get("quote")).toContain("750/1000 raised.");

@@ -27,6 +27,7 @@ import {
   Copy, 
   Check,
   ExternalLink,
+  QrCode,
   Twitter as TwitterIcon,
   Facebook as FacebookIcon,
   Linkedin as LinkedinIcon,
@@ -41,6 +42,7 @@ import {
   ShareableLink, 
   SOCIAL_PLATFORMS 
 } from '@/services/campaignSocialSharing';
+import { CampaignQRCodeModal } from '@/components/campaign/CampaignQRCodeModal';
 
 interface CampaignSocialSharingProps {
   campaignId: string;
@@ -69,6 +71,7 @@ export function CampaignSocialSharing({
   const [customMessage, setCustomMessage] = useState('');
   const [hashtags, setHashtags] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
 
   const shareConfig: SocialShareConfig = {
     campaignId,
@@ -221,8 +224,25 @@ export function CampaignSocialSharing({
                 </TooltipProvider>
               );
             })}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowQRModal(true)}
+              className="gap-2 border-purple-500 text-purple-400 hover:bg-purple-950/30"
+            >
+              <QrCode className="w-4 h-4 text-purple-400" />
+              <span>QR Code</span>
+            </Button>
           </div>
         </div>
+
+        <CampaignQRCodeModal
+          open={showQRModal}
+          onOpenChange={setShowQRModal}
+          campaignId={campaignId}
+          campaignName={campaignName}
+          canonicalUrl={shareConfig.campaignUrl}
+        />
 
         <Separator />
 

@@ -128,6 +128,12 @@ export {
   InMemoryBackerNotificationPreferencesDataSource,
 } from './backer-notification.service';
 export {
-  CampaignABTestingService,
-  campaignABTestingService,
-} from './campaign-ab-testing.service';
+  generateQRCodeSVG,
+  generateQRCodePNGDataURL,
+  downloadQRCodeSVG,
+  downloadQRCodePNG,
+  QR_CODE_SIZE_OPTIONS,
+  type QRCodeSize,
+  type QRCodeSizeOption,
+  type GenerateQRCodeOptions,
+} from './campaign-qr-code.service';
