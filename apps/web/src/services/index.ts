@@ -128,9 +128,12 @@ export {
   InMemoryBackerNotificationPreferencesDataSource,
 } from './backer-notification.service';
 export {
-  RecurringContributionService,
-  recurringContributionService,
-  getRecurringContributionDataSource,
-  setRecurringContributionDataSource,
-  InMemoryRecurringContributionDataSource,
-} from './recurring-contributions.service';
+  generateQRCodeSVG,
+  generateQRCodePNGDataURL,
+  downloadQRCodeSVG,
+  downloadQRCodePNG,
+  QR_CODE_SIZE_OPTIONS,
+  type QRCodeSize,
+  type QRCodeSizeOption,
+  type GenerateQRCodeOptions,
+} from './campaign-qr-code.service';

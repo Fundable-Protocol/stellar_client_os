@@ -1,6 +1,10 @@
 'use client';
 
-interface CampaignShareButtonsProps {
+import React, { useState } from 'react';
+import { QrCode } from 'lucide-react';
+import { CampaignQRCodeModal } from './CampaignQRCodeModal';
+
+export interface CampaignShareButtonsProps {
   campaignId: string;
   campaignName: string;
   description?: string;
@@ -21,9 +25,11 @@ export function buildCampaignShareMessage({
 }
 
 export function buildCampaignShareLinks(props: CampaignShareButtonsProps) {
-  const url = props.shareUrl ?? `${window.location.origin}/campaigns/${encodeURIComponent(props.campaignId)}`;
+  const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'https://fundable.example';
+  const url = props.shareUrl ?? `${origin}/campaigns/${encodeURIComponent(props.campaignId)}`;
   const message = buildCampaignShareMessage(props);
   return {
+    canonicalUrl: url,
     twitter: `https://twitter.com/intent/tweet?${new URLSearchParams({ text: message, url }).toString()}`,
     facebook: `https://www.facebook.com/sharer/sharer.php?${new URLSearchParams({ u: url, quote: message }).toString()}`,
     whatsapp: `https://wa.me/?${new URLSearchParams({ text: `${message} ${url}` }).toString()}`,
@@ -31,6 +37,7 @@ export function buildCampaignShareLinks(props: CampaignShareButtonsProps) {
 }
 
 export default function CampaignShareButtons(props: CampaignShareButtonsProps) {
+  const [showQRModal, setShowQRModal] = useState(false);
   const links = buildCampaignShareLinks(props);
   const items = [
     { name: 'Twitter', href: links.twitter, className: 'bg-sky-500 hover:bg-sky-600' },
@@ -39,7 +46,7 @@ export default function CampaignShareButtons(props: CampaignShareButtonsProps) {
   ];
 
   return (
-    <div aria-label="Share campaign" className="flex flex-wrap gap-2">
+    <div aria-label="Share campaign" className="flex flex-wrap items-center gap-2">
       {items.map((item) => (
         <a
           key={item.name}
@@ -51,6 +58,23 @@ export default function CampaignShareButtons(props: CampaignShareButtonsProps) {
           Share on {item.name}
         </a>
       ))}
+      <button
+        type="button"
+        aria-label="Download Campaign QR Code"
+        onClick={() => setShowQRModal(true)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-700 transition-colors"
+      >
+        <QrCode className="h-4 w-4 text-purple-400" />
+        QR Code
+      </button>
+
+      <CampaignQRCodeModal
+        open={showQRModal}
+        onOpenChange={setShowQRModal}
+        campaignId={props.campaignId}
+        campaignName={props.campaignName}
+        canonicalUrl={links.canonicalUrl}
+      />
     </div>
   );
 }
