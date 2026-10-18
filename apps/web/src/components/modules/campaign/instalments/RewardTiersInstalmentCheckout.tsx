@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { CheckCircle2, Calendar, CreditCard, ChevronRight, AlertCircle, ShieldCheck, Sparkles } from "lucide-react";
+import { CheckCircle2, Calendar, CreditCard, ChevronRight, AlertCircle, ShieldCheck, Sparkles, Plus, Package, Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useWallet } from "@/providers/StellarWalletProvider";
@@ -11,25 +11,30 @@ import {
   InstalmentPlanBreakdown,
   BackerInstalmentPledge,
 } from "@/types/campaign-instalments";
+import { CreatorRewardTierModal } from "./CreatorRewardTierModal";
 
 export interface RewardTiersInstalmentCheckoutProps {
   campaignId: string;
   creatorAddress?: string;
+  isCreator?: boolean;
   campaignCloseDate?: number;
   initialTiers?: RewardTier[];
 }
 
 export function RewardTiersInstalmentCheckout({
   campaignId,
-  creatorAddress: _creatorAddress,
+  creatorAddress,
+  isCreator: initialIsCreator,
   campaignCloseDate,
   initialTiers = [],
 }: RewardTiersInstalmentCheckoutProps) {
   const { address, isConnected, openModal } = useWallet();
+  const isCreator = initialIsCreator ?? (isConnected && address && creatorAddress && address.toLowerCase() === creatorAddress.toLowerCase());
 
   const [tiers, setTiers] = useState<RewardTier[]>(initialTiers);
   const [loadingTiers, setLoadingTiers] = useState(initialTiers.length === 0);
   const [selectedTier, setSelectedTier] = useState<RewardTier | null>(null);
+  const [creatorModalOpen, setCreatorModalOpen] = useState(false);
 
   // Checkout modal / plan state
   const [selectedPlanMonths, setSelectedPlanMonths] = useState<InstalmentPlanMonths>(3);
@@ -40,6 +45,26 @@ export function RewardTiersInstalmentCheckout({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [completedPledge, setCompletedPledge] = useState<BackerInstalmentPledge | null>(null);
+
+  // Helper to determine if a tier is out of stock
+  const isTierOutOfStock = (tier: RewardTier): boolean => {
+    if (tier.stockCount !== undefined) {
+      const remaining = tier.inventoryRemaining ?? Math.max(0, tier.stockCount - (tier.claimedStock ?? tier.claimed ?? 0));
+      return remaining <= 0;
+    }
+    if (tier.limit !== undefined) {
+      return (tier.claimed ?? 0) >= tier.limit;
+    }
+    return false;
+  };
+
+  // Helper to get remaining stock number
+  const getRemainingStock = (tier: RewardTier): number | undefined => {
+    if (tier.stockCount !== undefined) {
+      return tier.inventoryRemaining ?? Math.max(0, tier.stockCount - (tier.claimedStock ?? tier.claimed ?? 0));
+    }
+    return undefined;
+  };
 
   // Fetch campaign tiers if not provided
   useEffect(() => {
@@ -52,7 +77,7 @@ export function RewardTiersInstalmentCheckout({
         if (data.success && Array.isArray(data.rewardTiers) && data.rewardTiers.length > 0) {
           setTiers(data.rewardTiers);
         } else {
-          // Provide high-value default reward tiers demonstrating instalment options
+          // Provide high-value default reward tiers demonstrating physical stock & instalment options
           setTiers([
             {
               id: "tier-silver-patron",
@@ -64,6 +89,10 @@ export function RewardTiersInstalmentCheckout({
               instalmentEnabled: true,
               allowedPlanMonths: [2, 3, 6],
               perks: ["Digital Impact Certificate", "Tree ID Registry", "Monthly Field Reports"],
+              isPhysical: true,
+              stockCount: 25,
+              claimedStock: 4,
+              inventoryRemaining: 21,
               claimed: 4,
               limit: 25,
               createdAt: Date.now(),
@@ -85,7 +114,11 @@ export function RewardTiersInstalmentCheckout({
                 fileName: "gold-guardian.png",
                 symbol: "GUARDIAN",
               },
-              claimed: 2,
+              isPhysical: true,
+              stockCount: 15,
+              claimedStock: 15, // Out of stock example
+              inventoryRemaining: 0,
+              claimed: 15,
               limit: 15,
               createdAt: Date.now(),
               updatedAt: Date.now(),
@@ -106,6 +139,10 @@ export function RewardTiersInstalmentCheckout({
                 fileName: "platinum-benefactor.png",
                 symbol: "PLATINUM",
               },
+              isPhysical: true,
+              stockCount: 5,
+              claimedStock: 1,
+              inventoryRemaining: 4,
               claimed: 1,
               limit: 5,
               createdAt: Date.now(),
@@ -170,6 +207,7 @@ export function RewardTiersInstalmentCheckout({
   }, [campaignId, campaignCloseDate]);
 
   const handleSelectTier = (tier: RewardTier) => {
+    if (isTierOutOfStock(tier)) return; // Automatic lock-out: not selectable
     setSelectedTier(tier);
     setCompletedPledge(null);
     setError(null);
@@ -192,6 +230,10 @@ export function RewardTiersInstalmentCheckout({
     }
 
     if (!selectedTier) return;
+    if (isTierOutOfStock(selectedTier)) {
+      setError("This reward tier is out of stock.");
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -214,6 +256,24 @@ export function RewardTiersInstalmentCheckout({
       }
 
       setCompletedPledge(data.pledge);
+
+      // Decrement inventory in real-time UI state
+      setTiers((prev) =>
+        prev.map((t) => {
+          if (t.id === selectedTier.id) {
+            const updatedClaimed = (t.claimed ?? 0) + 1;
+            const updatedClaimedStock = (t.claimedStock ?? t.claimed ?? 0) + 1;
+            const remaining = t.stockCount !== undefined ? Math.max(0, t.stockCount - updatedClaimedStock) : undefined;
+            return {
+              ...t,
+              claimed: updatedClaimed,
+              claimedStock: updatedClaimedStock,
+              inventoryRemaining: remaining,
+            };
+          }
+          return t;
+        })
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error confirming checkout.");
     } finally {
@@ -223,101 +283,203 @@ export function RewardTiersInstalmentCheckout({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-zinc-950 dark:text-white flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-fundable-purple-2" />
-            Reward Tiers & Instalment Plans
+            Reward Tiers & Inventory
           </h2>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Support high-value reward tiers with flexible 2, 3, or 6 monthly instalments. First payment is charged at campaign close.
+            Physical rewards with live inventory tracking and flexible monthly instalments.
           </p>
         </div>
+        {creatorAddress && (
+          <Button
+            onClick={() => setCreatorModalOpen(true)}
+            size="sm"
+            className="self-start sm:self-auto bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-1.5 text-xs font-semibold"
+          >
+            <Plus className="h-4 w-4" />
+            Add Reward Tier
+          </Button>
+        )}
       </div>
 
       {loadingTiers ? (
         <div className="py-8 text-center text-sm text-zinc-500">Loading reward tiers...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {tiers.map((tier) => (
-            <div
-              key={tier.id}
-              className={`rounded-xl border p-5 transition-all flex flex-col justify-between ${
-                selectedTier?.id === tier.id
-                  ? "border-purple-600 bg-purple-50/20 dark:border-purple-500 dark:bg-purple-950/20 shadow-md ring-1 ring-purple-500"
-                  : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/60 hover:border-zinc-300 dark:hover:border-zinc-700"
-              }`}
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold text-zinc-950 dark:text-white">{tier.name}</h3>
-                  <div className="flex flex-col items-end gap-1">
-                    {tier.nftReward?.enabled && (
-                      <Badge className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] whitespace-nowrap flex items-center gap-1">
-                        <Sparkles className="h-3 w-3" />
-                        Stellar NFT Included
-                      </Badge>
-                    )}
-                    {tier.instalmentEnabled && (
-                      <Badge className="bg-emerald-600 text-white text-[11px] whitespace-nowrap">
-                        Instalments Available
-                      </Badge>
-                    )}
+          {tiers.map((tier) => {
+            const outOfStock = isTierOutOfStock(tier);
+            const remaining = getRemainingStock(tier);
+            const isSelected = selectedTier?.id === tier.id;
+
+            return (
+              <div
+                key={tier.id}
+                aria-disabled={outOfStock}
+                data-testid={`reward-tier-card-${tier.id}`}
+                className={`rounded-xl border p-5 transition-all flex flex-col justify-between ${
+                  outOfStock
+                    ? "opacity-60 bg-zinc-100/80 border-zinc-300 dark:bg-zinc-900/40 dark:border-zinc-800 grayscale cursor-not-allowed select-none"
+                    : isSelected
+                    ? "border-purple-600 bg-purple-50/20 dark:border-purple-500 dark:bg-purple-950/20 shadow-md ring-1 ring-purple-500"
+                    : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/60 hover:border-zinc-300 dark:hover:border-zinc-700"
+                }`}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className={`font-semibold ${outOfStock ? "text-zinc-500 dark:text-zinc-400 line-through" : "text-zinc-950 dark:text-white"}`}>
+                      {tier.name}
+                    </h3>
+                    <div className="flex flex-col items-end gap-1">
+                      {outOfStock ? (
+                        <Badge
+                          variant="destructive"
+                          className="bg-rose-500/90 text-white text-[11px] whitespace-nowrap flex items-center gap-1"
+                          data-testid="out-of-stock-badge"
+                        >
+                          <Ban className="h-3 w-3" />
+                          Out of Stock
+                        </Badge>
+                      ) : (
+                        tier.stockCount !== undefined && (
+                          <Badge
+                            className={`text-[11px] whitespace-nowrap flex items-center gap-1 ${
+                              (remaining ?? 0) <= 5
+                                ? "bg-amber-600 text-white"
+                                : "bg-zinc-800 text-white dark:bg-zinc-700"
+                            }`}
+                            data-testid="inventory-badge"
+                          >
+                            <Package className="h-3 w-3" />
+                            {remaining} left of {tier.stockCount}
+                          </Badge>
+                        )
+                      )}
+                      {tier.nftReward?.enabled && (
+                        <Badge className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] whitespace-nowrap flex items-center gap-1">
+                          <Sparkles className="h-3 w-3" />
+                          Stellar NFT Included
+                        </Badge>
+                      )}
+                      {tier.instalmentEnabled && (
+                        <Badge className="bg-emerald-600 text-white text-[11px] whitespace-nowrap">
+                          Instalments Available
+                        </Badge>
+                      )}
+                    </div>
                   </div>
+
+                  <div className="flex items-baseline gap-1">
+                    <span className={`text-2xl font-bold ${outOfStock ? "text-zinc-500 dark:text-zinc-400" : "text-zinc-950 dark:text-white"}`}>
+                      {tier.amount}
+                    </span>
+                    <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                      {tier.token}
+                    </span>
+                  </div>
+
+                  {/* Real-time Inventory Counter (Acceptance Criterion 2) */}
+                  {tier.stockCount !== undefined && (
+                    <div className="rounded-md border border-zinc-200/80 bg-zinc-50/80 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                      <div className="flex items-center justify-between text-xs mb-1.5">
+                        <span className="font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
+                          <Package className="h-3.5 w-3.5 text-zinc-500" />
+                          Physical Inventory
+                        </span>
+                        <span
+                          className={`font-bold ${
+                            outOfStock
+                              ? "text-rose-600 dark:text-rose-400"
+                              : (remaining ?? 0) <= 5
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-emerald-600 dark:text-emerald-400"
+                          }`}
+                          data-testid="real-time-inventory-counter"
+                        >
+                          {outOfStock ? "0 / " + tier.stockCount + " remaining (Sold Out)" : `${remaining} / ${tier.stockCount} remaining`}
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            outOfStock
+                              ? "bg-rose-500 w-full"
+                              : (remaining ?? 0) <= 5
+                              ? "bg-amber-500"
+                              : "bg-emerald-500"
+                          }`}
+                          style={{
+                            width: tier.stockCount > 0 ? `${Math.min(100, Math.round(((tier.claimedStock ?? tier.claimed ?? 0) / tier.stockCount) * 100))}%` : "100%",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {tier.instalmentEnabled && (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                      Or from {(parseFloat(tier.amount) / 6).toFixed(2)} {tier.token}/mo (up to 6 months)
+                    </p>
+                  )}
+
+                  {tier.description && (
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      {tier.description}
+                    </p>
+                  )}
+
+                  {tier.perks && tier.perks.length > 0 && (
+                    <ul className="space-y-1 pt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                      {tier.perks.map((perk, idx) => (
+                        <li key={idx} className="flex items-center gap-1.5">
+                          <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 ${outOfStock ? "text-zinc-400" : "text-emerald-500"}`} />
+                          <span>{perk}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
-                <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-zinc-950 dark:text-white">
-                    {tier.amount}
-                  </span>
-                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                    {tier.token}
-                  </span>
+                <div className="pt-4 mt-3 border-t border-zinc-100 dark:border-zinc-800">
+                  <Button
+                    onClick={() => handleSelectTier(tier)}
+                    disabled={outOfStock}
+                    aria-disabled={outOfStock}
+                    data-testid={`select-tier-button-${tier.id}`}
+                    className={`w-full text-xs font-semibold ${
+                      outOfStock
+                        ? "bg-zinc-300 text-zinc-500 cursor-not-allowed hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-500"
+                        : isSelected
+                        ? "bg-purple-600 text-white hover:bg-purple-700"
+                        : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    {outOfStock ? "Out of Stock" : isSelected ? "Selected" : "Select Reward Tier"}
+                  </Button>
                 </div>
-
-                {tier.instalmentEnabled && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                    Or from {(parseFloat(tier.amount) / 6).toFixed(2)} {tier.token}/mo (up to 6 months)
-                  </p>
-                )}
-
-                {tier.description && (
-                  <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                    {tier.description}
-                  </p>
-                )}
-
-                {tier.perks && tier.perks.length > 0 && (
-                  <ul className="space-y-1 pt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                    {tier.perks.map((perk, idx) => (
-                      <li key={idx} className="flex items-center gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                        <span>{perk}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
-
-              <div className="pt-4 mt-3 border-t border-zinc-100 dark:border-zinc-800">
-                <Button
-                  onClick={() => handleSelectTier(tier)}
-                  className={`w-full text-xs font-semibold ${
-                    selectedTier?.id === tier.id
-                      ? "bg-purple-600 text-white hover:bg-purple-700"
-                      : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700"
-                  }`}
-                >
-                  {selectedTier?.id === tier.id ? "Selected" : "Select Reward Tier"}
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
+      {/* Creator Modal for defining new reward tiers and setting stock count */}
+      {creatorAddress && (
+        <CreatorRewardTierModal
+          campaignId={campaignId}
+          creatorAddress={creatorAddress}
+          isOpen={creatorModalOpen}
+          onClose={() => setCreatorModalOpen(false)}
+          onCreated={(newTier) => {
+            setTiers((prev) => [...prev, newTier]);
+          }}
+        />
+      )}
+
       {/* Checkout Modal / Drawer for selected tier */}
-      {selectedTier && (
+      {selectedTier && !isTierOutOfStock(selectedTier) && (
         <div className="mt-8 rounded-xl border border-purple-200 bg-white p-6 shadow-lg dark:border-purple-900/60 dark:bg-zinc-950">
           {completedPledge ? (
             <div className="text-center py-6 space-y-4">
