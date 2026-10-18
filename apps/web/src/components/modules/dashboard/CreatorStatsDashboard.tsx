@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CreatorStats } from "@/services/creator-stats.service";
 import { TrendingUp, Trees, Users, DollarSign, Award, CheckCircle2, Share2, Check } from "lucide-react";
+import { CreatorRecurringRevenueReportView } from "./CreatorRecurringRevenueReportView";
 
 export const CreatorStatsDashboard: React.FC = () => {
   const { address } = useWallet();
@@ -209,6 +210,8 @@ export const CreatorStatsDashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      <CreatorRecurringRevenueReportView creatorAddress={effectiveAddress} />
     </div>
   );
 };

@@ -34,6 +34,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     rewardTier: typeof body.rewardTier === "string" ? body.rewardTier : undefined,
     message: body.message as string | undefined,
     anonymous: body.anonymous as boolean | undefined,
+    frequency: body.frequency as "ONE_TIME" | "MONTHLY" | undefined,
+    isRecurring: body.isRecurring as boolean | undefined,
     txHash: body.txHash as string | undefined,
     idempotencyKey: body.idempotencyKey as string | undefined,
   });
