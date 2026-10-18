@@ -57,6 +57,11 @@ export interface RewardTier {
     maxSupply?: number;
     symbol?: string;
   };
+  /** Limited-quantity physical reward inventory management */
+  isPhysical?: boolean;
+  stockCount?: number;
+  claimedStock?: number;
+  inventoryRemaining?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -82,6 +87,8 @@ export interface ConfigureRewardTierInput {
     maxSupply?: number;
     symbol?: string;
   };
+  isPhysical?: boolean;
+  stockCount?: number;
 }
 
 /**

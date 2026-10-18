@@ -280,4 +280,115 @@ describe("CampaignInstalmentsService", () => {
       expect(list[0].tierName).toBe("Backer Tier");
     });
   });
+
+  describe("Physical Reward Inventory Management", () => {
+    it("Acceptance Criterion 1: Creator sets stock count per reward tier", async () => {
+      const tier = await service.configureRewardTier(campaignId, creatorAddress, {
+        name: "Eco Hoodie & Plant Adoption",
+        amount: "150.00",
+        token: "USDC",
+        instalmentEnabled: true,
+        isPhysical: true,
+        stockCount: 50,
+      });
+
+      expect(tier.isPhysical).toBe(true);
+      expect(tier.stockCount).toBe(50);
+      expect(tier.claimedStock).toBe(0);
+      expect(tier.inventoryRemaining).toBe(50);
+
+      // Rejects missing or negative stock count for physical rewards
+      await expect(
+        service.configureRewardTier(campaignId, creatorAddress, {
+          name: "Invalid Physical Tier",
+          amount: "100.00",
+          instalmentEnabled: true,
+          isPhysical: true,
+        }),
+      ).rejects.toThrow("Physical reward tiers require a stock count.");
+
+      await expect(
+        service.configureRewardTier(campaignId, creatorAddress, {
+          name: "Negative Stock Tier",
+          amount: "100.00",
+          instalmentEnabled: true,
+          isPhysical: true,
+          stockCount: -5,
+        }),
+      ).rejects.toThrow("Stock count must be a non-negative integer.");
+    });
+
+    it("Acceptance Criterion 2: Real-time inventory counter visible on tier card", async () => {
+      const tier = await service.configureRewardTier(campaignId, creatorAddress, {
+        name: "Limited Edition Signed Cap",
+        amount: "80.00",
+        token: "USDC",
+        instalmentEnabled: true,
+        isPhysical: true,
+        stockCount: 3,
+      });
+
+      // Initially remaining inventory matches stockCount
+      let tiers = service.getRewardTiers(campaignId);
+      let found = tiers.find((t) => t.id === tier.id);
+      expect(found?.inventoryRemaining).toBe(3);
+      expect(found?.stockCount).toBe(3);
+      expect(found?.claimedStock).toBe(0);
+
+      // Backer pledges 1 item
+      await service.checkoutWithInstalments({
+        campaignId,
+        tierId: tier.id,
+        backerAddress,
+        planMonths: 2,
+      });
+
+      tiers = service.getRewardTiers(campaignId);
+      found = tiers.find((t) => t.id === tier.id);
+      expect(found?.claimedStock).toBe(1);
+      expect(found?.inventoryRemaining).toBe(2);
+    });
+
+    it("Acceptance Criterion 3: Out-of-stock tier is locked out when stock is exhausted", async () => {
+      const tier = await service.configureRewardTier(campaignId, creatorAddress, {
+        name: "Collector Seed Vial (Limited)",
+        amount: "100.00",
+        token: "USDC",
+        instalmentEnabled: true,
+        isPhysical: true,
+        stockCount: 2,
+      });
+
+      // Claim 1st unit
+      await service.checkoutWithInstalments({
+        campaignId,
+        tierId: tier.id,
+        backerAddress: "GBACKER_1",
+        planMonths: 2,
+      });
+
+      // Claim 2nd unit (exhausting stock)
+      await service.checkoutWithInstalments({
+        campaignId,
+        tierId: tier.id,
+        backerAddress: "GBACKER_2",
+        planMonths: 2,
+      });
+
+      const tiers = service.getRewardTiers(campaignId);
+      const found = tiers.find((t) => t.id === tier.id);
+      expect(found?.inventoryRemaining).toBe(0);
+      expect(found?.claimedStock).toBe(2);
+
+      // Attempting to claim 3rd unit must fail with out of stock error
+      await expect(
+        service.checkoutWithInstalments({
+          campaignId,
+          tierId: tier.id,
+          backerAddress: "GBACKER_3",
+          planMonths: 2,
+        }),
+      ).rejects.toThrow(`Physical reward tier "${tier.name}" is out of stock.`);
+    });
+  });
 });
