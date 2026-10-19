@@ -256,6 +256,62 @@ export function GoalsStep({ data, errors, updateField }: StepProps) {
           {errors.minContribution && <p className="mt-1 text-xs text-rose-400">{errors.minContribution}</p>}
         </div>
       </div>
+
+      {/* Funding model selector */}
+      <div className="mt-6 space-y-3">
+        <Label className="text-zinc-200">
+          Funding Model <span className="text-rose-400">*</span>
+        </Label>
+        <p className="text-xs text-zinc-400">
+          Choose how pledges are handled if your campaign doesn&apos;t reach its goal by the deadline.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* All-or-Nothing */}
+          <button
+            type="button"
+            onClick={() => updateField("fundingModel", "all-or-nothing")}
+            aria-pressed={data.fundingModel === "all-or-nothing"}
+            className={`flex flex-col gap-1.5 rounded-lg border p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 ${
+              data.fundingModel === "all-or-nothing"
+                ? "border-purple-500 bg-purple-500/10"
+                : "border-zinc-700 bg-zinc-800/40 hover:border-zinc-500"
+            }`}
+          >
+            <span className="flex items-center gap-2 font-semibold text-zinc-100">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-current text-xs">
+                {data.fundingModel === "all-or-nothing" ? "✓" : ""}
+              </span>
+              All-or-Nothing
+            </span>
+            <span className="text-xs text-zinc-400">
+              Backers are only charged if the minimum goal is met by the deadline. If not, all pledges are automatically refunded.
+            </span>
+          </button>
+
+          {/* Keep-What-You-Raise */}
+          <button
+            type="button"
+            onClick={() => updateField("fundingModel", "keep-what-you-raise")}
+            aria-pressed={data.fundingModel === "keep-what-you-raise"}
+            className={`flex flex-col gap-1.5 rounded-lg border p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 ${
+              data.fundingModel === "keep-what-you-raise"
+                ? "border-purple-500 bg-purple-500/10"
+                : "border-zinc-700 bg-zinc-800/40 hover:border-zinc-500"
+            }`}
+          >
+            <span className="flex items-center gap-2 font-semibold text-zinc-100">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-current text-xs">
+                {data.fundingModel === "keep-what-you-raise" ? "✓" : ""}
+              </span>
+              Keep-What-You-Raise
+            </span>
+            <span className="text-xs text-zinc-400">
+              You keep all funds raised, even if the goal isn&apos;t met. Best when any amount of funding is useful.
+            </span>
+          </button>
+        </div>
+        {errors.fundingModel && <p className="mt-1 text-xs text-rose-400">{errors.fundingModel}</p>}
+      </div>
     </div>
   );
 }

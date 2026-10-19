@@ -12,6 +12,7 @@ import {
 } from "@/lib/campaign-sponsorship-tiers";
 
 import { calculateSponsorshipPricing } from "@/services/campaign-sponsorship.service";
+import { FundingModelBadge } from "@/components/campaign/FundingModelBadge";
 
 const trees = [
   { id: "tree-001", label: "Amazonia restoration", location: "Para, Brazil", impact: "48 kg COe" },
@@ -119,6 +120,9 @@ export default function SponsorCampaignPage() {
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Sponsor a living forest</h1>
           <p className="mt-3 max-w-2xl text-sm text-slate-400">Choose the trees you want to support, review the impact of your contribution, and confirm once everything looks right.</p>
         <p className="mt-3 max-w-2xl text-sm text-slate-400">Bulk sponsorship discounts are calculated and validated by the server.</p>
+        <div className="mt-3">
+          <FundingModelBadge model="all-or-nothing" />
+        </div>
       </div>
       <ol className="mb-10 grid grid-cols-4 gap-2" aria-label="Sponsorship steps">
         {steps.map((label, index) => { const number = index + 1; return <li key={label} className={`border-b-2 pb-3 text-sm ${number <= step ? "border-emerald-400 text-emerald-300" : "border-white/10 text-slate-500"}`}><span className="mr-2">{number}.</span>{label}</li>; })}

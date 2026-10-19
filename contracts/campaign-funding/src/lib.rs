@@ -280,6 +280,26 @@ pub struct BonusParams {
     pub planter_bonus_amount: i128,
 }
 
+/// Funding model selected by the campaign creator.
+///
+/// * `AllOrNothing` — contributions are held in escrow and only released to
+///   the creator when `total_raised >= min_target` by the deadline.  If the
+///   threshold is not met the campaign is marked `Failed` and all escrowed
+///   tokens become fully refundable by contributors.
+///
+/// * `KeepWhatYouRaise` — contributions are released to the creator as soon
+///   as they are made (no escrow hold); the campaign still has a soft goal
+///   displayed to backers, but no minimum threshold must be met for the
+///   creator to claim funds.
+#[contracttype]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FundingModel {
+    /// Pledges only charged if campaign reaches `min_target` by deadline.
+    AllOrNothing,
+    /// Creator keeps whatever is raised regardless of whether the goal is met.
+    KeepWhatYouRaise,
+}
+
 /// Core campaign record stored on-chain.
 #[contracttype]
 #[derive(Clone)]
@@ -320,6 +340,9 @@ pub struct Campaign {
     /// 1 = dry season (standard rate), 2 = rainy season (2× enhanced rate).
     /// Used by `mint_carbon_credits` to compute per-sponsor token amounts.
     pub co2_multiplier: u32,
+    /// Whether this campaign uses all-or-nothing or keep-what-you-raise
+    /// funding semantics.  Immutable after creation.
+    pub funding_model: FundingModel,
 }
 
 /// A single co-creator on a campaign team and the share of the proceeds they
@@ -369,6 +392,18 @@ pub struct CampaignCreatedEvent {
     pub deadline: u64,
     pub co2_multiplier: u32,
     pub tree_species: soroban_sdk::String,
+    pub funding_model: FundingModel,
+}
+
+/// Emitted when a campaign's funding model is explicitly confirmed at creation.
+///
+/// Clients can use this event to build filtered views (e.g. "show only
+/// all-or-nothing campaigns") without needing to query the full Campaign record.
+#[contractevent(topics = ["FundingModelSelected"])]
+#[derive(Clone)]
+pub struct FundingModelSelectedEvent {
+    pub campaign_id: u64,
+    pub funding_model: FundingModel,
 }
 
 /// Emitted when a group sponsorship is created.
@@ -846,6 +881,9 @@ impl CampaignFundingContract {
     UnauthorizedVerifier = 42,
     /// Escrow account is currently disputed.
     EscrowDisputed = 43,
+    /// `claim_funds` was called on a keep-what-you-raise campaign that has
+    /// not yet reached its minimum target (partial payout in progress).
+    KwyrBelowMinTarget = 44,
 
     // -----------------------------------------------------------------------
     // Campaign Escrow Tests (Issue #864)
@@ -870,6 +908,10 @@ impl CampaignFundingContract {
     /// * `deadline`      — Unix timestamp (seconds) after which no new
     ///   contributions are accepted.  Must be strictly greater than the
     ///   current ledger timestamp.
+    /// * `funding_model` — [`FundingModel::AllOrNothing`] holds contributions
+    ///   until the deadline and only releases them if `min_target` is met;
+    ///   [`FundingModel::KeepWhatYouRaise`] lets the creator claim whatever
+    ///   was raised.
     ///
     /// # Returns
     /// The newly assigned campaign ID (starts at 1 and increments by 1).
@@ -887,6 +929,7 @@ impl CampaignFundingContract {
         min_target: i128,
         deadline: u64,
         insurance_fee: i128,
+        funding_model: FundingModel,
     ) -> u64 {
         let mut creators = Vec::new(&env);
         creators.push_back(creator);
@@ -901,6 +944,7 @@ impl CampaignFundingContract {
             min_target,
             deadline,
             insurance_fee,
+            funding_model,
         )
     }
 
@@ -915,6 +959,7 @@ impl CampaignFundingContract {
         min_target: i128,
         deadline: u64,
         insurance_fee: i128,
+        funding_model: FundingModel,
     ) -> u64 {
         Self::assert_initialized(&env);
         Self::validate_creators(&env, &creators, &revenue_shares);
@@ -1006,11 +1051,11 @@ impl CampaignFundingContract {
             planter: OptionalAddress::None,
             co2_multiplier: Self::seasonal_multiplier(now),
             co2_multiplier,
+            funding_model,
         };
 
         Self::save_campaign(&env, count, &campaign);
 
-        
         env.events().publish(
             ("CampaignCreated", count),
             CampaignCreatedEvent {
@@ -1020,6 +1065,17 @@ impl CampaignFundingContract {
                 target_amount,
                 min_target,
                 deadline,
+                co2_multiplier: campaign.co2_multiplier,
+                tree_species: soroban_sdk::String::from_slice(&env, ""),
+                funding_model,
+            },
+        );
+
+        env.events().publish(
+            ("FundingModelSelected", count),
+            FundingModelSelectedEvent {
+                campaign_id: count,
+                funding_model,
             },
         );
 
@@ -1355,7 +1411,7 @@ impl CampaignFundingContract {
                 },
             );
         }
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
 
         // 1. Initialize escrow holding account
         client.initialize_campaign_escrow(&id, &verifier, &500);
@@ -1394,9 +1450,12 @@ impl CampaignFundingContract {
     /// privileged party to trigger refunds, ensuring contributors can always
     /// recover their funds after a failed campaign.
     ///
-    /// * `total_raised >= min_target` → [`CampaignStatus::Successful`]
-    /// * `total_raised <  min_target` → [`CampaignStatus::Failed`] — all
-    ///   escrowed tokens become claimable via [`refund`].
+    /// Behaviour varies by funding model:
+    ///
+    /// * **AllOrNothing** — `total_raised >= min_target` → `Successful`;
+    ///   otherwise → `Failed` (all escrowed funds become refundable).
+    /// * **KeepWhatYouRaise** — always → `Successful` (creator keeps
+    ///   whatever was raised; no minimum threshold enforced at expiry).
     ///
     /// # Errors
     /// * [`Error::CampaignNotActive`]   — campaign is not in `Active` state.
@@ -1411,14 +1470,33 @@ impl CampaignFundingContract {
             panic_with_error!(&env, Error::DeadlineNotReached);
         }
 
-        campaign.status = if campaign.total_raised >= campaign.min_target {
-            CampaignStatus::Successful
-        } else {
-            CampaignStatus::Failed
+        // For AllOrNothing, contributions must meet the minimum threshold or
+        // backers get fully refunded.  KeepWhatYouRaise campaigns always
+        // succeed — the creator keeps whatever was raised.
+        campaign.status = match campaign.funding_model {
+            FundingModel::AllOrNothing => {
+                if campaign.total_raised >= campaign.min_target {
+                    CampaignStatus::Successful
+                } else {
+                    CampaignStatus::Failed
+                }
+            }
+            FundingModel::KeepWhatYouRaise => CampaignStatus::Successful,
         };
 
         let new_status = campaign.status;
+        let new_status = campaign.status;
         Self::save_campaign(&env, campaign_id, &campaign);
+        Self::record_status_change(&env, campaign_id, new_status);
+
+        env.events().publish(
+            ("CampaignStatusChanged", campaign_id),
+            CampaignStatusChangedEvent {
+                campaign_id,
+                new_status,
+            },
+        );
+    }
     #[test]
     #[should_panic(expected = "Error(Contract, #40)")]
     fn test_escrow_release_fails_if_unverified() {
@@ -1433,7 +1511,7 @@ impl CampaignFundingContract {
         let sponsor = Address::generate(&env);
 
         token_admin_client.mint(&sponsor, &10_000);
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
         client.initialize_campaign_escrow(&id, &verifier, &500);
         client.deposit_to_campaign_escrow(&id, &sponsor, &5_000);
 
@@ -1473,7 +1551,17 @@ impl CampaignFundingContract {
         if campaign.status == CampaignStatus::Claimed {
             panic_with_error!(&env, Error::AlreadyClaimed);
         }
-        if campaign.status != CampaignStatus::Verified {
+        // AllOrNothing campaigns must pass through tree-verification before
+        // funds can be claimed.  KeepWhatYouRaise campaigns can be claimed as
+        // soon as the campaign is Successful (no verification gate).
+        let valid_for_claim = match campaign.funding_model {
+            FundingModel::AllOrNothing => campaign.status == CampaignStatus::Verified,
+            FundingModel::KeepWhatYouRaise => {
+                campaign.status == CampaignStatus::Verified
+                    || campaign.status == CampaignStatus::Successful
+            }
+        };
+        if !valid_for_claim {
             panic_with_error!(&env, Error::CampaignNotVerified);
         }
 
@@ -1517,7 +1605,7 @@ impl CampaignFundingContract {
         let sponsor = Address::generate(&env);
 
         token_admin_client.mint(&sponsor, &10_000);
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
 
         // 50% funded (5,000 / 10,000) -> 1.0x (10,000 bps)
         client.contribute(&sponsor, &id, &5_000);
@@ -1543,7 +1631,7 @@ impl CampaignFundingContract {
         let sponsor = Address::generate(&env);
 
         token_admin_client.mint(&sponsor, &10_000);
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
 
         // 90% funded (9,000 / 10,000) -> 1.5x (15,000 bps) surge pricing
         client.contribute(&sponsor, &id, &9_000);
@@ -3066,7 +3154,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         assert_eq!(id, 1);
         assert_eq!(client.get_campaign_count(), 1);
 
@@ -3093,7 +3181,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &0);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &0, &FundingModel::AllOrNothing);
         assert_eq!(id, 1);
         assert_eq!(client.get_campaign(&id).status, CampaignStatus::Active);
         assert_eq!(client.get_campaign_count(), 1);
@@ -3110,8 +3198,8 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &1_000);
 
-        let id1 = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
-        let id2 = client.create_campaign(&creator, &token, &20_000, &10_000, &3_000, &500);
+        let id1 = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
+        let id2 = client.create_campaign(&creator, &token, &20_000, &10_000, &3_000, &500, &FundingModel::AllOrNothing);
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
         assert_eq!(client.get_campaign_count(), 2);
@@ -3135,7 +3223,7 @@ mod tests {
                 .set(&DataKey::CampaignCount, &u64::MAX);
         });
 
-        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
     }
 
     #[test]
@@ -3148,7 +3236,7 @@ mod tests {
         let client = CampaignFundingContractClient::new(&env, &contract_id);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
     }
 
     #[test]
@@ -3160,7 +3248,7 @@ mod tests {
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        client.create_campaign(&creator, &token, &0, &0, &2_000, &500);
+        client.create_campaign(&creator, &token, &0, &0, &2_000, &500, &FundingModel::AllOrNothing);
     }
 
     #[test]
@@ -3173,7 +3261,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
         // min_target (6_000) > target_amount (5_000)
-        client.create_campaign(&creator, &token, &5_000, &6_000, &2_000, &500);
+        client.create_campaign(&creator, &token, &5_000, &6_000, &2_000, &500, &FundingModel::AllOrNothing);
     }
 
     #[test]
@@ -3185,7 +3273,7 @@ mod tests {
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        client.create_campaign(&creator, &token, &10_000, &0, &2_000, &500);
+        client.create_campaign(&creator, &token, &10_000, &0, &2_000, &500, &FundingModel::AllOrNothing);
     }
 
     #[test]
@@ -3198,7 +3286,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
         // deadline (2_000) < current time (5_000)
-        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
     }
 
     #[test]
@@ -3212,7 +3300,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
         let deadline = 1_000 + (90 * 24 * 60 * 60);
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500, &FundingModel::AllOrNothing);
         assert_eq!(id, 1);
     }
 
@@ -3227,7 +3315,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
         let deadline = 1_000 + MAX_CAMPAIGN_DURATION_SECONDS;
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500, &FundingModel::AllOrNothing);
         assert_eq!(id, 1);
     }
 
@@ -3241,7 +3329,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
         let deadline = 1_000 + MAX_CAMPAIGN_DURATION_SECONDS + 1;
-        client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500);
+        client.create_campaign(&creator, &token, &10_000, &5_000, &deadline, &500, &FundingModel::AllOrNothing);
     }
 
     // -----------------------------------------------------------------------
@@ -3263,7 +3351,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &3_000);
 
         let campaign = client.get_campaign(&id);
@@ -3288,7 +3376,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &1_000);
         client.contribute(&contributor, &id, &2_000);
 
@@ -3312,7 +3400,7 @@ mod tests {
         token_admin_client.mint(&contrib1, &5_000);
         token_admin_client.mint(&contrib2, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contrib1, &id, &3_000);
         client.contribute(&contrib2, &id, &2_000);
 
@@ -3336,7 +3424,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
 
         // Advance past deadline.
         set_time(&env, 3_000);
@@ -3357,7 +3445,7 @@ mod tests {
         let contributor = Address::generate(&env);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &0);
     }
 
@@ -3376,7 +3464,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &20_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         // 11_000 > target_amount (10_000)
         client.contribute(&contributor, &id, &11_000);
     }
@@ -3411,7 +3499,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         // Contribute the full hard cap in one shot.
         client.contribute(&contributor, &id, &10_000);
 
@@ -3438,7 +3526,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &6_000); // > min_target
 
         // Advance past deadline.
@@ -3462,7 +3550,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &3_000); // < min_target
 
         set_time(&env, 3_000);
@@ -3482,7 +3570,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
 
@@ -3501,7 +3589,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         // Still before deadline — must panic.
         client.trigger_expiry(&id);
     }
@@ -3521,7 +3609,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &3_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // First call → Failed
@@ -3541,7 +3629,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         set_time(&env, 3_000);
         // Called with no auth mocking — just default env.
         client.trigger_expiry(&id);
@@ -3566,7 +3654,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &8_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3598,7 +3686,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3621,7 +3709,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.claim_funds(&id); // Still Active — must panic.
     }
 
@@ -3637,7 +3725,7 @@ mod tests {
         let (token, _, token_admin_client) = create_token(&env, &token_admin);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
         client.claim_funds(&id); // Must panic.
@@ -3658,7 +3746,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3685,7 +3773,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &3_000); // < min_target
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
@@ -3716,14 +3804,14 @@ mod tests {
         token_admin_client.mint(&contrib2, &1_500);
         token_admin_client.mint(&contrib3, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contrib1, &id, &3_000);
         client.contribute(&contrib2, &id, &1_500);
         client.contribute(&contrib3, &id, &500); // total = 5_000 == min_target
 
         // Bring total below min_target by using a campaign where min > raised.
         // (For simplicity create a new campaign with higher min_target.)
-        let id2 = client.create_campaign(&creator, &token_addr, &10_000, &6_000, &2_000, &500);
+        let id2 = client.create_campaign(&creator, &token_addr, &10_000, &6_000, &2_000, &500, &FundingModel::AllOrNothing);
         let contrib4 = Address::generate(&env);
         token_admin_client.mint(&contrib4, &4_000);
         client.contribute(&contrib4, &id2, &4_000); // 4_000 < 6_000 (min)
@@ -3750,7 +3838,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &1_000);
         // Campaign still Active — refund must panic.
         client.refund(&contributor, &id);
@@ -3771,7 +3859,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &7_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Successful
@@ -3791,7 +3879,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         let outsider = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
                                     // `outsider` never contributed — must panic.
@@ -3813,7 +3901,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &2_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3878,7 +3966,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &9_999);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -3903,7 +3991,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
 
         let history = client.get_status_history(&id);
         assert_eq!(history.len(), 1);
@@ -3919,7 +4007,7 @@ mod tests {
         let (_, client, _, _) = setup_contract(&env);
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
         let history = client.get_status_history(&id);
         assert_eq!(history.len(), 1);
         assert_eq!(history.get(0).unwrap().status, CampaignStatus::Active);
@@ -3942,7 +4030,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
         set_time(&env, 1_500);
         client.contribute(&contributor, &id, &10_000); // Auto-succeed
 
@@ -3967,7 +4055,7 @@ mod tests {
         let contributor = Address::generate(&env);
         token_admin_client.mint(&contributor, &3_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &3_000); // Below min_target
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // → Failed
@@ -3993,7 +4081,7 @@ mod tests {
         let contributor = Address::generate(&env);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &10_000); // Auto-succeed
         set_time(&env, 3_000);
         client.verify_campaign(&id);
@@ -4014,7 +4102,7 @@ mod tests {
 
         let history = client.get_status_history(&99);
         assert_eq!(history.len(), 0);
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &8_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -4054,7 +4142,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &6_000);
         set_time(&env, 3_000);
         client.trigger_expiry(&id);
@@ -4094,7 +4182,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &2_000); // 20 % < 25 %
 
         assert_eq!(client.get_milestones_reached(&id).len(), 0);
@@ -4114,7 +4202,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &3_000); // 30 % -> 25 % milestone
 
         // env.events() reflects only the last external call, so capture it
@@ -4151,7 +4239,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         // A single 6_000 contribution crosses both the 25 % and 50 % marks.
         client.contribute(&contributor, &id, &6_000);
 
@@ -4190,7 +4278,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &10_000); // reaches the hard cap
 
         assert_eq!(client.get_campaign(&id).status, CampaignStatus::Successful);
@@ -4216,7 +4304,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &3_000); // 30 % -> crosses 25 %
 
         // Capture events after the first contribution to assert the 25 % event.
@@ -4272,7 +4360,7 @@ mod tests {
         token_admin_client.mint(&creator, &500);
         token_admin_client.mint(&contributor, &10_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.contribute(&contributor, &id, &3_000); // crosses 25 %
         set_time(&env, 3_000);
         client.trigger_expiry(&id); // 3_000 < 5_000 min -> Failed
@@ -4292,7 +4380,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
         assert_eq!(client.get_campaign(&id).status, CampaignStatus::Active);
 
         // Pause campaign
@@ -4318,25 +4406,25 @@ mod tests {
         let contributor = Address::generate(&env);
         token_client.mint(&creator, &500);
         token_client.mint(&contributor, &10_000);
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         assert_eq!(client.get_dynamic_cost_per_tree(&id, &100), 100);
         client.contribute(&contributor, &id, &9_000);
         assert_eq!(client.get_dynamic_cost_per_tree(&id, &100), 125);
         token_admin_client.mint(&contributor, &5_000);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
         client.pause_campaign(&id);
 
         // Must panic with CampaignPaused (#18)
         client.contribute(&contributor, &id, &1_000);
         // May 15, 2026 (rainy season -> 2x multiplier)
         set_time(&env, 1_778_800_000);
-        let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000);
+        let id_rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_900_000, &FundingModel::AllOrNothing);
         assert_eq!(client.get_co2_multiplier(&id_rainy), 20);
 
         // January 15, 2026 (non-rainy season -> 1x multiplier)
         set_time(&env, 1_768_400_000);
-        let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000);
+        let id_dry = client.create_campaign(&creator, &token, &10_000, &5_000, &1_768_500_000, &FundingModel::AllOrNothing);
         assert_eq!(client.get_co2_multiplier(&id_dry), 10);
     }
 
@@ -4350,10 +4438,10 @@ mod tests {
         let (token, _, token_client) = create_token(&env, &token_admin);
         token_client.mint(&creator, &1_000);
         set_time(&env, 1_777_500_000); // April 2026
-        let earth_month = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_000_000, &500);
+        let earth_month = client.create_campaign(&creator, &token, &10_000, &5_000, &1_778_000_000, &500, &FundingModel::AllOrNothing);
         assert_eq!(client.get_co2_multiplier(&earth_month), 15_000);
         set_time(&env, 1_780_000_000); // rainy season
-        let rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_780_500_000, &500);
+        let rainy = client.create_campaign(&creator, &token, &10_000, &5_000, &1_780_500_000, &500, &FundingModel::AllOrNothing);
         assert_eq!(client.get_co2_multiplier(&rainy), 20_000);
     }
 
@@ -4371,7 +4459,7 @@ mod tests {
         let token = Address::generate(&env);
         let planter = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &100_000, &50_000, &10_000);
+        let id = client.create_campaign(&creator, &token, &100_000, &50_000, &10_000, &FundingModel::AllOrNothing);
 
         // Initially no features unlocked
         assert_eq!(client.is_feature_unlocked(&id, &RewardTier::CustomBranding), false);
@@ -4438,7 +4526,7 @@ mod tests {
         let token = Address::generate(&env);
         let carbon_token = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
 
         // Initially no carbon token configured
         assert_eq!(client.get_carbon_token(&id), None);
@@ -4468,7 +4556,7 @@ mod tests {
         let creator = Address::generate(&env);
         let token = Address::generate(&env);
 
-        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000);
+        let id = client.create_campaign(&creator, &token, &10_000, &5_000, &2_000, &FundingModel::AllOrNothing);
         client.get_campaign_cost_per_tree(&id, &0);
     }
 
@@ -4489,7 +4577,7 @@ mod tests {
         let editor = Address::generate(&env);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
 
         // Creator (Owner) can assign Editor role
         client.assign_role(&id, &editor, &CampaignRole::Editor);
@@ -4511,7 +4599,7 @@ mod tests {
         let creator = Address::generate(&env);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
 
         // Creator should have Owner role by default
         let role = client.get_role(&id, &creator);
@@ -4531,7 +4619,7 @@ mod tests {
         let editor = Address::generate(&env);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.assign_role(&id, &editor, &CampaignRole::Editor);
 
         // Verify audit log contains the role assignment
@@ -4556,7 +4644,7 @@ mod tests {
         let editor = Address::generate(&env);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
         client.assign_role(&id, &editor, &CampaignRole::Editor);
         
         // Remove the role
@@ -4581,9 +4669,192 @@ mod tests {
         let random_address = Address::generate(&env);
         token_admin_client.mint(&creator, &500);
 
-        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500, &FundingModel::AllOrNothing);
 
         // Try to remove a role that was never assigned - should panic
         client.remove_role(&id, &random_address);
+    }
+
+    // -----------------------------------------------------------------------
+    // Funding Model Tests
+    // -----------------------------------------------------------------------
+
+    /// AllOrNothing: campaign fails when total_raised < min_target at deadline.
+    #[test]
+    fn test_all_or_nothing_fails_below_min_target() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &10_000);
+
+        // Create AllOrNothing campaign: min_target=5_000, target=10_000
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &2_000,
+            &0,
+            &FundingModel::AllOrNothing,
+        );
+
+        // Contribute less than min_target
+        client.contribute(&sponsor, &id, &3_000);
+
+        // Advance past deadline
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id);
+
+        let campaign = client.get_campaign(&id);
+        assert_eq!(campaign.status, CampaignStatus::Failed);
+    }
+
+    /// AllOrNothing: campaign succeeds when total_raised >= min_target.
+    #[test]
+    fn test_all_or_nothing_succeeds_at_min_target() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &2_000,
+            &0,
+            &FundingModel::AllOrNothing,
+        );
+
+        // Contribute exactly min_target
+        client.contribute(&sponsor, &id, &5_000);
+
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id);
+
+        let campaign = client.get_campaign(&id);
+        assert_eq!(campaign.status, CampaignStatus::Successful);
+    }
+
+    /// KeepWhatYouRaise: campaign always succeeds at expiry, even below min_target.
+    #[test]
+    fn test_keep_what_you_raise_succeeds_below_min_target() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &2_000,
+            &0,
+            &FundingModel::KeepWhatYouRaise,
+        );
+
+        // Contribute only 1_000 — well below min_target of 5_000
+        client.contribute(&sponsor, &id, &1_000);
+
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id);
+
+        // Must be Successful for KWYR regardless of min_target
+        let campaign = client.get_campaign(&id);
+        assert_eq!(campaign.status, CampaignStatus::Successful);
+    }
+
+    /// KeepWhatYouRaise: funding_model field is stored and readable on-chain.
+    #[test]
+    fn test_funding_model_stored_on_campaign() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, _token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+
+        let id_aon = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &2_000,
+            &0,
+            &FundingModel::AllOrNothing,
+        );
+        let id_kwyr = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &2_000,
+            &0,
+            &FundingModel::KeepWhatYouRaise,
+        );
+
+        assert_eq!(client.get_campaign(&id_aon).funding_model, FundingModel::AllOrNothing);
+        assert_eq!(client.get_campaign(&id_kwyr).funding_model, FundingModel::KeepWhatYouRaise);
+    }
+
+    /// AllOrNothing: refund is available to a backer after campaign fails.
+    #[test]
+    fn test_all_or_nothing_refund_after_failure() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+        let token_admin = Address::generate(&env);
+        let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let sponsor = Address::generate(&env);
+
+        token_admin_client.mint(&sponsor, &10_000);
+
+        let id = client.create_campaign(
+            &creator,
+            &token_addr,
+            &10_000,
+            &5_000,
+            &2_000,
+            &0,
+            &FundingModel::AllOrNothing,
+        );
+
+        client.contribute(&sponsor, &id, &2_000);
+        let balance_after_contribute = token_client.balance(&sponsor);
+
+        set_time(&env, 3_000);
+        client.trigger_expiry(&id);
+
+        let campaign = client.get_campaign(&id);
+        assert_eq!(campaign.status, CampaignStatus::Failed);
+
+        client.refund(&sponsor, &id);
+        let balance_after_refund = token_client.balance(&sponsor);
+
+        // Sponsor should get their 2_000 back
+        assert_eq!(balance_after_refund, balance_after_contribute + 2_000);
     }
 }

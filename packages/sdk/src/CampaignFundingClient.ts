@@ -30,6 +30,21 @@ export type CampaignStatus =
   | { tag: "Claimed"; values: void };
 
 /**
+ * Funding model chosen by the campaign creator at creation time.
+ *
+ * Mirrors the `FundingModel` enum in the on-chain contract.
+ *
+ * - `AllOrNothing`      — Contributions are held in escrow and only released
+ *   to the creator when `min_target` is met by the deadline.  Backers are
+ *   fully refunded if the threshold is not reached.
+ * - `KeepWhatYouRaise`  — Creator keeps whatever is raised, regardless of
+ *   whether the goal is met.  There are no automatic refunds.
+ */
+export type FundingModel =
+  | { tag: "AllOrNothing"; values: void }
+  | { tag: "KeepWhatYouRaise"; values: void };
+
+/**
  * On-chain campaign record returned by `getCampaign`.
  */
 export interface Campaign {
@@ -41,6 +56,8 @@ export interface Campaign {
   deadline: bigint;
   total_raised: bigint;
   status: CampaignStatus;
+  /** Funding model selected at campaign creation — immutable. */
+  funding_model: FundingModel;
 }
 
 /**
@@ -68,6 +85,7 @@ export const CampaignFundingErrors: Record<number, { message: string }> = {
   17: { message: "StreamContractNotSet" },
   18: { message: "RewardsAlreadyStreamed" },
   19: { message: "CampaignNotClaimed" },
+  44: { message: "KwyrBelowMinTarget" },
 };
 
 /**
@@ -145,6 +163,10 @@ export class CampaignFundingClient {
   /**
    * Create a new funding campaign.
    *
+   * @param params.funding_model - `{ tag: "AllOrNothing" }` holds contributions
+   *   until the deadline and refunds backers if `min_target` is not met.
+   *   `{ tag: "KeepWhatYouRaise" }` releases whatever is raised to the creator
+   *   with no refund obligation.
    * @returns An `AssembledTransaction` that resolves to the new campaign ID.
    * @throws {FundableStellarError} On validation failure.
    */
@@ -154,6 +176,7 @@ export class CampaignFundingClient {
     target_amount: bigint;
     min_target: bigint;
     deadline: bigint;
+    funding_model: FundingModel;
   }): Promise<AssembledTransaction<bigint>> {
     return executeWithErrorHandling(
       () =>
@@ -163,6 +186,7 @@ export class CampaignFundingClient {
           target_amount: params.target_amount,
           min_target: params.min_target,
           deadline: params.deadline,
+          funding_model: params.funding_model,
         }),
       "Create campaign"
     );

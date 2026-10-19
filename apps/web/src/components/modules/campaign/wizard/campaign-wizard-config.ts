@@ -73,6 +73,12 @@ export interface CampaignWizardData {
   token: string;
   targetBackers: string;
   minContribution: string;
+  /**
+   * Funding model chosen by the creator.
+   * - "all-or-nothing"      — contributions only charged if min_target is met.
+   * - "keep-what-you-raise" — creator keeps whatever is raised.
+   */
+  fundingModel: "all-or-nothing" | "keep-what-you-raise";
 
   // Step 3: Timeline
   startDate: string;
@@ -105,6 +111,7 @@ export const INITIAL_WIZARD_DATA: CampaignWizardData = {
   token: "XLM",
   targetBackers: "",
   minContribution: "10",
+  fundingModel: "all-or-nothing",
 
   startDate: new Date().toISOString().split("T")[0],
   endDate: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
@@ -146,6 +153,9 @@ export const goalsSchema = z.object({
   token: z.string().min(1, "Token is required"),
   targetBackers: z.string().refine((val) => val === "" || (!isNaN(Number(val)) && Number(val) >= 0), "Backers count must be a non-negative number"),
   minContribution: z.string().refine((val) => !isNaN(Number(val)) && Number(val) >= 0, "Min contribution must be non-negative"),
+  fundingModel: z.enum(["all-or-nothing", "keep-what-you-raise"], {
+    errorMap: () => ({ message: "Please select a funding model" }),
+  }),
 });
 
 export const timelineSchema = z.object({

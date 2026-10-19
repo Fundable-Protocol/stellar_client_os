@@ -46,6 +46,7 @@ import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2Se
 import { CampaignSustainabilityScore } from "@/components/modules/campaign/sustainability/CampaignSustainabilityScore";
 import { OneTimeDonationButton } from "@/components/modules/campaign/donation/OneTimeDonationButton";
 import { CampaignCharityBadge } from "@/components/modules/campaign/CharityBadge";
+import { FundingModelBadge } from "@/components/campaign/FundingModelBadge";
 
 const translations = {
   en: {
@@ -483,6 +484,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               <Badge variant="outline" className="border-emerald-500 text-emerald-400 text-xs font-semibold">
                 <ShieldCheck className="mr-1 h-3 w-3" /> {campaign.status}
               </Badge>
+              <FundingModelBadge model={campaign.funding_model ?? "all-or-nothing"} />
               <SustainabilityScoreBadge
                 score={sustainabilityScore.totalScore}
                 tier={sustainabilityScore.tier}

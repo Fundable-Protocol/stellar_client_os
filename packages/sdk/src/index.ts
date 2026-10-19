@@ -44,6 +44,7 @@ export {
   type AddressParam as CampaignFundingAddressParam,
   type Campaign,
   type CampaignStatus,
+  type FundingModel,
 } from "./CampaignFundingClient.js";
 export * from "./CarbonCreditClient.js";
 export * from "./ImpactNFTClient.js";
