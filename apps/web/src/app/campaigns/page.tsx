@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import { CampaignSearch } from "@/components/modules/campaigns/CampaignSearch";
 import { StaffPicksSection } from "@/components/modules/campaign/StaffPicksSection";
+import { TaxReceiptsSection } from "@/components/modules/campaigns/TaxReceiptsSection";
 
 export const metadata: Metadata = {
   title: "Explore Campaigns | Fundable Protocol",
@@ -22,6 +23,8 @@ export default function CampaignsPage() {
       <StaffPicksSection />
 
       <CampaignSearch />
+
+      <TaxReceiptsSection />
     </div>
   );
 }

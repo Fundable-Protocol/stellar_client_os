@@ -285,12 +285,38 @@ export const typeDefs = /* GraphQL */`
     breakdown: CampaignHealthBreakdown!
   }
 
+  """A downloadable tax receipt for a charitable campaign contribution."""
+  type TaxReceipt {
+    """Unique receipt identifier."""
+    receiptId: ID!
+    """Campaign the contribution was made to."""
+    campaignId: ID!
+    """Name of the campaign at the time the receipt was issued."""
+    campaignName: String!
+    """Stellar address of the backer who made the contribution."""
+    backerAddress: String!
+    """Contributed amount (as string to avoid floating point issues)."""
+    amount: String!
+    """Token the contribution was made in."""
+    token: String!
+    """Tax year the contribution is attributed to."""
+    taxYear: Int!
+    """Unix timestamp (seconds) when the receipt was issued."""
+    issuedAt: Int!
+    """URL from which the receipt PDF can be downloaded."""
+    downloadUrl: String!
+  }
+
   type Campaign {
     id: ID!
     creator: String!
     name: String!
     description: String
     status: CampaignStatus!
+    """Whether the campaign is a verified charitable/non-profit campaign."""
+    nonprofitVerified: Boolean!
+    """Non-profit partner organisation backing the campaign, if any."""
+    nonprofitPartner: String
     goalAmount: String!
     raisedAmount: String!
     sponsorCount: Int!
@@ -594,6 +620,16 @@ export const typeDefs = /* GraphQL */`
     The grant allocations awarded to a campaign across all programs.
     """
     campaignGrantAllocations(campaignId: ID!): [GrantAllocation!]!
+
+    """
+    Tax receipts for all eligible charitable contributions made by a backer.
+    """
+    taxReceipts(backerAddress: String!): [TaxReceipt!]!
+
+    """
+    A single tax receipt, scoped to the backer who owns it.
+    """
+    taxReceipt(receiptId: ID!, backerAddress: String!): TaxReceipt
   }
 
   """

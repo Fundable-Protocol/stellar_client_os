@@ -393,6 +393,35 @@ impl TaxDeductionCertificateContract {
             .unwrap_or_else(|| Vec::new(&env))
     }
 
+    /// Backend entry point used when a pledge is confirmed: records the
+    /// contribution and issues (or supersedes) the sponsor's certificate in a
+    /// single call, returning the certificate id the generated tax receipt
+    /// PDF is anchored to.
+    ///
+    /// `recorder` must be an authorised recorder and `issuer` must be the
+    /// campaign's partner or the admin. The tax year is taken from the ledger
+    /// timestamp, so the caller cannot choose it.
+    pub fn confirm_pledge(
+        env: Env,
+        recorder: Address,
+        issuer: Address,
+        campaign_id: u64,
+        sponsor: Address,
+        token: Address,
+        amount: i128,
+    ) -> u64 {
+        Self::record_contribution(
+            env.clone(),
+            recorder,
+            campaign_id,
+            sponsor.clone(),
+            token.clone(),
+            amount,
+        );
+        let tax_year = year_from_timestamp(env.ledger().timestamp());
+        Self::issue_certificate(env, issuer, campaign_id, sponsor, tax_year, token)
+    }
+
     /// True if the certificate exists and is the active one.
     pub fn is_valid(env: Env, certificate_id: u64) -> bool {
         env.storage()
@@ -400,6 +429,76 @@ impl TaxDeductionCertificateContract {
             .get::<_, Certificate>(&DataKey::Certificate(certificate_id))
             .map(|c| c.status == CertificateStatus::Active)
             .unwrap_or(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soroban_sdk::testutils::{Address as _, Ledger as _};
+    use soroban_sdk::{Env, String};
+
+    fn setup(env: &Env) -> (TaxDeductionCertificateContractClient<'_>, Address, Address) {
+        let contract_id = env.register(TaxDeductionCertificateContract, ());
+        let client = TaxDeductionCertificateContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        client.initialize(&admin);
+        let partner = Address::generate(env);
+        client.register_partner(
+            &partner,
+            &String::from_str(env, "Example Charity"),
+            &String::from_str(env, "12-3456789"),
+            &String::from_str(env, "US"),
+        );
+        client.link_campaign(&1u64, &partner);
+        (client, admin, partner)
+    }
+
+    #[test]
+    fn records_contribution_and_issues_certificate() {
+        let env = Env::default();
+        env.mock_all_auths();
+        // 2024-06-01T00:00:00Z
+        env.ledger().set_timestamp(1_717_200_000);
+        let (client, _admin, partner) = setup(&env);
+
+        let recorder = Address::generate(&env);
+        client.set_recorder(&recorder, &true);
+        let sponsor = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let total = client.record_contribution(&recorder, &1u64, &sponsor, &token, &1_000i128);
+        assert_eq!(total, 1_000);
+
+        let id = client.issue_certificate(&partner, &1u64, &sponsor, &2024u32, &token);
+        let certificate = client
+            .find_certificate(&1u64, &sponsor, &2024u32, &token)
+            .expect("certificate should exist");
+        assert_eq!(certificate.id, id);
+        assert_eq!(certificate.amount, 1_000);
+        assert_eq!(certificate.tax_year, 2024);
+        assert_eq!(certificate.status, CertificateStatus::Active);
+    }
+
+    #[test]
+    fn confirm_pledge_returns_certificate_id() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().set_timestamp(1_717_200_000);
+        let (client, _admin, partner) = setup(&env);
+
+        let recorder = Address::generate(&env);
+        client.set_recorder(&recorder, &true);
+        let sponsor = Address::generate(&env);
+        let token = Address::generate(&env);
+
+        let id = client.confirm_pledge(&recorder, &partner, &1u64, &sponsor, &token, &500i128);
+        let certificate = client
+            .find_certificate(&1u64, &sponsor, &2024u32, &token)
+            .expect("certificate should exist");
+        assert_eq!(certificate.id, id);
+        assert_eq!(certificate.amount, 500);
+        assert_eq!(certificate.tax_year, 2024);
     }
 }
 

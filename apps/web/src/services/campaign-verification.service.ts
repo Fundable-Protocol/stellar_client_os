@@ -8,10 +8,92 @@ import {
 import {
   getCampaign,
   getCampaignDataSource,
+  type Campaign,
   type CampaignDataSource,
 } from "./campaign.service";
 
 export { VERIFICATION_EVENT_TYPES };
+
+export const NONPROFIT_STATUSES = ["PENDING", "VERIFIED", "REJECTED"] as const;
+export type NonprofitStatus = (typeof NONPROFIT_STATUSES)[number];
+
+export interface NonprofitPartner {
+  status: NonprofitStatus;
+  legalName: string;
+  registrationNumber: string;
+  country: string;
+}
+
+export interface SetNonprofitStatusInput {
+  status: NonprofitStatus;
+  legalName: string;
+  registrationNumber: string;
+  country: string;
+}
+
+export function isNonprofitStatus(value: unknown): value is NonprofitStatus {
+  return typeof value === "string" && (NONPROFIT_STATUSES as readonly string[]).includes(value);
+}
+
+function validateNonprofitInput(input: SetNonprofitStatusInput): void {
+  if (!isNonprofitStatus(input.status)) {
+    throw new Error(`Unsupported non-profit status: ${String(input.status)}`);
+  }
+  if (!input.legalName?.trim()) throw new Error("legalName is required");
+  if (!input.registrationNumber?.trim()) throw new Error("registrationNumber is required");
+  if (!input.country?.trim()) throw new Error("country is required");
+}
+
+/**
+ * Persists the non-profit partner block on a campaign and records the change in
+ * the verification audit trail. This is the single source of truth for whether
+ * a campaign is eligible to issue tax receipts.
+ */
+export async function setNonprofitStatus(
+  campaignId: string,
+  input: SetNonprofitStatusInput,
+  dataSource: CampaignDataSource = getCampaignDataSource(),
+): Promise<Campaign> {
+  validateNonprofitInput(input);
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) throw new Error("Campaign not found");
+  const partner: NonprofitPartner = {
+    status: input.status,
+    legalName: input.legalName.trim(),
+    registrationNumber: input.registrationNumber.trim(),
+    country: input.country.trim(),
+  };
+  const updated: Campaign = {
+    ...campaign,
+    nonprofitPartner: partner,
+    updatedAt: Date.now(),
+  };
+  await dataSource.saveCampaign(updated);
+  await appendVerificationEvent(
+    campaignId,
+    {
+      eventType: input.status === "VERIFIED" ? "approved" : "rejected",
+      actorId: "system:nonprofit-verification",
+      comment: `Non-profit status set to ${partner.status} (${partner.legalName}, ${partner.registrationNumber}, ${partner.country})`,
+    },
+    dataSource,
+  );
+  return updated;
+}
+
+/**
+ * Returns true only when the campaign has a non-profit partner block that is
+ * VERIFIED with non-empty legal name, registration number and country.
+ */
+export function isNonprofitEligible(campaign: Campaign | null | undefined): boolean {
+  const partner = campaign?.nonprofitPartner;
+  if (!partner || partner.status !== "VERIFIED") return false;
+  return Boolean(
+    partner.legalName?.trim() &&
+      partner.registrationNumber?.trim() &&
+      partner.country?.trim(),
+  );
+}
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");

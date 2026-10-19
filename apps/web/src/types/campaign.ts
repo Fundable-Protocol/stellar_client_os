@@ -55,6 +55,21 @@ export interface CampaignCoordinates {
   longitude: number;
 }
 
+export type NonprofitVerificationStatus = "Pending" | "Verified" | "Rejected" | "Unverified";
+
+export interface NonprofitPartner {
+  legalName: string;
+  registrationNumber: string;
+  country: string;
+  verificationStatus: NonprofitVerificationStatus;
+}
+
+export interface CharityBadge {
+  label: string;
+  verified: boolean;
+  verifiedAt?: number;
+}
+
 export interface CampaignData {
   id: string;
   title: string;
@@ -80,6 +95,19 @@ export interface CampaignData {
   sustainabilityScore?: CampaignSustainabilityScore;
   isStaffPick?: boolean;
   staffPickReason?: string;
+  nonprofitPartner?: NonprofitPartner;
+  charityBadge?: CharityBadge;
+}
+
+/**
+ * Derived helper: a campaign is eligible for tax receipts only when it is
+ * registered as a charitable/non-profit entity and that status is verified.
+ */
+export function isNonprofitVerified(campaign: CampaignData): boolean {
+  return (
+    campaign.nonprofitPartner?.verificationStatus === "Verified" &&
+    campaign.charityBadge?.verified === true
+  );
 }
 
 export interface CampaignFilterOptions {
