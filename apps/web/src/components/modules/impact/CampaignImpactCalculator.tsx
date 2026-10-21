@@ -337,6 +337,50 @@ export function CampaignImpactCalculator({
                 strokeDasharray="5 4"
                 dot={false}
                 isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-medium text-zinc-200">
+            View annual forecast data
+          </summary>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[34rem] text-left text-xs">
+              <caption className="sr-only">
+                Annual cumulative CO2 sequestration estimate and 95% confidence
+                interval in kilograms
+              </caption>
+              <thead className="text-zinc-300">
+                <tr>
+                  <th scope="col" className="px-3 py-2">Year</th>
+                  <th scope="col" className="px-3 py-2">95% lower (kg)</th>
+                  <th scope="col" className="px-3 py-2">Expected (kg)</th>
+                  <th scope="col" className="px-3 py-2">95% upper (kg)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800 text-zinc-200">
+                {forecast.map((point) => (
+                  <tr key={point.year}>
+                    <th scope="row" className="px-3 py-2 font-medium">
+                      {point.year}
+                    </th>
+                    <td className="px-3 py-2">{formatNumber(point.lower95Kg)}</td>
+                    <td className="px-3 py-2">{formatNumber(point.expectedCumulativeKg)}</td>
+                    <td className="px-3 py-2">{formatNumber(point.upper95Kg)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <p className="mt-3 text-xs text-zinc-400">
+          Estimates use independent normal uncertainty assumptions for growth,
+          mortality, and climate factors. They are planning estimates, not
+          verified carbon credits or a guarantee of field outcomes.
+        </p>
+      </section>
       <div className="mt-8 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4">
         <div className="mb-4">
           <h3 className="text-sm font-semibold text-white">Historical CO2 Sequestration</h3>
@@ -383,45 +427,6 @@ export function CampaignImpactCalculator({
           </ResponsiveContainer>
         </div>
 
-        <details className="mt-3">
-          <summary className="cursor-pointer text-sm font-medium text-zinc-200">
-            View annual forecast data
-          </summary>
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[34rem] text-left text-xs">
-              <caption className="sr-only">
-                Annual cumulative CO2 sequestration estimate and 95% confidence
-                interval in kilograms
-              </caption>
-              <thead className="text-zinc-300">
-                <tr>
-                  <th scope="col" className="px-3 py-2">Year</th>
-                  <th scope="col" className="px-3 py-2">95% lower (kg)</th>
-                  <th scope="col" className="px-3 py-2">Expected (kg)</th>
-                  <th scope="col" className="px-3 py-2">95% upper (kg)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800 text-zinc-200">
-                {forecast.map((point) => (
-                  <tr key={point.year}>
-                    <th scope="row" className="px-3 py-2 font-medium">
-                      {point.year}
-                    </th>
-                    <td className="px-3 py-2">{formatNumber(point.lower95Kg)}</td>
-                    <td className="px-3 py-2">{formatNumber(point.expectedCumulativeKg)}</td>
-                    <td className="px-3 py-2">{formatNumber(point.upper95Kg)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
-        <p className="mt-3 text-xs text-zinc-400">
-          Estimates use independent normal uncertainty assumptions for growth,
-          mortality, and climate factors. They are planning estimates, not
-          verified carbon credits or a guarantee of field outcomes.
-        </p>
-      </section>
       </div>
     </section>
   );

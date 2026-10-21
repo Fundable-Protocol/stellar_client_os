@@ -1,75 +1,43 @@
-import { campaignFollowService } from "@/services/campaign-follow.service";
+import { NextRequest, NextResponse } from "next/server";
+import {
+  campaignFollowService,
+  followService,
+} from "@/services/campaign-follow.service";
+import type { FollowNotificationPrefs } from "@/types/campaign-follow";
 
 export const runtime = "nodejs";
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-  const email = new URL(request.url).searchParams.get("email");
-  if (!email) {
-    return Response.json({ campaignId: id, followerCount: campaignFollowService.getFollowers(id).length });
-  }
-
-  try {
-    const follow = campaignFollowService.getFollow(id, email);
-    return Response.json({ campaignId: id, following: Boolean(follow), follow });
-  } catch {
-    return Response.json({ error: "A valid email is required" }, { status: 400 });
-  }
-}
-
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> },
-) {
-  const { id } = await params;
-  try {
-    const body = (await request.json()) as {
-      email?: string;
-      walletAddress?: string;
-      preferences?: {
-        milestoneUpdates?: boolean;
-        verificationUpdates?: boolean;
-        completionUpdates?: boolean;
-      };
-    };
-    const follow = campaignFollowService.follow({
-      campaignId: id,
-      email: body.email ?? "",
-      walletAddress: body.walletAddress,
-      preferences: body.preferences,
-    });
-    return Response.json({ success: true, following: true, follow }, { status: 201 });
-  } catch (error) {
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Unable to follow campaign" },
-      { status: 400 },
-    );
-import { NextRequest, NextResponse } from "next/server";
-import { followService } from "@/services/campaign-follow.service";
-import { FollowNotificationPrefs } from "@/types/campaign-follow";
-
 /**
- * Campaign follow endpoints — Issue #942 (v1).
+ * Campaign follow endpoints.
  *
- * GET    /api/campaigns/[id]/follow                      -> audience for the campaign
- * GET    /api/campaigns/[id]/follow?followerAddress=G... -> that wallet's follow (or null)
- * POST   /api/campaigns/[id]/follow                      -> follow / update prefs
- * DELETE /api/campaigns/[id]/follow?followerAddress=G... -> unfollow
+ * GET    /api/campaigns/[id]/follow                          -> audience for the campaign
+ * GET    /api/campaigns/[id]/follow?followerAddress=G...    -> that wallet's follow (or null)
+ * GET    /api/campaigns/[id]/follow?email=a@b.com            -> that email's follow (or null)
+ * POST   /api/campaigns/[id]/follow                          -> follow / update prefs
+ * DELETE /api/campaigns/[id]/follow?followerAddress=G...    -> unfollow
+ * DELETE /api/campaigns/[id]/follow?email=a@b.com            -> unfollow
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   const { searchParams } = new URL(request.url);
   const followerAddress = searchParams.get("followerAddress");
+  const email = searchParams.get("email");
 
   if (followerAddress) {
     const follow = followService.getFollow(id, followerAddress);
     return NextResponse.json({ campaignId: id, follow });
+  }
+
+  if (email) {
+    try {
+      const follow = campaignFollowService.getFollow(id, email);
+      return NextResponse.json({ campaignId: id, following: Boolean(follow), follow });
+    } catch {
+      return NextResponse.json({ error: "A valid email is required" }, { status: 400 });
+    }
   }
 
   return NextResponse.json({
@@ -81,73 +49,75 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   try {
-    const body = await request.json();
-    const { followerAddress, prefs } = body ?? {};
+    const body = (await request.json()) ?? {};
+    const { followerAddress, email, walletAddress, prefs, preferences } = body;
 
-    if (!followerAddress) {
+    if (followerAddress) {
+      const follow = followService.follow({
+        campaignId: id,
+        followerAddress,
+        prefs: prefs as Partial<FollowNotificationPrefs> | undefined,
+      });
       return NextResponse.json(
-        { error: "followerAddress is required" },
-        { status: 400 }
+        { success: true, following: true, followerCount: followService.getFollowerCount(id), follow },
+        { status: 201 },
       );
     }
 
-    const follow = followService.follow({
+    const follow = campaignFollowService.follow({
       campaignId: id,
-      followerAddress,
-      prefs: prefs as Partial<FollowNotificationPrefs> | undefined,
+      email: email ?? "",
+      walletAddress,
+      preferences,
     });
+    return NextResponse.json({ success: true, following: true, follow }, { status: 201 });
+  } catch (error) {
     return NextResponse.json(
-      { success: true, followerCount: followService.getFollowerCount(id), follow },
-      { status: 201 }
+      { error: error instanceof Error ? error.message : "Unable to follow campaign" },
+      { status: 400 },
     );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to follow campaign";
-    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
 export async function DELETE(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const email = new URL(request.url).searchParams.get("email");
-  if (!email) return Response.json({ error: "email is required" }, { status: 400 });
+  const { searchParams } = new URL(request.url);
+  const followerAddress = searchParams.get("followerAddress");
+  const email = searchParams.get("email");
 
-  try {
-    const removed = campaignFollowService.unfollow(id, email);
-    if (!removed) return Response.json({ error: "Follow not found" }, { status: 404 });
-    return Response.json({ success: true, following: false });
-  } catch {
-    return Response.json({ error: "A valid email is required" }, { status: 400 });
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  try {
-    const { searchParams } = new URL(request.url);
-    const followerAddress = searchParams.get("followerAddress");
-
-    if (!followerAddress) {
-      return NextResponse.json(
-        { error: "followerAddress is required" },
-        { status: 400 }
-      );
-    }
-
+  if (followerAddress) {
     const removed = followService.unfollow(id, followerAddress);
     if (!removed) {
       return NextResponse.json({ error: "Follow not found" }, { status: 404 });
     }
     return NextResponse.json({
       success: true,
+      following: false,
       followerCount: followService.getFollowerCount(id),
     });
-  } catch (err) {
-    return NextResponse.json({ error: "Failed to unfollow campaign" }, { status: 500 });
+  }
+
+  if (!email) {
+    return NextResponse.json(
+      { error: "email or followerAddress is required" },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const removed = campaignFollowService.unfollow(id, email);
+    if (!removed) {
+      return NextResponse.json({ error: "Follow not found" }, { status: 404 });
+    }
+    return NextResponse.json({ success: true, following: false });
+  } catch {
+    return NextResponse.json({ error: "A valid email is required" }, { status: 400 });
   }
 }

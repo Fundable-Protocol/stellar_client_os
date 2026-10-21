@@ -5,6 +5,21 @@ import type {
   CampaignFollowPreferences,
   CreateCampaignFollowInput,
 } from "@/types/campaign-follow";
+import {
+  DEFAULT_FOLLOW_EVENTS,
+  DEFAULT_FOLLOW_PREFS,
+  FOLLOW_CHANNELS,
+  FOLLOW_EVENTS,
+  FOLLOW_FREQUENCIES,
+  validateFollowDestination,
+} from "@/types/campaign-follow";
+import type {
+  FollowCampaignInput,
+  FollowChannel,
+  FollowEvent,
+  FollowFrequency,
+  FollowNotificationPrefs,
+} from "@/types/campaign-follow";
 
 const DEFAULT_PREFERENCES: CampaignFollowPreferences = {
   milestoneUpdates: true,
@@ -15,16 +30,23 @@ const DEFAULT_PREFERENCES: CampaignFollowPreferences = {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * Campaign follows are kept behind a service boundary so the storage can be
- * replaced with the application's persistent data source without changing the
- * API or UI. Duplicate follows are idempotent per campaign and email.
+ * Email-based campaign follows.
+ *
+ * A visitor leaves an email address to receive campaign progress updates.
+ * Kept behind a service boundary so the storage can be replaced with the
+ * application's persistent data source without changing the API or UI.
+ * Duplicate follows are idempotent per campaign and email.
  */
 export class CampaignFollowService {
   private readonly follows = new Map<string, CampaignFollow[]>();
 
+  /**
+   * Follow a campaign. Idempotent: an existing follow for the same email is
+   * updated rather than duplicated. Returns the follow.
+   */
   follow(input: CreateCampaignFollowInput, now = Date.now()): CampaignFollow {
-    const email = this.normalizeEmail(input.email);
     if (!input.campaignId?.trim()) throw new Error("campaignId is required");
+    const email = this.normalizeEmail(input.email);
 
     const current = this.follows.get(input.campaignId) ?? [];
     const existing = current.find((follow) => follow.email === email);
@@ -32,83 +54,6 @@ export class CampaignFollowService {
       existing.walletAddress = input.walletAddress?.trim() || existing.walletAddress;
       existing.preferences = this.mergePreferences(existing.preferences, input.preferences);
       existing.updatedAt = now;
-import {
-  CampaignFollow,
-  DEFAULT_FOLLOW_EVENTS,
-  DEFAULT_FOLLOW_PREFS,
-  FollowCampaignInput,
-  FollowEvent,
-  FollowNotificationPrefs,
-  FollowFrequency,
-  FollowChannel,
-  FOLLOW_CHANNELS,
-  FOLLOW_EVENTS,
-  FOLLOW_FREQUENCIES,
-  validateFollowDestination,
-} from "@/types/campaign-follow";
-
-/**
- * Campaign follows — Issue #942 (v1).
- *
- * Users follow a campaign to receive progress updates WITHOUT sponsoring
- * it. v1 keeps follows in memory (same singleton pattern as
- * campaign-community.service / campaign-collaboration.service) until a
- * persistent data source lands; the API surface is designed so a durable
- * store can slot in behind the same methods.
- */
-class CampaignFollowService {
-  private follows = new Map<string, CampaignFollow[]>();
-  /** Sequence numbers per campaign for the digest preview (newest first). */
-  private sequence = new Map<string, number>();
-
-  /** All follows for a campaign (audience view, e.g. for creators). */
-  getFollows(campaignId: string): CampaignFollow[] {
-    return this.follows.get(campaignId) || [];
-  }
-
-  /** Follows belonging to one wallet across all campaigns. */
-  getFollowsFor(followerAddress: string): CampaignFollow[] {
-    const result: CampaignFollow[] = [];
-    for (const list of this.follows.values()) {
-      result.push(
-        ...list.filter(
-          (f) => f.followerAddress.toLowerCase() === followerAddress.toLowerCase()
-        )
-      );
-    }
-    return result;
-  }
-
-  getFollow(campaignId: string, followerAddress: string): CampaignFollow | null {
-    return (
-      this.getFollows(campaignId).find(
-        (f) => f.followerAddress.toLowerCase() === followerAddress.toLowerCase()
-      ) || null
-    );
-  }
-
-  isFollowing(campaignId: string, followerAddress: string): boolean {
-    return this.getFollow(campaignId, followerAddress) !== null;
-  }
-
-  /** Audience size for a campaign — the metric this feature exists for. */
-  getFollowerCount(campaignId: string): number {
-    return this.getFollows(campaignId).length;
-  }
-
-  /**
-   * Follow a campaign. Idempotent: an existing follow for the same wallet
-   * is updated (re-preferenced) rather than duplicated. Returns the follow.
-   */
-  follow(input: FollowCampaignInput): CampaignFollow {
-    if (!input.campaignId?.trim()) throw new Error("campaignId is required");
-    if (!input.followerAddress?.trim()) throw new Error("followerAddress is required");
-
-    const prefs = normalizePrefs(input.prefs);
-    const existing = this.getFollow(input.campaignId, input.followerAddress);
-
-    if (existing) {
-      existing.prefs = prefs;
       return existing;
     }
 
@@ -144,21 +89,33 @@ class CampaignFollowService {
     return this.getFollowers(campaignId).find((follow) => follow.email === normalized) ?? null;
   }
 
+  /** Email every follower that opted into the given kind of update. */
   async notifyFollowers(
     campaignId: string,
     subject: string,
     html: string,
     preference: keyof CampaignFollowPreferences,
-    emailService = new EmailService(),
+    emailService: {
+      sendEmail(options: { to: string; subject: string; html: string }): Promise<boolean>;
+    } = new EmailService(),
   ): Promise<number> {
     const recipients = this.getFollowers(campaignId).filter((follow) => follow.preferences[preference]);
-    await Promise.all(recipients.map((follow) => emailService.sendEmail({ to: follow.email, subject, html })));
+    await Promise.all(
+      recipients.map((follow) => emailService.sendEmail({ to: follow.email, subject, html })),
+    );
     return recipients.length;
+  }
+
+  /** Test seam — clears all in-memory state. */
+  reset(): void {
+    this.follows.clear();
   }
 
   private normalizeEmail(email: string): string {
     const normalized = email?.trim().toLowerCase();
-    if (!normalized || !EMAIL_PATTERN.test(normalized)) throw new Error("A valid email is required");
+    if (!normalized || !EMAIL_PATTERN.test(normalized)) {
+      throw new Error("A valid email is required");
+    }
     return normalized;
   }
 
@@ -175,6 +132,73 @@ class CampaignFollowService {
 }
 
 export const campaignFollowService = new CampaignFollowService();
+
+/**
+ * Wallet-based campaign follows — Issue #942 (v1).
+ *
+ * Users follow a campaign to receive progress updates WITHOUT sponsoring
+ * it. v1 keeps follows in memory (same singleton pattern as
+ * campaign-community.service / campaign-collaboration.service) until a
+ * persistent data source lands; the API surface is designed so a durable
+ * store can slot in behind the same methods.
+ */
+export class FollowSubscriptionService {
+  private follows = new Map<string, CampaignFollow[]>();
+  /** Sequence numbers per campaign for the digest preview (newest first). */
+  private sequence = new Map<string, number>();
+
+  /** All follows for a campaign (audience view, e.g. for creators). */
+  getFollows(campaignId: string): CampaignFollow[] {
+    return this.follows.get(campaignId) || [];
+  }
+
+  /** Follows belonging to one wallet across all campaigns. */
+  getFollowsFor(followerAddress: string): CampaignFollow[] {
+    const result: CampaignFollow[] = [];
+    for (const list of this.follows.values()) {
+      result.push(
+        ...list.filter(
+          (f) => f.followerAddress.toLowerCase() === followerAddress.toLowerCase(),
+        ),
+      );
+    }
+    return result;
+  }
+
+  getFollow(campaignId: string, followerAddress: string): CampaignFollow | null {
+    return (
+      this.getFollows(campaignId).find(
+        (f) => f.followerAddress.toLowerCase() === followerAddress.toLowerCase(),
+      ) || null
+    );
+  }
+
+  isFollowing(campaignId: string, followerAddress: string): boolean {
+    return this.getFollow(campaignId, followerAddress) !== null;
+  }
+
+  /** Audience size for a campaign — the metric this feature exists for. */
+  getFollowerCount(campaignId: string): number {
+    return this.getFollows(campaignId).length;
+  }
+
+  /**
+   * Follow a campaign. Idempotent: an existing follow for the same wallet
+   * is updated (re-preferenced) rather than duplicated. Returns the follow.
+   */
+  follow(input: FollowCampaignInput): CampaignFollow {
+    if (!input.campaignId?.trim()) throw new Error("campaignId is required");
+    if (!input.followerAddress?.trim()) throw new Error("followerAddress is required");
+
+    const prefs = normalizePrefs(input.prefs);
+    const existing = this.getFollow(input.campaignId, input.followerAddress);
+
+    if (existing) {
+      existing.prefs = prefs;
+      return existing;
+    }
+
+    const follow: CampaignFollow = {
       id: `follow-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
       campaignId: input.campaignId,
       followerAddress: input.followerAddress,
@@ -191,7 +215,7 @@ export const campaignFollowService = new CampaignFollowService();
   updatePrefs(
     campaignId: string,
     followerAddress: string,
-    prefs: Partial<FollowNotificationPrefs>
+    prefs: Partial<FollowNotificationPrefs>,
   ): CampaignFollow | null {
     const follow = this.getFollow(campaignId, followerAddress);
     if (!follow) return null;
@@ -203,7 +227,7 @@ export const campaignFollowService = new CampaignFollowService();
   unfollow(campaignId: string, followerAddress: string): boolean {
     const list = this.follows.get(campaignId) || [];
     const updated = list.filter(
-      (f) => f.followerAddress.toLowerCase() !== followerAddress.toLowerCase()
+      (f) => f.followerAddress.toLowerCase() !== followerAddress.toLowerCase(),
     );
     this.follows.set(campaignId, updated);
     return updated.length !== list.length;
@@ -242,6 +266,8 @@ export const campaignFollowService = new CampaignFollowService();
   }
 }
 
+export const followService = new FollowSubscriptionService();
+
 export interface FollowUpdatePreview {
   id: string;
   campaignId: string;
@@ -259,7 +285,7 @@ const DEMO_UPDATES: { event: FollowEvent; message: string }[] = [
 ];
 
 function normalizePrefs(
-  prefs: Partial<FollowNotificationPrefs> | undefined
+  prefs: Partial<FollowNotificationPrefs> | undefined,
 ): FollowNotificationPrefs {
   // `events: []` is an explicit opt-out of every event and is rejected below;
   // only an omitted events list falls back to the defaults.
@@ -285,7 +311,7 @@ function validatePrefs(prefs: FollowNotificationPrefs): void {
     const destination = (prefs.destination ?? "").trim();
     if (!destination || !validateFollowDestination(prefs.channel, destination)) {
       throw new Error(
-        `Invalid destination for ${FOLLOW_CHANNELS[prefs.channel].label} channel (expected ${FOLLOW_CHANNELS[prefs.channel].hint})`
+        `Invalid destination for ${FOLLOW_CHANNELS[prefs.channel].label} channel (expected ${FOLLOW_CHANNELS[prefs.channel].hint})`,
       );
     }
   }
@@ -316,5 +342,3 @@ export type {
   FollowChannel,
   FollowNotificationPrefs,
 };
-
-export const followService = new CampaignFollowService();

@@ -20,9 +20,8 @@ Bird,
 } from "lucide-react";
 import LiveTreeCounter from "./LiveTreeCounter";
 import AnimatedProgressBar from "./AnimatedProgressBar";
-import { CampaignData, CampaignStatus } from "@/types/campaign";
-import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 import { CampaignData } from "@/types/campaign";
+import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
 
 interface CampaignDetailProps {
@@ -279,7 +278,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span
-              className={`px-3 py-1 rounded-full texe-xs font-bold uppercase tracking-wider ${ compaign.status === "Active"
+              className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${ campaign.status === "Active"
                   ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
                   : campaign.status === "Paused"
                   ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
@@ -300,7 +299,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
               Diversity: {diversityScore}/100 ({diversityTier})
             </span>
             {geographicDiversityBonus && (
-              <span className="px-3 py-1 rounded-full texe-xs font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/40">
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/40">
                 🌍 1.2x Geographic Diversity Bonus
               </span>
             )}
@@ -337,7 +336,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
             <div className="flex items-center gap-2">
               <ShieldCheck className="size-5 text-emerald-400" />
               <div>
-                <h4 className="texe-xs font-bold text-zinc-200">Campaign Creator Management</h4>
+                <h4 className="text-xs font-bold text-zinc-200">Campaign Creator Management</h4>
                 <p className="text-[11px] text-zinc-400">
                   Pause or resume accepting sponsorships on-chain.
                 </p>
@@ -545,8 +544,8 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
 
       {/* Contract & Campaign Specs Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
-          <div className="flex items-center gap-2 text-zinc-400 texe-xs">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
+          <div className="flex items-center gap-2 text-zinc-400 text-xs">
             <User className="size-4 text-emerald-400" />
             <span>Campaign Creator</span>
           </div>
@@ -555,7 +554,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
           <div className="flex items-center gap-2 text-zinc-400 text-xs">
             <Coins className="size-4 text-emerald-400" />
             <span>Funding Asset Token</span>
@@ -565,8 +564,8 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
-          <div className="flex items-center gap-2 text-zinc-400 texe-xs">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
+          <div className="flex items-center gap-2 text-zinc-400 text-xs">
             <Clock className="size-4 text-emerald-400" />
             <span>Campaign Deadline</span>
           </div>
@@ -576,6 +575,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
         </div>
       </div>
     </main>
+    </div>
   );
 };
 
