@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getCampaign } from "@/services/campaign.service";
 import { CampaignDonationPanel } from "@/components/modules/campaign/donation/CampaignDonationPanel";
+import { SUPPORTED_CURRENCIES } from "@/lib/currency";
 
 export const runtime = "nodejs";
 
@@ -39,6 +40,8 @@ export default async function CampaignDonatePage({
         <CampaignDonationPanel
           campaignId={campaign.id}
           campaignName={campaign.name}
+          supportedCurrencies={SUPPORTED_CURRENCIES}
+          settlementCurrency={campaign.currency}
         />
       </div>
     </main>

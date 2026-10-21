@@ -1,13 +1,9 @@
 import { createCampaign, findDuplicateCampaigns, queryCampaigns } from "@/services/campaign.service";
-import {
-  detectLanguage,
-  hasOnlySupportedTranslationLocales,
-  isSupportedTranslationLocale,
-} from "@/lib/translation";
-import { listCreditListings, createCreditListing, purchaseCreditListing } from "@/services/carbon-credit-market.service";
+import { fraudDetectionService } from "@/services/fraud-detection.service";
 import {
   autoTranslate,
   detectLanguage,
+  hasOnlySupportedTranslationLocales,
   isSupportedTranslationLocale,
   localizeCampaign,
   localeFromAcceptLanguage,
@@ -16,8 +12,11 @@ import {
   validateDescriptionTranslations,
   validateLocalizedContentMap,
 } from "@/lib/translation";
+import { listCreditListings, createCreditListing, purchaseCreditListing } from "@/services/carbon-credit-market.service";
 import { withCampaignApiRateLimit } from "@/middlewares/rate-limit.middleware";
 import { UNDERREPRESENTED_CRITERIA } from "@/services/grant-program.service";
+import { getLiveStreamStatusForCampaigns } from "@/services/stream-status.service";
+import type { LiveStreamStatus } from "@/lib/live-stream";
 
 export const runtime = "nodejs";
 
@@ -35,6 +34,7 @@ async function getCampaigns(request: Request) {
   const search = url.searchParams.get("search") ?? undefined;
   const isStaffPick = url.searchParams.has("isStaffPick") ? url.searchParams.get("isStaffPick") === "true" : undefined;
   const includeStats = url.searchParams.get("includeStats") === "true";
+  const includeStreamStatus = url.searchParams.get("includeStreamStatus") === "true";
   const limit = Number(url.searchParams.get("limit") ?? 20);
   const offset = Number(url.searchParams.get("offset") ?? 0);
   const campaigns = await queryCampaigns({
@@ -47,14 +47,29 @@ async function getCampaigns(request: Request) {
   const responseCampaigns = requestedLanguage
     ? campaigns.map((campaign) => localizeCampaign(campaign, requestedLanguage))
     : campaigns;
+  // Provider-backed live status for campaign cards (issue #1225). Opt-in so
+  // existing consumers keep their response shape; only campaigns with a
+  // configured stream hit a provider, and results are cached server-side.
+  let displayCampaigns: Array<
+    (typeof responseCampaigns)[number] & { streamStatus?: LiveStreamStatus; streamStatusCheckedAt?: number }
+  > = responseCampaigns;
+  if (includeStreamStatus) {
+    const statuses = await getLiveStreamStatusForCampaigns(campaigns);
+    displayCampaigns = responseCampaigns.map((campaign) => {
+      const status = statuses.get(campaign.id);
+      return status
+        ? { ...campaign, streamStatus: status.status, streamStatusCheckedAt: status.checkedAt }
+        : campaign;
+    });
+  }
   if (includeStats && creator) {
-const totalTrees = responseCampaigns.reduce((sum, campaign) => sum + (Number(campaign.treesPlanted) || 0), 0);
-    const totalSponsors = responseCampaigns.reduce((sum, campaign) => sum + (Number(campaign.sponsorCount) || 0), 0);
-    const totalCo2 = responseCampaigns.reduce((sum, campaign) => sum + (Number(campaign.co2Sequestered) || 0), 0);
-    const diverseCampaigns = responseCampaigns.filter((campaign) => campaign.geographicDiversity?.bonusApplied).length;
+const totalTrees = displayCampaigns.reduce((sum, campaign) => sum + (Number(campaign.treesPlanted) || 0), 0);
+    const totalSponsors = displayCampaigns.reduce((sum, campaign) => sum + (Number(campaign.sponsorCount) || 0), 0);
+    const totalCo2 = displayCampaigns.reduce((sum, campaign) => sum + (Number(campaign.co2Sequestered) || 0), 0);
+    const diverseCampaigns = displayCampaigns.filter((campaign) => campaign.geographicDiversity?.bonusApplied).length;
     return Response.json({
-      data: responseCampaigns,
-      pagination: { limit, offset, count: responseCampaigns.length },
+      data: displayCampaigns,
+      pagination: { limit, offset, count: displayCampaigns.length },
       stats: {
         totalCampaigns: campaigns.length,
         totalTrees,
@@ -65,7 +80,7 @@ const totalTrees = responseCampaigns.reduce((sum, campaign) => sum + (Number(cam
       },
     });
   }
-  return Response.json({ data: responseCampaigns, pagination: { limit, offset, count: responseCampaigns.length } });
+  return Response.json({ data: displayCampaigns, pagination: { limit, offset, count: displayCampaigns.length } });
 }
 
 async function postCampaign(request: Request) {
@@ -90,6 +105,7 @@ async function postCampaign(request: Request) {
       underrepresentedTags?: string[];
       durationMs?: number;
       deadline?: number;
+      countdownEnabled?: boolean;
       goalAmount?: string;
       network?: "testnet" | "mainnet";
       language?: string;
@@ -187,6 +203,7 @@ async function postCampaign(request: Request) {
         { error: "Automatic translation is unavailable. Provide translations for the supported languages." },
         { status: 501 },
       );
+    }
     let nonprofitPartner: { legalName: string; registrationNumber: string; country: string } | undefined;
     if (body.nonprofitPartner !== undefined) {
       const partner = body.nonprofitPartner;
@@ -227,9 +244,6 @@ async function postCampaign(request: Request) {
       );
     }
 
-const description = body.description ?? "";
-    const language = body.language ?? detectLanguage(description);
-    const translations = body.translations ?? {};
     // Language detection and auto-translation
     const description = body.description ?? "";
     const language = body.language ? normalizeTranslationLocale(body.language)! : detectLanguage(description);
@@ -269,13 +283,41 @@ const description = body.description ?? "";
       durationMs,
       goalAmount: body.goalAmount,
       network: body.network,
+      deadline: body.deadline,
+      countdownEnabled: body.countdownEnabled === true,
       nonprofitPartner,
       language,
       translations,
       localizedContent: body.localizedContent,
       insurancePool,
     });
-    return Response.json(campaign, { status: 201 });
+
+    // Automated AI fraud detection review on campaign publish
+    const fraudReview = await fraudDetectionService.reviewCampaignListing({
+      id: campaign.id,
+      title: campaign.name,
+      creatorAddress: campaign.creator,
+      description: campaign.description,
+      goalAmount: campaign.goalAmount,
+      treeCount: campaign.treeCount,
+      durationDays: campaign.durationMs ? Math.round(campaign.durationMs / 86_400_000) : undefined,
+      location: campaign.location,
+      submittedLocation: body.gpsLocations?.[0] ? { latitude: body.gpsLocations[0].latitude, longitude: body.gpsLocations[0].longitude } : undefined,
+    });
+
+    return Response.json(
+      {
+        ...campaign,
+        fraudReview: {
+          action: fraudReview.action,
+          riskScore: fraudReview.report.overallRiskScore,
+          riskLevel: fraudReview.report.riskLevel,
+          recommendation: fraudReview.report.recommendation,
+          reviewStatus: fraudReview.reviewItem ? fraudReview.reviewItem.status : 'PASSED',
+        },
+      },
+      { status: 201 }
+    );
   } catch {
     return Response.json({ error: "Invalid JSON request body" }, { status: 400 });
   }

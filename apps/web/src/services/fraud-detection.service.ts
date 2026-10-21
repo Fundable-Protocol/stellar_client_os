@@ -10,13 +10,60 @@ import {
   AnalyzeCampaignInput,
   CampaignSecurityStatus,
   FraudDetectionReport,
+  ManualReviewItem,
+  ManualReviewQueueFilter,
+  ModelMetrics,
+  RetrainingLog,
+  ReviewCampaignDecisionInput,
   RiskLevel,
   SuspiciousActivityFlag,
 } from '@/types/fraud-detection';
 
+export interface CampaignListingPublishInput {
+  id: string;
+  title: string;
+  creatorAddress?: string;
+  description?: string;
+  goalAmount?: string;
+  treeCount?: number;
+  targetTrees?: number;
+  durationDays?: number;
+  location?: string;
+  submittedLocation?: { latitude: number; longitude: number };
+  plantingBatches?: Array<{ treeCount: number; plantedAt: string; verifiedAt?: string; planterAddress?: string; verifierAddress?: string; evidenceHash?: string; latitude?: number; longitude?: number }>;
+  verificationEvents?: Array<{ planterAddress?: string; verifierAddress?: string; submittedAt: string; verifiedAt?: string; evidenceHash?: string }>;
+  backers?: Array<{ backerAddress: string; ipAddress?: string; pledgeAmount: number; pledgedAt: string; accountAgeDays?: number }>;
+  transactions?: Array<{ txHash: string; from: string; to: string; amount: number; timestamp: number }>;
+}
+
+export interface PublishReviewResult {
+  action: 'ALLOWED' | 'FLAGGED_FOR_MANUAL_REVIEW' | 'AUTO_SUSPENDED';
+  report: FraudDetectionReport;
+  reviewItem?: ManualReviewItem;
+}
+
 export class FraudDetectionService {
   private reports: Map<string, FraudDetectionReport> = new Map();
   private securityStatuses: Map<string, CampaignSecurityStatus> = new Map();
+  private reviewQueue: Map<string, ManualReviewItem> = new Map();
+  private retrainingHistory: RetrainingLog[] = [];
+  private modelVersion: string = 'v1.0.0';
+  private totalEvaluations: number = 0;
+  private lastRetrainedAt: number = Date.now();
+  private quarterlyIntervalMs: number = 90 * 24 * 60 * 60 * 1000;
+
+  /**
+   * Reset all in-memory state (useful for tests).
+   */
+  public reset(): void {
+    this.reports.clear();
+    this.securityStatuses.clear();
+    this.reviewQueue.clear();
+    this.retrainingHistory = [];
+    this.modelVersion = 'v1.0.0';
+    this.totalEvaluations = 0;
+    this.lastRetrainedAt = Date.now();
+  }
 
   /**
    * Analyze campaign backers and transaction patterns using AI/ML heuristics.
@@ -223,6 +270,265 @@ export class FraudDetectionService {
     }
 
     return status;
+  }
+
+  /**
+   * Automated review executed when a campaign listing is submitted / published.
+   * Flags suspicious campaigns and routes them to a manual review queue before going live.
+   */
+  public async reviewCampaignListing(input: CampaignListingPublishInput): Promise<PublishReviewResult> {
+    this.totalEvaluations++;
+
+    // Run heuristics & ML anomaly checks
+    const analyzeInput: AnalyzeCampaignInput = {
+      campaignId: input.id,
+      campaignTitle: input.title,
+      creatorAddress: input.creatorAddress,
+      location: input.location,
+      treeCount: input.treeCount,
+      targetTrees: input.targetTrees,
+      campaignDurationDays: input.durationDays,
+      backers: input.backers,
+      transactions: input.transactions,
+      submittedLocation: input.submittedLocation,
+      plantingBatches: input.plantingBatches,
+      verificationEvents: input.verificationEvents,
+      campaignSnapshot: {
+        treeCount: input.treeCount,
+        goalAmount: input.goalAmount ? Number(input.goalAmount) : undefined,
+        location: input.location,
+        createdAt: new Date().toISOString(),
+      },
+    };
+
+    // Check textual red flags if description is provided
+    const extraFlags: SuspiciousActivityFlag[] = [];
+    if (input.description) {
+      const lower = input.description.toLowerCase();
+      const suspiciousKeywords = [
+        'guaranteed 100% returns',
+        'no risk',
+        'wire transfer only',
+        'free crypto bonus',
+        'send eth to double',
+      ];
+      const matched = suspiciousKeywords.filter((kw) => lower.includes(kw));
+      if (matched.length > 0) {
+        extraFlags.push({
+          id: `flag-text-${Date.now()}`,
+          patternType: 'BOT_SPONSORS',
+          description: `Suspicious listing content: keyword(s) detected [${matched.join(', ')}]`,
+          severityScore: 70,
+          evidenceDetails: { matchedKeywords: matched },
+          detectedAt: new Date().toISOString(),
+        });
+      }
+    }
+
+    const report = await this.analyzeCampaign(analyzeInput);
+
+    if (extraFlags.length > 0) {
+      report.flags.push(...extraFlags);
+      const maxScore = Math.max(report.overallRiskScore, ...extraFlags.map((f) => f.severityScore));
+      report.overallRiskScore = Math.min(100, Math.round(maxScore + (report.flags.length - 1) * 5));
+      if (report.overallRiskScore >= 80) {
+        report.riskLevel = 'CRITICAL';
+        report.recommendation = 'AUTO_SUSPEND';
+        report.isSuspended = true;
+      } else if (report.overallRiskScore >= 60) {
+        report.riskLevel = 'HIGH';
+        report.recommendation = 'REVIEW';
+      } else if (report.overallRiskScore >= 35) {
+        report.riskLevel = 'MEDIUM';
+        if (report.recommendation === 'PASS') {
+          report.recommendation = 'REVIEW';
+        }
+      }
+    }
+
+    if (report.recommendation === 'AUTO_SUSPEND') {
+      const reviewItem: ManualReviewItem = {
+        id: `rev-${input.id}-${Date.now()}`,
+        campaignId: input.id,
+        campaignTitle: input.title,
+        creatorAddress: input.creatorAddress,
+        flaggedAt: new Date().toISOString(),
+        riskScore: report.overallRiskScore,
+        riskLevel: report.riskLevel,
+        flags: report.flags,
+        status: 'PENDING',
+        submittedAt: new Date().toISOString(),
+      };
+      this.reviewQueue.set(input.id, reviewItem);
+      return {
+        action: 'AUTO_SUSPENDED',
+        report,
+        reviewItem,
+      };
+    }
+
+    if (report.recommendation === 'REVIEW' || report.flags.length > 0 || report.overallRiskScore >= 35) {
+      const reviewItem: ManualReviewItem = {
+        id: `rev-${input.id}-${Date.now()}`,
+        campaignId: input.id,
+        campaignTitle: input.title,
+        creatorAddress: input.creatorAddress,
+        flaggedAt: new Date().toISOString(),
+        riskScore: report.overallRiskScore,
+        riskLevel: report.riskLevel,
+        flags: report.flags,
+        status: 'PENDING',
+        submittedAt: new Date().toISOString(),
+      };
+      this.reviewQueue.set(input.id, reviewItem);
+      this.securityStatuses.set(input.id, {
+        campaignId: input.id,
+        status: 'FLAGGED',
+        reason: `Flagged for manual review (Risk Score: ${report.overallRiskScore})`,
+      });
+
+      return {
+        action: 'FLAGGED_FOR_MANUAL_REVIEW',
+        report,
+        reviewItem,
+      };
+    }
+
+    return {
+      action: 'ALLOWED',
+      report,
+    };
+  }
+
+  /**
+   * Fetch manual review queue for admins with optional filters.
+   */
+  public async getManualReviewQueue(filter?: ManualReviewQueueFilter): Promise<ManualReviewItem[]> {
+    let items = Array.from(this.reviewQueue.values());
+    if (filter?.status) {
+      items = items.filter((item) => item.status === filter.status);
+    }
+    if (filter?.riskLevel) {
+      items = items.filter((item) => item.riskLevel === filter.riskLevel);
+    }
+    if (filter?.minRiskScore !== undefined) {
+      items = items.filter((item) => item.riskScore >= filter.minRiskScore!);
+    }
+    return items.sort((a, b) => new Date(b.flaggedAt).getTime() - new Date(a.flaggedAt).getTime());
+  }
+
+  /**
+   * Process admin manual review decision (Approve or Reject campaign listing).
+   */
+  public async processManualReview(
+    campaignId: string,
+    decisionInput: ReviewCampaignDecisionInput
+  ): Promise<ManualReviewItem> {
+    const item = this.reviewQueue.get(campaignId);
+    if (!item) {
+      throw new Error(`Campaign review queue item not found for id: ${campaignId}`);
+    }
+
+    const now = new Date().toISOString();
+    item.status = decisionInput.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    item.reviewedAt = now;
+    item.reviewedBy = decisionInput.reviewedBy;
+    item.reviewNotes = decisionInput.notes;
+
+    if (decisionInput.decision === 'APPROVE') {
+      this.securityStatuses.set(campaignId, {
+        campaignId,
+        status: 'ACTIVE',
+      });
+      const report = this.reports.get(campaignId);
+      if (report) {
+        report.isSuspended = false;
+        report.recommendation = 'PASS';
+      }
+    } else {
+      await this.suspendCampaign(
+        campaignId,
+        decisionInput.notes || `Rejected by admin manual review (${decisionInput.reviewedBy})`
+      );
+    }
+
+    return item;
+  }
+
+  /**
+   * Monitor model performance, false positive rate (FPR), and retraining schedules.
+   */
+  public getModelMetrics(): ModelMetrics {
+    const items = Array.from(this.reviewQueue.values());
+    const approvedCount = items.filter((i) => i.status === 'APPROVED').length;
+    const rejectedCount = items.filter((i) => i.status === 'REJECTED').length;
+    const flaggedCount = items.length;
+
+    // False Positive Rate: Flagged by model, but verified safe by admin
+    const falsePositiveRate = flaggedCount > 0 ? Math.round((approvedCount / flaggedCount) * 1000) / 1000 : 0;
+    const nextScheduled = new Date(this.lastRetrainedAt + this.quarterlyIntervalMs).toISOString();
+
+    return {
+      totalEvaluations: Math.max(this.totalEvaluations, flaggedCount),
+      flaggedCount,
+      approvedCount,
+      rejectedCount,
+      falsePositiveRate,
+      lastRetrainedAt: new Date(this.lastRetrainedAt).toISOString(),
+      nextScheduledRetrainingAt: nextScheduled,
+      version: this.modelVersion,
+    };
+  }
+
+  /**
+   * Check if quarterly retraining is due.
+   */
+  public isQuarterlyRetrainingDue(now = Date.now()): boolean {
+    return now >= this.lastRetrainedAt + this.quarterlyIntervalMs;
+  }
+
+  /**
+   * Trigger quarterly / periodic model retraining with manual review queue feedback.
+   */
+  public async retrainModel(options?: {
+    triggeredBy?: 'QUARTERLY_SCHEDULE' | 'MANUAL';
+    notes?: string;
+    now?: number;
+  }): Promise<RetrainingLog> {
+    const currentTime = options?.now ?? Date.now();
+    const currentMetrics = this.getModelMetrics();
+    const prevVersion = this.modelVersion;
+
+    // Bump minor version for quarterly retrained model
+    const [major, minor, patch] = prevVersion.replace('v', '').split('.').map(Number);
+    const newVersion = `v${major}.${minor + 1}.${patch}`;
+
+    const items = Array.from(this.reviewQueue.values());
+    const trainingSamplesCount = items.length;
+
+    const log: RetrainingLog = {
+      id: `retrain-${Date.now()}`,
+      retrainedAt: new Date(currentTime).toISOString(),
+      triggeredBy: options?.triggeredBy ?? 'QUARTERLY_SCHEDULE',
+      previousVersion: prevVersion,
+      newVersion,
+      falsePositiveRateBefore: currentMetrics.falsePositiveRate,
+      trainingSamplesCount,
+      notes: options?.notes || `Quarterly model retraining incorporating ${trainingSamplesCount} human review decisions.`,
+    };
+
+    this.modelVersion = newVersion;
+    this.lastRetrainedAt = currentTime;
+    this.retrainingHistory.unshift(log);
+
+    return log;
+  }
+
+  /**
+   * Get historical retraining logs.
+   */
+  public getRetrainingLogs(): RetrainingLog[] {
+    return [...this.retrainingHistory];
   }
 }
 

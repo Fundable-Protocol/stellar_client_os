@@ -31,6 +31,18 @@ describe("PersonalizedCampaignRecommendationService", () => {
     expect(result.data[0].id).toBe("shared");
     expect(result.data[0].components.collaboratorInterest).toBe(1);
   });
+  it("uses campaign views to rank similar campaigns and omits already viewed campaigns", async () => {
+    const service = new PersonalizedCampaignRecommendationService(source([
+      campaign({ id: "viewed", token: "CNATIVE" }),
+      campaign({ id: "similar", token: "CNATIVE" }),
+      campaign({ id: "different", token: "CUSDC" }),
+    ]));
+    const result = await service.getRecommendations("GALICE", { viewedCampaignIds: ["viewed"] });
+    expect(result.data.map((item) => item.id)).toEqual(["similar", "different"]);
+    expect(result.data[0].components.browsingHistory).toBe(1);
+    expect(result.data[0].reasons).toContain("Similar to campaigns you viewed");
+    expect(result.meta.coldStart).toBe(false);
+  });
   it("returns a deterministic popular-campaign fallback for new users", async () => {
     const service = new PersonalizedCampaignRecommendationService(source([campaign({ id: "less-raised", totalRaised: "10" }), campaign({ id: "more-raised", totalRaised: "20" })]));
     const result = await service.getRecommendations("GNEW");

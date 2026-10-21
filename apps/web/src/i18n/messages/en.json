@@ -1,0 +1,160 @@
+{
+  "common": {
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "cancel": "Cancel",
+    "close": "Close",
+    "delete": "Delete",
+    "remove": "Remove",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "retry": "Retry",
+    "copy": "Copy",
+    "copied": "Copied",
+    "optional": "Optional",
+    "somethingWentWrong": "Something went wrong. Please try again.",
+    "connectWalletPrompt": "Connect your wallet to manage these settings."
+  },
+  "nav": {
+    "mainNavigation": "Main navigation",
+    "brand": "Fundable",
+    "home": "Home",
+    "balances": "Balances",
+    "social": "Social",
+    "grants": "Grants",
+    "howItWorks": "How it works",
+    "faqs": "FAQs",
+    "contact": "Contact"
+  },
+  "header": {
+    "openMenu": "Open navigation menu",
+    "closeMenu": "Close navigation menu",
+    "viewNotifications": "View notifications",
+    "connectingWallet": "Connecting wallet…",
+    "connecting": "Connecting…",
+    "connected": "Connected",
+    "walletConnected": "Wallet connected: {address}"
+  },
+  "language": {
+    "label": "Language",
+    "select": "Select language",
+    "current": "Current language: {language}"
+  },
+  "settings": {
+    "title": "Settings",
+    "sections": "Settings sections",
+    "notifications": {
+      "title": "Notification Settings",
+      "nav": "Notifications",
+      "description": "Choose how you hear about the campaigns you have backed."
+    },
+    "language": {
+      "title": "Language & Region",
+      "nav": "Language",
+      "description": "Choose the language used across the Fundable interface. Your choice is saved on this device.",
+      "rtlNotice": "Arabic is displayed right-to-left."
+    },
+    "webhooks": {
+      "title": "Webhooks",
+      "nav": "Webhooks",
+      "description": "Receive signed POST notifications when something happens on your campaigns."
+    }
+  },
+  "seo": {
+    "sectionTitle": "Search & social (SEO)",
+    "advanced": "Advanced",
+    "description": "Customise how this campaign appears in search engines and when shared on social media.",
+    "fallbackNotice": "Leave a field empty to use the campaign name and description.",
+    "titleLabel": "Page title",
+    "titlePlaceholder": "e.g. Restore 2,000 mangroves in Lagos",
+    "descriptionLabel": "Meta description",
+    "descriptionPlaceholder": "A one or two sentence summary that makes people want to click.",
+    "ogImageLabel": "Open Graph image URL",
+    "ogImageHint": "Use an https image, ideally 1200 × 630 pixels.",
+    "characterCount": "{count} / {max} characters",
+    "statusGood": "Good length",
+    "statusShort": "A little short",
+    "statusLong": "{count} over the recommended limit",
+    "searchPreview": "Search result preview",
+    "socialPreview": "Social share preview",
+    "noImage": "No image set",
+    "saveSuccess": "SEO settings saved.",
+    "invalidImage": "Image URL must be an absolute http(s) URL."
+  },
+  "webhooks": {
+    "configTitle": "Webhook endpoint",
+    "urlLabel": "Payload URL",
+    "urlPlaceholder": "https://example.com/hooks/fundable",
+    "secretLabel": "Signing secret",
+    "secretHint": "Every request carries an X-Webhook-Signature header: HMAC-SHA256 of \"timestamp.body\" using this secret.",
+    "secretPlaceholder": "Leave empty to generate one",
+    "secretMasked": "Stored secret: {secret}",
+    "secretRevealOnce": "Copy this secret now. It will not be shown again.",
+    "rotateSecret": "Rotate secret",
+    "eventsLabel": "Events to send",
+    "enabled": "Deliveries enabled",
+    "sendTest": "Send test event",
+    "testQueued": "Test event queued. Check the event log in a few seconds.",
+    "saved": "Webhook settings saved.",
+    "removed": "Webhook removed.",
+    "retryPolicy": "Failed deliveries are retried up to {count} times with exponential back-off.",
+    "events": {
+      "pledge_created": "New pledge",
+      "campaign_milestone_reached": "Milestone reached",
+      "campaign_ended": "Campaign ended",
+      "refund_requested": "Refund requested",
+      "webhook_test": "Test event"
+    },
+    "log": {
+      "title": "Webhook event log",
+      "description": "Recent delivery attempts to your webhook endpoint.",
+      "empty": "No deliveries yet.",
+      "notConfigured": "Configure a webhook endpoint in settings to start receiving events.",
+      "configure": "Open webhook settings",
+      "time": "Time",
+      "event": "Event",
+      "status": "Status",
+      "attempt": "Attempt",
+      "response": "Response",
+      "delivered": "Delivered",
+      "failed": "Failed",
+      "retrying": "Retrying",
+      "attemptOf": "{attempt} of {max}"
+    }
+  },
+  "roi": {
+    "title": "Estimate your return",
+    "subtitle": "Backers share {percent}% of this campaign's revenue for {years} years.",
+    "pledgeAmount": "Pledge amount",
+    "yourShare": "Your share of the backer pool",
+    "annualPayout": "Estimated payout in year 1",
+    "totalReturn": "Total estimated return",
+    "netProfit": "Estimated net profit",
+    "roi": "Estimated ROI",
+    "multiple": "Return multiple",
+    "payback": "Estimated payback",
+    "paybackYear": "Year {year}",
+    "paybackNever": "Not within the term",
+    "yearlyBreakdown": "Year-by-year estimate",
+    "yearLabel": "Year {year}",
+    "disclaimer": "Projections are estimates only, based on the creator's revenue forecast. They are not a guarantee of returns. Actual results may be lower, and you could lose some or all of your pledge.",
+    "terms": {
+      "title": "Investment terms",
+      "description": "Set the revenue-sharing terms backers use to estimate their potential return.",
+      "type": "Campaign type",
+      "revenue_share": "Revenue share",
+      "equity": "Equity",
+      "revenueSharePercent": "Revenue share for backers (%)",
+      "projectedAnnualRevenue": "Projected annual revenue",
+      "fundingGoal": "Funding goal",
+      "termYears": "Term (years)",
+      "annualGrowthPercent": "Projected annual revenue growth (%)",
+      "currency": "Currency",
+      "minPledge": "Minimum pledge",
+      "maxPledge": "Maximum pledge",
+      "saved": "Investment terms saved.",
+      "notInvestment": "This campaign does not offer a financial return."
+    }
+  }
+}

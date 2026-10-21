@@ -68,7 +68,9 @@ interface WalletContextType {
   supportedWallets: { id: WalletId; name: string; icon: string }[];
 }
 
-const WalletContext = createContext<WalletContextType | undefined>(undefined);
+/** Exported so optional-wallet UI can read the session without throwing when
+ * no provider is mounted (e.g. static previews and component tests). */
+export const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 export const useWallet = () => {
   const context = useContext(WalletContext);

@@ -1,19 +1,31 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Heart, Leaf } from "lucide-react";
+import { CampaignCountdown } from "@/components/CampaignCountdown";
+import { CampaignViewTracker } from "@/components/campaign/CampaignViewTracker";
 import CampaignShareButtons from "@/components/campaign/CampaignShareButtons";
 import { getCampaign } from "@/services/campaign.service";
 import { VerificationEvidenceGallery } from "@/components/campaign/VerificationEvidenceGallery";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
+import { CampaignBudgetBreakdown } from "@/components/modules/campaign/CampaignBudgetBreakdown";
+import { StretchGoals } from "@/components/modules/campaign/StretchGoals";
+import { CampaignRoadmapTimeline } from "@/components/modules/campaign/CampaignRoadmapTimeline";
 import { CampaignDonationPanel } from "@/components/modules/campaign/donation/CampaignDonationPanel";
 import { RewardTiersInstalmentCheckout } from "@/components/modules/campaign/instalments/RewardTiersInstalmentCheckout";
 import { InAppSurveyNotificationBanner } from "@/components/modules/campaign/survey/InAppSurveyNotificationBanner";
 import { CreatorSurveyResultsDashboard } from "@/components/modules/campaign/survey/CreatorSurveyResultsDashboard";
 import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
-
 import { CampaignComplianceDocumentsList } from "@/components/modules/campaign/compliance/CampaignComplianceDocumentsList";
 import { NFTRewardTiersSection } from "@/components/modules/campaign/reward-nft/NFTRewardTiersSection";
 import { RelatedCampaignsShelf } from "@/components/campaign/RelatedCampaignsShelf";
+import { CampaignReviews } from "@/components/modules/campaign/reviews/CampaignReviews";
+import { CampaignCreatorReviewSettings } from "@/components/modules/campaign/reviews/CampaignCreatorReviewSettings";
+// #1196 — Campaign FAQ section
+import { CampaignFaqSection } from "@/components/modules/campaign/CampaignFaqSection";
+// #1206 — Backer messaging (creator only, shown when canManage=true)
+import { BackerMessageComposer } from "@/components/modules/campaign/BackerMessageComposer";
+// #1207 — Campaign boost purchase (creator only)
+import { CampaignBoostPurchase } from "@/components/modules/campaign/CampaignBoostPurchase";
 
 export const runtime = "nodejs";
 
@@ -28,9 +40,12 @@ export default async function CampaignPage({
   const progressPercent = goal > 0n
     ? Math.min(Number((BigInt(campaign.raisedAmount) * 100n) / goal), 100)
     : 0;
+  const deadline = campaign.deadline;
+  const countdownVisible = Boolean(deadline && (campaign.countdownEnabled || deadline - Date.now() <= 7 * 24 * 60 * 60 * 1000));
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-6 py-10">
+      <CampaignViewTracker campaignId={campaign.id} />
       <InAppSurveyNotificationBanner campaignId={campaign.id} />
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex items-center gap-2">
@@ -72,6 +87,9 @@ export default async function CampaignPage({
         </div>
       </section>
 
+      {countdownVisible && deadline && <CampaignCountdown targetDate={deadline} />}
+      <StretchGoals goals={campaign.stretchGoals ?? []} raisedAmount={campaign.raisedAmount} />
+
       {/* Real-time CO2 Sequestration Impact Calculator (#839) */}
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <div className="mb-4">
@@ -86,6 +104,11 @@ export default async function CampaignPage({
         />
       </section>
 
+      <CampaignRoadmapTimeline phases={((campaign as unknown as { milestones?: Array<{ id: string; title: string; targetDate: string; description: string; completed?: boolean }> }).milestones ?? [])} />
+      <section aria-labelledby="campaign-budget-heading" className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <h2 id="campaign-budget-heading" className="sr-only">Campaign budget breakdown</h2>
+        <CampaignBudgetBreakdown campaignId={campaign.id} />
+      </section>
       {/* Direct Charitable Contribution (#865) */}
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <div className="mb-4">
@@ -136,6 +159,29 @@ export default async function CampaignPage({
         campaignId={campaign.id}
         creatorAddress={campaign.creatorAddress}
         campaignStatus={campaign.status}
+      />
+
+      <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <CampaignReviews campaignId={campaign.id} />
+        <CampaignCreatorReviewSettings campaignId={campaign.id} creatorAddress={campaign.creator} />
+      </section>
+
+      {/* #1196 — Campaign FAQ section editable by creator */}
+      <CampaignFaqSection
+        campaignId={campaign.id}
+        isCreator={true}
+      />
+
+      {/* #1206 — Backer messaging composer (visible to creator) */}
+      <BackerMessageComposer
+        campaignId={campaign.id}
+        creatorAddress={campaign.creatorAddress}
+      />
+
+      {/* #1207 — Campaign boost / paid promotion */}
+      <CampaignBoostPurchase
+        campaignId={campaign.id}
+        creatorAddress={campaign.creatorAddress}
       />
 
       {/* Horizontally Scrollable Related Campaigns Shelf */}

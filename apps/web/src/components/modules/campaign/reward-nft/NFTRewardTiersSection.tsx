@@ -222,10 +222,34 @@ export function NFTRewardTiersSection({
 
                   <div className="pt-2 flex items-baseline justify-between">
                     <div>
-                      <span className="text-xs text-zinc-400">Eligible pledge from</span>
-                      <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
-                        {tier.minimumPledge} <span className="text-xs text-zinc-500">{tier.token}</span>
-                      </p>
+                      {tier.earlyBirdPricing && 
+                       tier.earlyBirdPricing.claimedCount !== undefined &&
+                       tier.earlyBirdPricing.claimedCount < tier.earlyBirdPricing.earlyBirdLimit ? (
+                        <>
+                          <Badge className="mb-1 bg-amber-500 text-white text-[10px]">
+                            🔥 Early Bird {tier.earlyBirdPricing.earlyBirdLimit - tier.earlyBirdPricing.claimedCount} left!
+                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-zinc-400 line-through">
+                              {tier.minimumPledge} {tier.token}
+                            </span>
+                            <p className="text-lg font-bold text-amber-600 dark:text-amber-400">
+                              {(parseFloat(tier.minimumPledge) * (1 - tier.earlyBirdPricing.discountPercent / 100)).toFixed(2)}{" "}
+                              <span className="text-xs text-zinc-500">{tier.token}</span>
+                              <span className="text-xs font-normal text-amber-600 ml-1">
+                                (-{tier.earlyBirdPricing.discountPercent}%)
+                              </span>
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xs text-zinc-400">Eligible pledge from</span>
+                          <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                            {tier.minimumPledge} <span className="text-xs text-zinc-500">{tier.token}</span>
+                          </p>
+                        </>
+                      )}
                     </div>
 
                     {tier.maxSupply ? (

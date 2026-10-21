@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { Heart, Receipt, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useWallet } from "@/providers/StellarWalletProvider";
+import { PledgeThankYouContent, type PledgeThankYouDetails } from "@/components/modules/campaign/thank-you/PledgeThankYouContent";
+import { PersonalizedCampaignRecommendations } from "@/components/campaign/PersonalizedCampaignRecommendations";
 import {
   DONATION_ALLOCATION_DESCRIPTION,
   DONATION_PRESET_AMOUNTS,
@@ -26,6 +28,7 @@ export interface CampaignDonationPanelProps {
 
 interface DonationResponse {
   receipt: DonationReceipt;
+  badges?: Array<{ key: string; name: string; description: string; icon: string }>;
 }
 
 /**
@@ -56,6 +59,32 @@ export function CampaignDonationPanel({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<DonationReceipt | null>(null);
+  const [thankYouDetails, setThankYouDetails] = useState<PledgeThankYouDetails | null>(null);
+  const [thankYouError, setThankYouError] = useState<string | null>(null);
+  const [loadingThankYou, setLoadingThankYou] = useState(false);
+
+  useEffect(() => {
+    if (!receipt) return;
+    let active = true;
+    setLoadingThankYou(true);
+    setThankYouError(null);
+    fetch(`/api/campaigns/${campaignId}/thank-you`)
+      .then(async (response) => {
+        const body = (await response.json()) as PledgeThankYouDetails & { error?: string };
+        if (!response.ok) throw new Error(body.error ?? "Could not load the creator's thank-you message.");
+        if (active) setThankYouDetails(body);
+      })
+      .catch((cause: unknown) => {
+        if (active) setThankYouError(cause instanceof Error ? cause.message : "Could not load the creator's thank-you message.");
+      })
+      .finally(() => {
+        if (active) setLoadingThankYou(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [campaignId, receipt]);
+  const [earnedBadges, setEarnedBadges] = useState<DonationResponse["badges"]>([]);
 
   const reset = () => {
     setAmount("");
@@ -65,6 +94,9 @@ export function CampaignDonationPanel({
     setAnonymous(false);
     setError("");
     setReceipt(null);
+    setEarnedBadges([]);
+    setThankYouDetails(null);
+    setThankYouError(null);
   };
 
   const submit = async () => {
@@ -107,6 +139,7 @@ export function CampaignDonationPanel({
 
       const body = (await response.json()) as DonationResponse;
       setReceipt(body.receipt);
+      setEarnedBadges(body.badges ?? []);
       toast.success("Thank you for your donation!");
     } catch {
       setError("Network error — please check your connection and try again.");
@@ -129,6 +162,19 @@ export function CampaignDonationPanel({
         <p className="mt-2 text-sm text-zinc-300">
           Thank you — your contribution goes straight to the campaign creator.
         </p>
+        {loadingThankYou && <p className="mt-4 text-sm text-zinc-400">Loading the creator&apos;s message…</p>}
+        {thankYouError && <p role="alert" className="mt-4 text-sm text-rose-400">{thankYouError}</p>}
+        {!loadingThankYou && !thankYouError && (
+          <PledgeThankYouContent details={thankYouDetails ?? { greeting: "Thank you for backing this campaign." }} />
+        )}
+        {earnedBadges.length > 0 && (
+          <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/5 p-4" aria-live="polite">
+            <h3 className="font-semibold text-amber-200">Badge progress unlocked</h3>
+            <ul className="mt-2 flex flex-wrap gap-2" aria-label="Newly earned backer badges">
+              {earnedBadges.map((badge) => <li key={badge.key} className="rounded-full border border-amber-400/30 px-3 py-1 text-sm text-amber-100">{badge.icon} {badge.name}</li>)}
+            </ul>
+          </div>
+        )}
 
         <dl className="mt-6 divide-y divide-white/10 rounded-xl border border-white/10">
           <div className="flex justify-between gap-4 p-3 text-sm">
@@ -163,6 +209,10 @@ export function CampaignDonationPanel({
             1% of your donation funds the campaign insurance pool. If trees die within
             two years of planting, sponsors receive an automatic refund from the pool.
           </span>
+        </div>
+
+        <div className="mt-6">
+          <PersonalizedCampaignRecommendations />
         </div>
 
         <Button type="button" variant="outline" className="mt-6" onClick={reset}>

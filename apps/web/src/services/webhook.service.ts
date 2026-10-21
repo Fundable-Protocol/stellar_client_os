@@ -55,7 +55,30 @@ export interface WebhookServiceOptions {
   deadLetterPath?: string;
   /** Persistent store for successfully delivered event identities. */
   deduplicationPath?: string;
+  /** Rolling log of every delivery attempt (success and failure). */
+  deliveryLogPath?: string;
+  /** Maximum number of attempts kept in the delivery log. */
+  deliveryLogLimit?: number;
 }
+
+export interface DispatchOptions {
+  /**
+   * Creator the event belongs to. Creator-owned subscriptions only receive
+   * events whose creatorId matches; global subscriptions receive all events.
+   */
+  creatorId?: string;
+  /** Restrict delivery to these subscriptions (e.g. a "send test event" button). */
+  subscriptionIds?: string[];
+}
+
+export interface DeliveryLogQuery {
+  subscriptionId?: string;
+  creatorId?: string;
+  limit?: number;
+}
+
+const sameId = (a?: string, b?: string) =>
+  Boolean(a && b && a.trim().toLowerCase() === b.trim().toLowerCase());
 
 interface DedupeState {
   delivered: string[];
@@ -67,6 +90,9 @@ export class WebhookService {
   private readonly subscriptionsPath: string;
   private readonly deadLetterPath: string;
   private readonly deduplicationPath: string;
+  private readonly deliveryLogPath: string;
+  private readonly deliveryLogLimit: number;
+  private deliveryLogLock: Promise<void> = Promise.resolve();
   private readonly pendingDeliveries: Set<Promise<unknown>> = new Set();
   private readonly inFlightEventKeys = new Set<string>();
   private readonly deliveredEventKeys = new Set<string>();
@@ -79,6 +105,14 @@ export class WebhookService {
     this.subscriptionsPath = options.subscriptionsPath ?? path.join(process.cwd(), 'data', 'webhook_subscriptions.json');
     this.deadLetterPath = options.deadLetterPath ?? path.join(process.cwd(), 'data', 'webhook_dead_letter.json');
     this.deduplicationPath = options.deduplicationPath ?? path.join(process.cwd(), 'data', 'webhook_delivered_events.json');
+    this.deliveryLogPath =
+      options.deliveryLogPath ?? path.join(path.dirname(this.subscriptionsPath), 'webhook_delivery_log.json');
+    this.deliveryLogLimit = options.deliveryLogLimit ?? 1000;
+  }
+
+  /** Total delivery attempts (first try + retries) made before dead-lettering. */
+  get maxAttempts(): number {
+    return this.maxRetries;
   }
 
   // ============================================
@@ -124,7 +158,12 @@ export class WebhookService {
   /**
    * Register a new subscription
    */
-  async createSubscription(url: string, events: string[], secret?: string): Promise<WebhookSubscription> {
+  async createSubscription(
+    url: string,
+    events: string[],
+    secret?: string,
+    options: { creatorId?: string; enabled?: boolean } = {},
+  ): Promise<WebhookSubscription> {
     // Validate URL
     try {
       new URL(url);
@@ -143,11 +182,46 @@ export class WebhookService {
       events,
       secret: secret || randomUUID().replace(/-/g, ''),
       createdAt: new Date().toISOString(),
+      ...(options.creatorId && { creatorId: options.creatorId }),
+      ...(options.enabled !== undefined && { enabled: options.enabled }),
     };
 
     subscriptions.push(newSubscription);
     await this.writeJsonAtomic(this.subscriptionsPath, subscriptions);
     return newSubscription;
+  }
+
+  /**
+   * Update a subscription's URL, events, secret or enabled flag.
+   * Returns null when the subscription does not exist.
+   */
+  async updateSubscription(
+    id: string,
+    patch: Partial<Pick<WebhookSubscription, 'url' | 'events' | 'secret' | 'enabled'>>,
+  ): Promise<WebhookSubscription | null> {
+    if (patch.url !== undefined) {
+      try {
+        new URL(patch.url);
+      } catch {
+        throw new Error('Invalid subscriber URL format');
+      }
+    }
+    if (patch.events !== undefined && patch.events.length === 0) {
+      throw new Error('Subscription must specify at least one event type');
+    }
+
+    const subscriptions = await this.getSubscriptions();
+    const index = subscriptions.findIndex((sub) => sub.id === id);
+    if (index === -1) return null;
+
+    const updated: WebhookSubscription = {
+      ...subscriptions[index],
+      ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)),
+      updatedAt: new Date().toISOString(),
+    };
+    subscriptions[index] = updated;
+    await this.writeJsonAtomic(this.subscriptionsPath, subscriptions);
+    return updated;
   }
 
   /**
@@ -277,6 +351,59 @@ export class WebhookService {
     }
   }
 
+  /**
+   * Record an attempt without delaying delivery or retry scheduling. The write
+   * is tracked so awaitPendingDeliveries() also waits for the log to settle.
+   */
+  private logDeliveryAttempt(attempt: WebhookDeliveryAttempt): void {
+    const write = this.recordDeliveryAttempt(attempt);
+    this.pendingDeliveries.add(write);
+    write.finally(() => {
+      this.pendingDeliveries.delete(write);
+    });
+  }
+
+  /** Append an attempt to the rolling delivery log. Never throws. */
+  private async recordDeliveryAttempt(attempt: WebhookDeliveryAttempt): Promise<void> {
+    const previous = this.deliveryLogLock;
+    let release!: () => void;
+    this.deliveryLogLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+    try {
+      const log = await this.readDeliveryLog();
+      log.push(attempt);
+      await this.writeJsonAtomic(this.deliveryLogPath, log.slice(-this.deliveryLogLimit));
+    } catch (err) {
+      console.error('Failed to write webhook delivery log:', err);
+    } finally {
+      release();
+    }
+  }
+
+  private async readDeliveryLog(): Promise<WebhookDeliveryAttempt[]> {
+    try {
+      const data = await fs.readFile(this.deliveryLogPath, 'utf-8');
+      return JSON.parse(data) as WebhookDeliveryAttempt[];
+    } catch (err: unknown) {
+      if ((err as { code?: string }).code === 'ENOENT') return [];
+      throw err;
+    }
+  }
+
+  /** Delivery attempts, newest first, optionally scoped to a subscription or creator. */
+  async getDeliveryLog(query: DeliveryLogQuery = {}): Promise<WebhookDeliveryAttempt[]> {
+    const log = await this.readDeliveryLog();
+    const filtered = log.filter(
+      (entry) =>
+        (!query.subscriptionId || entry.subscriptionId === query.subscriptionId) &&
+        (!query.creatorId || sameId(entry.creatorId, query.creatorId)),
+    );
+    return filtered.reverse().slice(0, query.limit ?? 100);
+  }
+
   // ============================================
   // Webhook Dispatcher Methods
   // ============================================
@@ -294,10 +421,18 @@ export class WebhookService {
   /**
    * Dispatch an event to all interested subscribers
    */
-  async dispatchEvent(event: string, eventData: Record<string, unknown>): Promise<void> {
+  async dispatchEvent(
+    event: string,
+    eventData: Record<string, unknown>,
+    options: DispatchOptions = {},
+  ): Promise<void> {
     const subscriptions = await this.getSubscriptions();
     const matchingSubs = subscriptions.filter(
-      (sub) => sub.events.includes(event) || sub.events.includes('*')
+      (sub) =>
+        (sub.events.includes(event) || sub.events.includes('*')) &&
+        sub.enabled !== false &&
+        (!sub.creatorId || sameId(sub.creatorId, options.creatorId)) &&
+        (!options.subscriptionIds || options.subscriptionIds.includes(sub.id))
     );
 
     for (const sub of matchingSubs) {
@@ -387,10 +522,14 @@ export class WebhookService {
       success,
       errorMessage,
       attempt: attemptNum,
+      maxAttempts: this.maxRetries,
+      nextRetryAt: null,
+      ...(sub.creatorId && { creatorId: sub.creatorId }),
     };
 
     if (success) {
       console.log(`[Webhook success] Event: ${event}, Sub: ${sub.id}, Url: ${sub.url}`);
+      this.logDeliveryAttempt(attemptRecord);
       return true;
     }
 
@@ -400,7 +539,11 @@ export class WebhookService {
 
     if (attemptNum < this.maxRetries) {
       const backoffDelay = this.baseDelay * Math.pow(2, attemptNum - 1);
-      
+      this.logDeliveryAttempt({
+        ...attemptRecord,
+        nextRetryAt: new Date(Date.now() + backoffDelay).toISOString(),
+      });
+
       const retryPromise = new Promise<boolean>((resolve) => {
         setTimeout(() => {
           this.deliverWithRetry(sub, event, eventData, attemptNum + 1).then(resolve, () => resolve(false));
@@ -417,6 +560,7 @@ export class WebhookService {
       console.error(
         `[Webhook dead-letter] All retries (${this.maxRetries}) exhausted for ${sub.url}. Writing to DLQ.`
       );
+      this.logDeliveryAttempt(attemptRecord);
       await this.logToDeadLetter(attemptRecord);
       return false;
     }

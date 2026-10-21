@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   CAMPAIGN_WIZARD_STEPS,
   CampaignWizardData,
@@ -11,6 +11,8 @@ import {
   StretchGoalItem,
 } from "@/components/modules/campaign/wizard/campaign-wizard-config";
 
+export const MAX_CAMPAIGN_TAGS = 10;
+
 export interface UseCampaignWizardReturn {
   stepIndex: number;
   currentStep: typeof CAMPAIGN_WIZARD_STEPS[number];
@@ -20,7 +22,12 @@ export interface UseCampaignWizardReturn {
   isFirstStep: boolean;
   isLastStep: boolean;
   isDirty: boolean;
+  milestones: MilestoneItem[];
+  previouslyUsedTags: string[];
   updateField: <K extends keyof CampaignWizardData>(field: K, value: CampaignWizardData[K]) => void;
+  setCategory: (category: string) => void;
+  addTag: (tag: string) => boolean;
+  removeTag: (tag: string) => void;
   addMilestone: (milestone: Omit<MilestoneItem, "id">) => void;
   removeMilestone: (id: string) => void;
   addStretchGoal: (goal: Omit<StretchGoalItem, "id">) => void;
@@ -40,6 +47,34 @@ export function useCampaignWizard(initialData: Partial<CampaignWizardData> = {})
   });
   const [errors, setErrors] = useState<WizardStepErrors>({});
   const [isDirty, setIsDirty] = useState(false);
+  const [previouslyUsedTags, setPreviouslyUsedTags] = useState<string[]>([]);
+
+  // Fetch previously used tags for autocomplete. Failures are non-fatal.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/campaigns/tags");
+        if (!res.ok) return;
+        const json = await res.json();
+        const tags: unknown = json?.tags ?? json?.data?.tags ?? [];
+        if (!cancelled && Array.isArray(tags)) {
+          setPreviouslyUsedTags(
+            Array.from(
+              new Set(
+                tags.filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+              )
+            )
+          );
+        }
+      } catch {
+        // Autocomplete is best-effort; ignore network errors.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const currentStep = useMemo(() => CAMPAIGN_WIZARD_STEPS[stepIndex], [stepIndex]);
   const isFirstStep = stepIndex === 0;
@@ -57,6 +92,54 @@ export function useCampaignWizard(initialData: Partial<CampaignWizardData> = {})
       }
       return prev;
     });
+  }, []);
+
+  const setCategory = useCallback((category: string) => {
+    setData((prev) => ({ ...prev, category }));
+    setIsDirty(true);
+    setErrors((prev) => {
+      if (prev.category) {
+        const next = { ...prev };
+        delete next.category;
+        return next;
+      }
+      return prev;
+    });
+  }, []);
+
+  const addTag = useCallback((tag: string) => {
+    const trimmed = tag.trim();
+    if (!trimmed) return false;
+    let added = false;
+    setData((prev) => {
+      const existing = prev.tags ?? [];
+      if (existing.length >= MAX_CAMPAIGN_TAGS) return prev;
+      const lower = trimmed.toLowerCase();
+      if (existing.some((t) => t.toLowerCase() === lower)) return prev;
+      added = true;
+      return { ...prev, tags: [...existing, trimmed] };
+    });
+    if (added) {
+      setIsDirty(true);
+      setErrors((prev) => {
+        if (prev.tags) {
+          const next = { ...prev };
+          delete next.tags;
+          return next;
+        }
+        return prev;
+      });
+    }
+    return added;
+  }, []);
+
+  const removeTag = useCallback((tag: string) => {
+    const lower = tag.trim().toLowerCase();
+    setData((prev) => ({
+      ...prev,
+      tags: (prev.tags ?? []).filter((t) => t.toLowerCase() !== lower),
+    }));
+    setIsDirty(true);
   }, []);
 
   const addMilestone = useCallback((milestone: Omit<MilestoneItem, "id">) => {
@@ -157,7 +240,12 @@ export function useCampaignWizard(initialData: Partial<CampaignWizardData> = {})
     isFirstStep,
     isLastStep,
     isDirty,
+    milestones: data.milestones,
+    previouslyUsedTags,
     updateField,
+    setCategory,
+    addTag,
+    removeTag,
     addMilestone,
     removeMilestone,
     addStretchGoal,

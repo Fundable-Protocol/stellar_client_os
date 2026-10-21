@@ -11,15 +11,23 @@ import CampaignCreatorBadge from "@/components/modules/dashboard/CampaignCreator
 import MentorshipPanel from "@/components/modules/dashboard/MentorshipPanel";
 import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
 import { StaffPicksSection } from "@/components/modules/campaign/StaffPicksSection";
+import { SpotlightSection } from "@/components/modules/campaign/SpotlightSection";
 import { BackerNotificationPreferencePanel } from "@/components/modules/dashboard/BackerNotificationPreferencePanel";
+import { BackerTestimonialsDashboard } from "@/components/modules/dashboard/BackerTestimonialsDashboard";
+import { WebhookEventLog } from "@/components/modules/dashboard/WebhookEventLog";
+import CreatorAnalyticsEntryCard from "@/components/modules/dashboard/CreatorAnalyticsEntryCard";
 
 const DashboardPage = async () => {
     return (
         <main className="h-full overflow-y-auto space-y-4 md:space-y-12 py-10">
             <StatsOverview />
             <BackerNotificationPreferencePanel />
+            <BackerTestimonialsDashboard />
+            <SpotlightSection />
             <StaffPicksSection />
             <CreatorStatsDashboard />
+            <CreatorAnalyticsEntryCard />
+            <WebhookEventLog />
             <CampaignCreatorBadge />
             <MentorshipPanel />
             <ForestReportExport />

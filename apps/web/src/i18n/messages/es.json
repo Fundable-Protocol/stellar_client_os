@@ -1,0 +1,160 @@
+{
+  "common": {
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "saved": "Guardado",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "delete": "Eliminar",
+    "remove": "Quitar",
+    "refresh": "Actualizar",
+    "loading": "Cargando…",
+    "retry": "Reintentar",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "optional": "Opcional",
+    "somethingWentWrong": "Algo salió mal. Inténtalo de nuevo.",
+    "connectWalletPrompt": "Conecta tu billetera para gestionar estos ajustes."
+  },
+  "nav": {
+    "mainNavigation": "Navegación principal",
+    "brand": "Fundable",
+    "home": "Inicio",
+    "balances": "Saldos",
+    "social": "Social",
+    "grants": "Subvenciones",
+    "howItWorks": "Cómo funciona",
+    "faqs": "Preguntas frecuentes",
+    "contact": "Contacto"
+  },
+  "header": {
+    "openMenu": "Abrir menú de navegación",
+    "closeMenu": "Cerrar menú de navegación",
+    "viewNotifications": "Ver notificaciones",
+    "connectingWallet": "Conectando billetera…",
+    "connecting": "Conectando…",
+    "connected": "Conectado",
+    "walletConnected": "Billetera conectada: {address}"
+  },
+  "language": {
+    "label": "Idioma",
+    "select": "Seleccionar idioma",
+    "current": "Idioma actual: {language}"
+  },
+  "settings": {
+    "title": "Ajustes",
+    "sections": "Secciones de ajustes",
+    "notifications": {
+      "title": "Ajustes de notificaciones",
+      "nav": "Notificaciones",
+      "description": "Elige cómo recibir novedades de las campañas que apoyas."
+    },
+    "language": {
+      "title": "Idioma y región",
+      "nav": "Idioma",
+      "description": "Elige el idioma de la interfaz de Fundable. Tu elección se guarda en este dispositivo.",
+      "rtlNotice": "El árabe se muestra de derecha a izquierda."
+    },
+    "webhooks": {
+      "title": "Webhooks",
+      "nav": "Webhooks",
+      "description": "Recibe notificaciones POST firmadas cuando ocurra algo en tus campañas."
+    }
+  },
+  "seo": {
+    "sectionTitle": "Búsqueda y redes sociales (SEO)",
+    "advanced": "Avanzado",
+    "description": "Personaliza cómo aparece esta campaña en los buscadores y al compartirse en redes sociales.",
+    "fallbackNotice": "Deja un campo vacío para usar el nombre y la descripción de la campaña.",
+    "titleLabel": "Título de la página",
+    "titlePlaceholder": "p. ej. Restaurar 2.000 manglares en Lagos",
+    "descriptionLabel": "Metadescripción",
+    "descriptionPlaceholder": "Un resumen de una o dos frases que invite a hacer clic.",
+    "ogImageLabel": "URL de la imagen Open Graph",
+    "ogImageHint": "Usa una imagen https, idealmente de 1200 × 630 píxeles.",
+    "characterCount": "{count} / {max} caracteres",
+    "statusGood": "Buena longitud",
+    "statusShort": "Un poco corto",
+    "statusLong": "{count} por encima del límite recomendado",
+    "searchPreview": "Vista previa en buscadores",
+    "socialPreview": "Vista previa al compartir",
+    "noImage": "Sin imagen",
+    "saveSuccess": "Ajustes SEO guardados.",
+    "invalidImage": "La URL de la imagen debe ser una URL http(s) absoluta."
+  },
+  "webhooks": {
+    "configTitle": "Endpoint del webhook",
+    "urlLabel": "URL de destino",
+    "urlPlaceholder": "https://example.com/hooks/fundable",
+    "secretLabel": "Secreto de firma",
+    "secretHint": "Cada solicitud incluye una cabecera X-Webhook-Signature: HMAC-SHA256 de \"timestamp.body\" con este secreto.",
+    "secretPlaceholder": "Déjalo vacío para generar uno",
+    "secretMasked": "Secreto guardado: {secret}",
+    "secretRevealOnce": "Copia este secreto ahora. No se volverá a mostrar.",
+    "rotateSecret": "Rotar secreto",
+    "eventsLabel": "Eventos a enviar",
+    "enabled": "Envíos activados",
+    "sendTest": "Enviar evento de prueba",
+    "testQueued": "Evento de prueba en cola. Revisa el registro en unos segundos.",
+    "saved": "Ajustes del webhook guardados.",
+    "removed": "Webhook eliminado.",
+    "retryPolicy": "Los envíos fallidos se reintentan hasta {count} veces con espera exponencial.",
+    "events": {
+      "pledge_created": "Nueva aportación",
+      "campaign_milestone_reached": "Hito alcanzado",
+      "campaign_ended": "Campaña finalizada",
+      "refund_requested": "Reembolso solicitado",
+      "webhook_test": "Evento de prueba"
+    },
+    "log": {
+      "title": "Registro de eventos del webhook",
+      "description": "Intentos de envío recientes a tu endpoint.",
+      "empty": "Aún no hay envíos.",
+      "notConfigured": "Configura un endpoint en los ajustes para empezar a recibir eventos.",
+      "configure": "Abrir ajustes del webhook",
+      "time": "Hora",
+      "event": "Evento",
+      "status": "Estado",
+      "attempt": "Intento",
+      "response": "Respuesta",
+      "delivered": "Entregado",
+      "failed": "Fallido",
+      "retrying": "Reintentando",
+      "attemptOf": "{attempt} de {max}"
+    }
+  },
+  "roi": {
+    "title": "Estima tu rendimiento",
+    "subtitle": "Los patrocinadores comparten el {percent} % de los ingresos de esta campaña durante {years} años.",
+    "pledgeAmount": "Importe de la aportación",
+    "yourShare": "Tu parte del fondo de patrocinadores",
+    "annualPayout": "Pago estimado en el año 1",
+    "totalReturn": "Retorno total estimado",
+    "netProfit": "Beneficio neto estimado",
+    "roi": "ROI estimado",
+    "multiple": "Múltiplo de retorno",
+    "payback": "Recuperación estimada",
+    "paybackYear": "Año {year}",
+    "paybackNever": "No dentro del plazo",
+    "yearlyBreakdown": "Estimación año por año",
+    "yearLabel": "Año {year}",
+    "disclaimer": "Las proyecciones son solo estimaciones basadas en la previsión de ingresos del creador. No garantizan ningún rendimiento. Los resultados reales pueden ser menores y podrías perder parte o la totalidad de tu aportación.",
+    "terms": {
+      "title": "Condiciones de inversión",
+      "description": "Define las condiciones de reparto de ingresos que usan los patrocinadores para estimar su rendimiento.",
+      "type": "Tipo de campaña",
+      "revenue_share": "Reparto de ingresos",
+      "equity": "Participación",
+      "revenueSharePercent": "Porcentaje de ingresos para patrocinadores (%)",
+      "projectedAnnualRevenue": "Ingresos anuales previstos",
+      "fundingGoal": "Objetivo de financiación",
+      "termYears": "Plazo (años)",
+      "annualGrowthPercent": "Crecimiento anual previsto de ingresos (%)",
+      "currency": "Moneda",
+      "minPledge": "Aportación mínima",
+      "maxPledge": "Aportación máxima",
+      "saved": "Condiciones de inversión guardadas.",
+      "notInvestment": "Esta campaña no ofrece rendimiento financiero."
+    }
+  }
+}

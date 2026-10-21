@@ -32,6 +32,12 @@ export interface NFTRewardTierItem {
   mintOnClose: boolean;
   createdAt: number;
   updatedAt: number;
+  /** Early bird pricing configuration (issue #1218) */
+  earlyBirdPricing?: {
+    discountPercent: number; // Percentage discount (e.g., 20 for 20% off)
+    earlyBirdLimit: number; // First N backers
+    claimedCount?: number; // Number of early bird slots claimed
+  };
 }
 
 export interface DefineNFTRewardTierInput {
@@ -45,6 +51,11 @@ export interface DefineNFTRewardTierInput {
   maxSupply?: number;
   symbol?: string;
   mintOnClose?: boolean;
+  /** Early bird pricing (issue #1218) */
+  earlyBirdPricing?: {
+    discountPercent: number;
+    earlyBirdLimit: number;
+  };
 }
 
 export interface BackerRewardEligibility {

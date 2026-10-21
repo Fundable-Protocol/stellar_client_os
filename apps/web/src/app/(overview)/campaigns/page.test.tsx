@@ -20,6 +20,8 @@ vi.mock("@tanstack/react-virtual", () => ({
       })),
     getTotalSize: () => options.count * 280,
     measureElement: () => undefined,
+    measure: () => undefined,
+    scrollToOffset: () => undefined,
   }),
 }));
 
@@ -55,12 +57,13 @@ describe("CampaignsDirectoryPage", () => {
     expect(schedulerLink.getAttribute("href")).toBe("/campaigns/social-scheduler");
   });
 
-  it("renders the Staff Picks section on browse page", () => {
+  it("renders the Staff Picks section on browse page", async () => {
     render(<CampaignsDirectoryPage />);
 
     expect(screen.getByRole("region", { name: /staff picks/i })).toBeTruthy();
     expect(screen.getByText("Curated by Editorial")).toBeTruthy();
-    expect(screen.getAllByTestId("staff-pick-badge").length).toBeGreaterThan(0);
+    // Staff picks are fetched asynchronously; wait for the fallback pick.
+    expect((await screen.findAllByTestId("staff-pick-badge")).length).toBeGreaterThan(0);
   });
 });
 

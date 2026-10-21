@@ -11,6 +11,9 @@ import { RootErrorBoundary } from "@/components/ui/root-error-boundary";
 import { SocialProvider } from "@/providers/SocialProvider";
 import { HighContrastProvider } from "@/providers/HighContrastProvider";
 import { SmartAppBanner } from "@/components/SmartAppBanner";
+import { I18nProvider } from "@/i18n/I18nProvider";
+import { getTextDirection } from "@/i18n/config";
+import { getRequestUiLocale } from "@/i18n/server";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -36,16 +39,19 @@ export const metadata: Metadata = {
   description: "Create seamless payment streams and token distributions on the Stellar blockchain",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getRequestUiLocale();
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} dir={getTextDirection(locale)} suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${bricolageGrotesque.variable} antialiased`}
       >
+        <I18nProvider initialLocale={locale}>
         <HighContrastProvider>
           <ReactQueryProvider>
             <StellarWalletProvider>
@@ -62,6 +68,7 @@ export default function RootLayout({
             </StellarWalletProvider>
           </ReactQueryProvider>
         </HighContrastProvider>
+        </I18nProvider>
         <ToastProvider />
       </body>
     </html>

@@ -9,11 +9,15 @@ export interface CampaignDiscoveryRecord {
   region?: string;
   location?: string;
   gpsLocations?: Array<{ latitude: number; longitude: number }>;
+  category?: string;
+  tags?: string[];
 }
 
 export interface CampaignDiscoveryFilters {
   treeSpecies: DiscoveryTreeSpecies | "All";
   region: DiscoveryRegion | "All";
+  categories: string[];
+  tags: string[];
 }
 
 const REGION_LOCATION_TERMS: Record<DiscoveryRegion, string[]> = {
@@ -73,6 +77,21 @@ function campaignHasSpecies(campaign: CampaignDiscoveryRecord, selected: Discove
     .includes(selected.toLowerCase().replace(/s$/, ""));
 }
 
+function campaignMatchesCategories(campaign: CampaignDiscoveryRecord, categories: string[]): boolean {
+  if (categories.length === 0) return true;
+  const category = campaign.category?.trim().toLowerCase();
+  if (!category) return false;
+  return categories.some((selected) => selected.trim().toLowerCase() === category);
+}
+
+function campaignMatchesTags(campaign: CampaignDiscoveryRecord, tags: string[]): boolean {
+  if (tags.length === 0) return true;
+  const campaignTags = new Set(
+    (campaign.tags ?? []).map((tag) => tag.trim().toLowerCase()).filter(Boolean),
+  );
+  return tags.some((selected) => campaignTags.has(selected.trim().toLowerCase()));
+}
+
 export function filterCampaignsByDiscoveryOptions<T extends CampaignDiscoveryRecord>(
   campaigns: T[],
   filters: CampaignDiscoveryFilters,
@@ -80,6 +99,19 @@ export function filterCampaignsByDiscoveryOptions<T extends CampaignDiscoveryRec
   return campaigns.filter((campaign) => {
     const matchesSpecies = filters.treeSpecies === "All" || campaignHasSpecies(campaign, filters.treeSpecies);
     const matchesRegion = filters.region === "All" || getCampaignDiscoveryRegion(campaign) === filters.region;
-    return matchesSpecies && matchesRegion;
+    const matchesCategory = campaignMatchesCategories(campaign, filters.categories);
+    const matchesTags = campaignMatchesTags(campaign, filters.tags);
+    return matchesSpecies && matchesRegion && matchesCategory && matchesTags;
   });
+}
+
+export function getAllCampaignTags(campaigns: CampaignDiscoveryRecord[]): string[] {
+  const tags = new Set<string>();
+  for (const campaign of campaigns) {
+    for (const tag of campaign.tags ?? []) {
+      const trimmed = tag.trim();
+      if (trimmed) tags.add(trimmed);
+    }
+  }
+  return Array.from(tags).sort((a, b) => a.localeCompare(b));
 }

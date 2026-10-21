@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { env } from './env'
 import { StellarService } from './stellar'
 import { validateContractId } from './stream-validation'
+import { MAX_LIVE_STREAM_URL_LENGTH, parseLiveStreamUrl } from './live-stream'
 
 // Stream record type for display
 export interface StreamRecord {
@@ -190,4 +191,184 @@ export const updateCampaignSchema = z.object({
 })
 
 export type UpdateCampaignFormData = z.infer<typeof updateCampaignSchema>
+
+/**
+ * Primary categories a campaign can be assigned to (issue #1175).
+ * Exposed as a filterable facet on the browse/search page.
+ */
+export const CAMPAIGN_CATEGORIES = [
+  "Tech",
+  "Art",
+  "Social Impact",
+  "Music",
+  "Film",
+  "Games",
+  "Education",
+  "Health",
+  "Environment",
+  "Other",
+] as const
+
+export type CampaignCategory = (typeof CAMPAIGN_CATEGORIES)[number]
+
+/** Maximum number of custom tags a campaign may carry. */
+export const MAX_CAMPAIGN_TAGS = 10
+/** Maximum number of funding milestones a campaign may define. */
+export const MAX_CAMPAIGN_MILESTONES = 10
+
+/**
+ * Schema for a single funding milestone (issue #1171).
+ * `percentage` is an integer between 1 and 100; `amount` is optional and,
+ * when provided, must be a positive token amount.
+ */
+export const campaignMilestoneSchema = z.object({
+  label: z
+    .string()
+    .trim()
+    .min(1, "Milestone label is required")
+    .max(80, "Milestone label cannot exceed 80 characters"),
+  percentage: z
+    .number({ invalid_type_error: "Percentage must be a number" })
+    .int("Percentage must be a whole number")
+    .min(1, "Percentage must be at least 1")
+    .max(100, "Percentage cannot exceed 100"),
+  amount: z
+    .string()
+    .trim()
+    .refine((val) => val === "" || (parseFloat(val) > 0 && TOKEN_AMOUNT_REGEX.test(val)), {
+      message: "Amount must be a positive number with at most 7 decimal places",
+    })
+    .optional(),
+})
+
+export type CampaignMilestoneFormData = z.infer<typeof campaignMilestoneSchema>
+
+/**
+ * Schema for the full list of campaign milestones.
+ * Enforces a maximum count and unique percentages.
+ */
+export const campaignMilestonesSchema = z
+  .array(campaignMilestoneSchema)
+  .max(MAX_CAMPAIGN_MILESTONES, `A campaign can define at most ${MAX_CAMPAIGN_MILESTONES} milestones`)
+  .refine(
+    (milestones) => new Set(milestones.map((m) => m.percentage)).size === milestones.length,
+    "Milestone percentages must be unique",
+  )
+
+export type CampaignMilestonesFormData = z.infer<typeof campaignMilestonesSchema>
+
+/** Schema for the campaign's primary category (issue #1175). */
+export const campaignCategorySchema = z.enum(CAMPAIGN_CATEGORIES, {
+  errorMap: () => ({ message: "Please select a valid campaign category" }),
+})
+
+export type CampaignCategoryFormData = z.infer<typeof campaignCategorySchema>
+
+/**
+ * Schema for the campaign's custom tags (issue #1175).
+ * Tags are trimmed, limited to 1-30 characters, deduplicated
+ * case-insensitively, and capped at MAX_CAMPAIGN_TAGS.
+ */
+export const campaignTagsSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1, "Tag cannot be empty")
+      .max(30, "Tag cannot exceed 30 characters"),
+  )
+  .max(MAX_CAMPAIGN_TAGS, `A campaign can have at most ${MAX_CAMPAIGN_TAGS} tags`)
+  .refine(
+    (tags) => new Set(tags.map((t) => t.toLowerCase())).size === tags.length,
+    "Tags must be unique",
+  )
+
+export type CampaignTagsFormData = z.infer<typeof campaignTagsSchema>
+
+/**
+ * Combined metadata schema used by the campaign creation wizard to validate
+ * category, tags and funding milestones together.
+ */
+export const campaignMetadataSchema = z.object({
+  category: campaignCategorySchema,
+  tags: campaignTagsSchema,
+  milestones: campaignMilestonesSchema,
+})
+
+export type CampaignMetadataFormData = z.infer<typeof campaignMetadataSchema>
+
+/**
+ * Currencies a backer may pledge in (issue #1170).
+ * USD and EUR are fiat display currencies; XLM and USDC settle on Stellar.
+ */
+export const DONATION_CURRENCIES = ["USD", "EUR", "XLM", "USDC"] as const
+
+export type DonationCurrency = (typeof DONATION_CURRENCIES)[number]
+
+/** Number of decimal places each donation currency supports. */
+export const DONATION_CURRENCY_PRECISION: Record<DonationCurrency, number> = {
+  USD: 2,
+  EUR: 2,
+  XLM: 7,
+  USDC: 7,
+}
+
+/** Schema for the backer's preferred donation currency. */
+export const donationCurrencySchema = z.enum(DONATION_CURRENCIES, {
+  errorMap: () => ({ message: "Please select a supported currency" }),
+})
+
+export type DonationCurrencyFormData = z.infer<typeof donationCurrencySchema>
+
+/**
+ * Build a regex that accepts a positive decimal with at most `decimals`
+ * fractional digits.
+ */
+function amountRegexFor(decimals: number): RegExp {
+  return new RegExp(`^\\d+(\\.\\d{1,${decimals}})?$`)
+}
+
+/**
+ * Validate a donation amount string against the precision of the given
+ * currency. Returns true when the amount is a positive number with no more
+ * fractional digits than the currency supports.
+ */
+export function isValidDonationAmount(amount: string, currency: DonationCurrency): boolean {
+  if (!amountRegexFor(DONATION_CURRENCY_PRECISION[currency]).test(amount)) return false
+  return parseFloat(amount) > 0
+}
+
+/**
+ * Schema for a single donation amount (issue #1170).
+ * Precision is validated against the selected currency.
+ */
+export const donationAmountSchema = z
+  .object({
+    amount: z.string().min(1, "Amount is required"),
+    currency: donationCurrencySchema,
+  })
+  .refine((data) => isValidDonationAmount(data.amount, data.currency), {
+    message: "Amount must be a positive number with valid precision for the selected currency",
+    path: ["amount"],
+  })
+
+export type DonationAmountFormData = z.infer<typeof donationAmountSchema>
+
+/**
+ * Schema for the multi-currency donation form (issue #1170).
+ * Carries the backer's original currency, the currency the pledge is
+ * converted into, and the amount entered in the original currency.
+ */
+export const donationFormSchema = z
+  .object({
+    originalCurrency: donationCurrencySchema,
+    convertedCurrency: donationCurrencySchema,
+    amount: z.string().min(1, "Amount is required"),
+  })
+  .refine((data) => isValidDonationAmount(data.amount, data.originalCurrency), {
+    message: "Amount must be a positive number with valid precision for the selected currency",
+    path: ["amount"],
+  })
+
+export type DonationFormData = z.infer<typeof donationFormSchema>
 

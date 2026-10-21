@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
-import { CheckCircle2, Globe, Hash, Link2, Link2Off, Settings } from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import { CheckCircle2, Globe, Hash, Linkedin, Link2, Link2Off, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { LinkedInBadge } from "@/components/creator/LinkedInBadge";
+import type { LinkedInConnection } from "@/services/linkedin.service";
 import {
   ALL_SCHEDULABLE_PLATFORMS,
   SCHEDULABLE_PLATFORMS,
@@ -61,6 +63,81 @@ export const CreatorSocialSettings: React.FC<CreatorSocialSettingsProps> = ({
   );
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // ── LinkedIn Profile Badge state ──────────────────────────────────────────
+  type PublicLinkedInData = Omit<LinkedInConnection, "accessToken">;
+  const [linkedInData, setLinkedInData] = useState<PublicLinkedInData | null>(null);
+  const [linkedInLoading, setLinkedInLoading] = useState(true);
+  const [linkedInConnecting, setLinkedInConnecting] = useState(false);
+  const [linkedInDisconnecting, setLinkedInDisconnecting] = useState(false);
+
+  /** Fetch the current LinkedIn connection status on mount */
+  const fetchLinkedInStatus = useCallback(async () => {
+    if (!creatorAddress) return;
+    try {
+      const res = await fetch(
+        `/api/creators/${encodeURIComponent(creatorAddress)}/linkedin`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return;
+      const json = (await res.json()) as { connected: boolean; data: PublicLinkedInData | null };
+      setLinkedInData(json.connected ? json.data : null);
+    } catch {
+      // Non-critical — silently degrade
+    } finally {
+      setLinkedInLoading(false);
+    }
+  }, [creatorAddress]);
+
+  useEffect(() => {
+    fetchLinkedInStatus();
+    // Re-check if the page gained focus after an OAuth redirect
+    const handleFocus = () => void fetchLinkedInStatus();
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [fetchLinkedInStatus]);
+
+  const handleLinkedInConnect = async () => {
+    setLinkedInConnecting(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch(
+        `/api/creators/${encodeURIComponent(creatorAddress)}/linkedin`,
+        { method: "POST" },
+      );
+      const json = (await res.json()) as { authorizationUrl?: string; error?: string };
+      if (!res.ok || !json.authorizationUrl) {
+        throw new Error(json.error ?? "Failed to start LinkedIn connection");
+      }
+      // Open the OAuth flow in the same tab so the callback can redirect back
+      window.location.href = json.authorizationUrl;
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "LinkedIn connection failed");
+      setLinkedInConnecting(false);
+    }
+  };
+
+  const handleLinkedInDisconnect = async () => {
+    setLinkedInDisconnecting(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch(
+        `/api/creators/${encodeURIComponent(creatorAddress)}/linkedin`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(json.error ?? "Failed to disconnect LinkedIn");
+      }
+      setLinkedInData(null);
+      setStatusMessage("LinkedIn profile badge disconnected");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "LinkedIn disconnect failed");
+    } finally {
+      setLinkedInDisconnecting(false);
+    }
+  };
+  // ── end LinkedIn state ────────────────────────────────────────────────────
 
   const applySettings = (next: CreatorSocialSettingsRecord, message?: string) => {
     setInternalSettings(next);
@@ -337,6 +414,83 @@ export const CreatorSocialSettings: React.FC<CreatorSocialSettingsProps> = ({
           </Button>
         </div>
       </form>
+
+      {/* ── LinkedIn Profile Badge ─────────────────────────────────────── */}
+      <div
+        className="pt-4 border-t border-zinc-800 space-y-4"
+        data-testid="linkedin-profile-badge-section"
+      >
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h4 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
+              <Linkedin className="h-4 w-4 text-[#0077b5]" aria-hidden="true" />
+              LinkedIn Profile Badge
+            </h4>
+            <p className="mt-0.5 text-xs text-zinc-400">
+              Connect your LinkedIn account to display your professional credentials and
+              endorsed skills on your campaign pages. Builds credibility with professional backers.
+            </p>
+          </div>
+
+          {!linkedInLoading && (
+            <Badge
+              variant="outline"
+              data-testid="linkedin-connection-status-badge"
+              className={
+                linkedInData
+                  ? "border-[#0077b5]/40 bg-[#0077b5]/10 text-[#6ab4e8] text-[11px]"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-400 text-[11px]"
+              }
+            >
+              {linkedInData ? "Connected" : "Not Connected"}
+            </Badge>
+          )}
+        </div>
+
+        {linkedInLoading ? (
+          <div
+            className="rounded-xl border border-zinc-800 bg-zinc-900/40 h-28 animate-pulse"
+            aria-busy="true"
+            aria-label="Loading LinkedIn status"
+          />
+        ) : linkedInData ? (
+          <div className="space-y-3">
+            {/* Show the badge preview using the same component as the creator page */}
+            <LinkedInBadge
+              data={linkedInData}
+              maxSkills={5}
+              className="border-zinc-700 !bg-zinc-900"
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void handleLinkedInDisconnect()}
+              disabled={linkedInDisconnecting}
+              data-testid="linkedin-disconnect-btn"
+              aria-label="Disconnect LinkedIn profile badge"
+              className="border-rose-700/50 bg-rose-950/30 text-rose-300 hover:bg-rose-900/50 text-xs"
+            >
+              <Link2Off className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              {linkedInDisconnecting ? "Disconnecting…" : "Disconnect LinkedIn"}
+            </Button>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void handleLinkedInConnect()}
+            disabled={linkedInConnecting}
+            data-testid="linkedin-connect-btn"
+            aria-label="Connect LinkedIn account for profile badge"
+            className="bg-[#0077b5] text-white hover:bg-[#006097] text-xs"
+          >
+            <Linkedin className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+            {linkedInConnecting ? "Redirecting to LinkedIn…" : "Connect LinkedIn"}
+          </Button>
+        )}
+      </div>
+      {/* ── end LinkedIn Profile Badge ─────────────────────────────────── */}
     </section>
   );
 };

@@ -1,4 +1,5 @@
 import { campaignProgressCache } from "@/services/campaign-progress-cache.service";
+import { campaignMilestoneNotifier } from "@/services/campaign-milestone-notifier.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
-) {
+): Promise<Response> {
   const { id } = await params;
   const url = new URL(request.url);
   const forceRefresh =
@@ -18,6 +19,18 @@ export async function GET(
       id,
       forceRefresh
     );
+
+    // Evaluate milestones and dispatch email notifications to the
+    // campaign creator when new thresholds are reached. Failures must not
+    // break the progress response, so errors are logged and swallowed.
+    try {
+      await campaignMilestoneNotifier.evaluateAndNotify(id, metrics);
+    } catch (notifyErr: any) {
+      console.error(
+        `[campaign-progress] Failed to dispatch milestone notifications for campaign ${id}`,
+        notifyErr
+      );
+    }
 
     return Response.json(
       {
@@ -45,7 +58,7 @@ export async function GET(
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
-) {
+): Promise<Response> {
   const { id } = await params;
   const invalidated = campaignProgressCache.invalidate(id);
   return Response.json({

@@ -165,10 +165,6 @@ export function detectLanguage(text: string): string {
   return "en";
 }
 
-export function isSupportedTranslationLocale(locale: string): boolean {
-  return (SUPPORTED_TRANSLATION_LOCALES as readonly string[]).includes(locale);
-}
-
 export function hasOnlySupportedTranslationLocales(
   translations: unknown,
 ): translations is Record<string, string> {
@@ -179,8 +175,4 @@ export function hasOnlySupportedTranslationLocales(
   return Object.entries(translations).every(
     ([locale, value]) => isSupportedTranslationLocale(locale) && typeof value === "string",
   );
-  // No translation provider is configured. Returning the source text under
-  // every locale would falsely label untranslated copy as translated.
-  void locales;
-  return {};
 }

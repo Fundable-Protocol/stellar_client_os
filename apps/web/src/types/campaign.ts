@@ -4,6 +4,29 @@
 
 export type CampaignStatus = "Active" | "Paused" | "Successful" | "Failed" | "Claimed";
 
+export type CampaignCategory =
+  | "Tech"
+  | "Art"
+  | "Social Impact"
+  | "Environment"
+  | "Education"
+  | "Health"
+  | "Community"
+  | "Other";
+
+export const CAMPAIGN_CATEGORIES: readonly CampaignCategory[] = [
+  "Tech",
+  "Art",
+  "Social Impact",
+  "Environment",
+  "Education",
+  "Health",
+  "Community",
+  "Other",
+] as const;
+
+export const MAX_CAMPAIGN_TAGS = 10;
+
 export type TreeType =
   | "Oak"
   | "Mangrove"
@@ -95,19 +118,8 @@ export interface CampaignData {
   sustainabilityScore?: CampaignSustainabilityScore;
   isStaffPick?: boolean;
   staffPickReason?: string;
-  nonprofitPartner?: NonprofitPartner;
-  charityBadge?: CharityBadge;
-}
-
-/**
- * Derived helper: a campaign is eligible for tax receipts only when it is
- * registered as a charitable/non-profit entity and that status is verified.
- */
-export function isNonprofitVerified(campaign: CampaignData): boolean {
-  return (
-    campaign.nonprofitPartner?.verificationStatus === "Verified" &&
-    campaign.charityBadge?.verified === true
-  );
+  category?: CampaignCategory;
+  tags?: string[];
 }
 
 export interface CampaignFilterOptions {
@@ -117,4 +129,8 @@ export interface CampaignFilterOptions {
   region: Region | "All";
   progressRange: "All" | "0-25%" | "25-50%" | "50-75%" | "75-100%" | "100%+";
   sortBy: "trending" | "newest" | "progress" | "target";
+  /** Selected categories; an empty array means "All". */
+  categories: CampaignCategory[];
+  /** Selected tags; an empty array means "All". */
+  tags: string[];
 }

@@ -71,4 +71,18 @@ describe("campaign collection localization", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toHaveProperty("supportedLanguages");
   });
+
+  it("performs automated fraud review on campaign listing creation", async () => {
+    const response = await POST(post({
+      creator: "creator-fraud-test",
+      name: "Guaranteed 100% returns crypto campaign",
+      description: "guaranteed 100% returns on timber investments",
+      goalAmount: "1000",
+    }));
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toHaveProperty("fraudReview");
+    expect(body.fraudReview.action).toBe("FLAGGED_FOR_MANUAL_REVIEW");
+    expect(body.fraudReview.reviewStatus).toBe("PENDING");
+  });
 });

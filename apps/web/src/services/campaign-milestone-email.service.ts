@@ -42,6 +42,21 @@ export interface MilestoneNotificationCampaign {
   raisedAmount: string;
   goalAmount: string;
   location?: string;
+  /** Creator email address; when set, the creator can be notified too. */
+  creatorEmail?: string;
+  /**
+   * Creator-defined milestone config (issue #1171). Used to resolve a
+   * human-readable label for a milestone percentage when available.
+   */
+  milestones?: Array<{ percentage: number; label?: string }>;
+}
+
+export interface MilestoneNotificationOptions {
+  /**
+   * Which recipients to notify. Defaults to `"sponsors"` for backwards
+   * compatibility with issue #915 callers.
+   */
+  recipients?: "sponsors" | "creator" | "both";
 }
 
 export interface MilestoneNotificationResult {
@@ -53,6 +68,10 @@ export interface MilestoneNotificationResult {
   sent: number;
   /** Number of failures (best-effort; never throws). */
   failed: number;
+  /** Whether the creator email was dispatched for this milestone. */
+  creatorSent?: boolean;
+  /** Whether the creator email dispatch failed for this milestone. */
+  creatorFailed?: boolean;
 }
 
 /**
@@ -85,14 +104,21 @@ export class CampaignMilestoneEmailService {
   async notifySponsors(
     campaign: MilestoneNotificationCampaign,
     milestones: number[],
+    options: MilestoneNotificationOptions = {},
   ): Promise<MilestoneNotificationResult[]> {
     if (milestones.length === 0) return [];
 
+    const recipients = options.recipients ?? "sponsors";
+    const notifySponsors = recipients === "sponsors" || recipients === "both";
+    const notifyCreator = recipients === "creator" || recipients === "both";
+
     // Fetch preferences once; all milestone loops reuse the same list.
-    const allPrefs = await getPreferencesForCampaign(campaign.id);
+    const allPrefs = notifySponsors ? await getPreferencesForCampaign(campaign.id) : [];
     const emailPrefs = allPrefs.filter((p) => p.channel === "email" && !!p.email);
 
-    if (emailPrefs.length === 0) return [];
+    const creatorEmail = notifyCreator ? campaign.creatorEmail : undefined;
+
+    if (emailPrefs.length === 0 && !creatorEmail) return [];
 
     // Build the impact metrics payload shared across all milestone emails for
     // this contribution event.
@@ -128,34 +154,88 @@ export class CampaignMilestoneEmailService {
         "75_percent": "75% funded 🌿",
         goal_reached: "Goal reached! 🎉",
       };
-      const label = milestoneLabels[milestoneKey] ?? `${percentage}% milestone reached`;
+      // Prefer the creator-defined label from the campaign milestone config.
+      const configuredLabel = campaign.milestones?.find(
+        (m) => m.percentage === percentage,
+      )?.label;
+      const label =
+        configuredLabel ??
+        milestoneLabels[milestoneKey] ??
+        `${percentage}% milestone reached`;
 
       const subject = `${campaign.name}: ${label}`;
-      const html = milestoneEmailHtml(campaign.name, percentage, impactMetrics, "sponsor");
 
       let sent = 0;
       let failed = 0;
 
-      for (const prefs of emailPrefs) {
+      if (notifySponsors) {
+        const html = milestoneEmailHtml(campaign.name, percentage, impactMetrics, "sponsor");
+
+        for (const prefs of emailPrefs) {
+          try {
+            await this.emailService.sendEmail({ to: prefs.email!, subject, html });
+            sent++;
+          } catch (err) {
+            failed++;
+            console.error(
+              `[CampaignMilestoneEmailService] Failed to email sponsor ${prefs.sponsorId} for ${campaign.id} @ ${percentage}%:`,
+              err,
+            );
+          }
+        }
+      }
+
+      let creatorSent: boolean | undefined;
+      let creatorFailed: boolean | undefined;
+
+      if (creatorEmail) {
+        const creatorHtml = milestoneEmailHtml(
+          campaign.name,
+          percentage,
+          impactMetrics,
+          "creator",
+        );
         try {
-          await this.emailService.sendEmail({ to: prefs.email!, subject, html });
-          sent++;
+          await this.emailService.sendEmail({ to: creatorEmail, subject, html: creatorHtml });
+          creatorSent = true;
+          creatorFailed = false;
         } catch (err) {
-          failed++;
+          creatorSent = false;
+          creatorFailed = true;
           console.error(
-            `[CampaignMilestoneEmailService] Failed to email sponsor ${prefs.sponsorId} for ${campaign.id} @ ${percentage}%:`,
+            `[CampaignMilestoneEmailService] Failed to email creator for ${campaign.id} @ ${percentage}%:`,
             err,
           );
         }
       }
 
       console.log(
-        `[CampaignMilestoneEmailService] ${campaign.id} @ ${percentage}%: sent=${sent} failed=${failed}`,
+        `[CampaignMilestoneEmailService] ${campaign.id} @ ${percentage}%: sent=${sent} failed=${failed}` +
+          (creatorEmail ? ` creatorSent=${creatorSent}` : ""),
       );
 
-      results.push({ percentage, milestoneKey, sent, failed });
+      results.push({ percentage, milestoneKey, sent, failed, creatorSent, creatorFailed });
     }
 
     return results;
+  }
+
+  /**
+   * Notify the campaign creator (and optionally backers) for every percentage
+   * in `milestones` (issue #1171).
+   *
+   * Idempotency is delegated to the caller: it should only pass milestones
+   * whose `notifiedAt` has not yet been set. Failures are logged and counted
+   * but never thrown.
+   */
+  async notifyCreator(
+    campaign: MilestoneNotificationCampaign,
+    milestones: number[],
+    options: MilestoneNotificationOptions = {},
+  ): Promise<MilestoneNotificationResult[]> {
+    return this.notifySponsors(campaign, milestones, {
+      ...options,
+      recipients: options.recipients ?? "both",
+    });
   }
 }
