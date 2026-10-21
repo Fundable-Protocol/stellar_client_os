@@ -4,10 +4,8 @@ import { getCampaign, queryCampaigns, type CampaignRecord } from "./campaign.ser
 /**
  * Campaign testimonial & star review system (issue #1250).
  *
- * Backers who received their rewards can leave one star rating plus an
- * optional short testimonial per campaign. Reviews open 30 days after a
- * campaign closes (AC1) so sponsors have received their rewards first.
- * Ratings aggregate per campaign and per creator for the portfolio page (AC3).
+ * Backers can leave one star rating plus an optional short testimonial per
+ * campaign after contributing. Creators approve submissions before publication.
  *
  * Storage is in-memory, matching the repo's service conventions.
  */
@@ -18,9 +16,11 @@ export interface CampaignReview {
   backerAddress: string;
   /** Whole stars, 1–5. */
   rating: number;
-  /** Optional short testimonial text. */
-  reviewText?: string;
+  /** Short testimonial text, limited to 280 characters. */
+  reviewText: string;
   createdAt: number;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  featured: boolean;
 }
 
 export interface RatingSummary {
@@ -37,25 +37,19 @@ export interface CreatorOverallRating extends RatingSummary {
 export type ReviewEligibilityReason =
   | "eligible"
   | "campaign_not_found"
-  | "campaign_not_closed"
-  | "review_window_pending"
   | "not_a_backer"
   | "already_reviewed";
 
 export interface ReviewEligibility {
   eligible: boolean;
   reason: ReviewEligibilityReason;
-  /** Epoch ms when reviews open; only set for `review_window_pending`. */
-  opensAt?: number;
 }
 
 export type ReviewActionResult =
   | { ok: true; review: CampaignReview; summary: RatingSummary }
   | { ok: false; error: string; reason?: ReviewEligibilityReason };
 
-export const REVIEW_OPENING_DELAY_DAYS = 30;
-const DAY_MS = 24 * 60 * 60 * 1000;
-export const MAX_REVIEW_TEXT_LENGTH = 1_000;
+export const MAX_REVIEW_TEXT_LENGTH = 280;
 
 const reviews = new Map<string, CampaignReview[]>();
 
@@ -63,37 +57,22 @@ function key(campaignId: string): string {
   return campaignId.trim();
 }
 
-function isClosed(status: CampaignRecord["status"]): boolean {
-  return status === "COMPLETED" || status === "FAILED";
-}
-
-/**
- * Reviews become available once 30 days have passed since the campaign
- * closed (AC1). Callers decide which closed state counts for their flow.
- */
-export function reviewOpensAt(campaign: Pick<CampaignRecord, "statusChangedAt">): number {
-  return campaign.statusChangedAt + REVIEW_OPENING_DELAY_DAYS * DAY_MS;
-}
-
 export function checkReviewEligibility(
   campaignId: string,
   backerAddress: string,
-  now: number = Date.now(),
+  _now: number = Date.now(),
   campaignLookup: (id: string) => CampaignRecord | null = () => null,
 ): ReviewEligibility {
+  void _now;
   const campaign = campaignLookup(campaignId);
   if (!campaign) return { eligible: false, reason: "campaign_not_found" };
-  if (!isClosed(campaign.status)) return { eligible: false, reason: "campaign_not_closed" };
-
-  const opensAt = reviewOpensAt(campaign);
-  if (now < opensAt) return { eligible: false, reason: "review_window_pending", opensAt };
 
   const isBacker = backersService.getContributions(key(campaignId)).some(
     (entry) => entry.backerAddress.trim().toLowerCase() === backerAddress.trim().toLowerCase(),
   );
   if (!isBacker) return { eligible: false, reason: "not_a_backer" };
 
-  if (listReviews(campaignId).some((review) => review.backerAddress.trim().toLowerCase() === backerAddress.trim().toLowerCase())) {
+  if ((reviews.get(key(campaignId)) ?? []).some((review) => review.backerAddress.trim().toLowerCase() === backerAddress.trim().toLowerCase())) {
     return { eligible: false, reason: "already_reviewed" };
   }
 
@@ -104,8 +83,14 @@ export async function getReviewEligibility(
   campaignId: string,
   backerAddress: string,
   now: number = Date.now(),
+  campaignLookup?: (id: string) => CampaignRecord | null,
 ): Promise<ReviewEligibility> {
-  return checkReviewEligibility(campaignId, backerAddress, now, await asyncCampaignLookup(campaignId));
+  return checkReviewEligibility(
+    campaignId,
+    backerAddress,
+    now,
+    campaignLookup ?? await asyncCampaignLookup(campaignId),
+  );
 }
 
 async function asyncCampaignLookup(campaignId: string): Promise<(id: string) => CampaignRecord | null> {
@@ -114,11 +99,17 @@ async function asyncCampaignLookup(campaignId: string): Promise<(id: string) => 
 }
 
 export function listReviews(campaignId: string): CampaignReview[] {
+  return (reviews.get(key(campaignId)) ?? [])
+    .filter((review) => review.status === "APPROVED")
+    .sort((a, b) => Number(b.featured) - Number(a.featured) || b.createdAt - a.createdAt);
+}
+
+export function listReviewsForCreator(campaignId: string): CampaignReview[] {
   return [...(reviews.get(key(campaignId)) ?? [])].sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export function getRatingSummary(campaignId: string): RatingSummary {
-  const entries = reviews.get(key(campaignId)) ?? [];
+  const entries = listReviews(campaignId);
   if (entries.length === 0) return { averageRating: null, reviewCount: 0 };
   const total = entries.reduce((sum, review) => sum + review.rating, 0);
   return { averageRating: Math.round((total / entries.length) * 10) / 10, reviewCount: entries.length };
@@ -129,7 +120,7 @@ export async function getCreatorOverallRating(creatorAddress: string): Promise<C
   let total = 0;
   let count = 0;
   for (const campaign of campaigns) {
-    for (const review of reviews.get(key(campaign.id)) ?? []) {
+    for (const review of listReviews(campaign.id)) {
       total += review.rating;
       count += 1;
     }
@@ -149,6 +140,7 @@ export function getCampaignRatingSummaries(campaignIds: string[]): Record<string
 export async function submitCampaignReview(
   input: { campaignId: string; backerAddress: string; rating: number; reviewText?: string },
   now: number = Date.now(),
+  campaignLookup?: (id: string) => CampaignRecord | null,
 ): Promise<ReviewActionResult> {
   const campaignId = key(input.campaignId);
   const backerAddress = input.backerAddress?.trim();
@@ -159,11 +151,14 @@ export async function submitCampaignReview(
     return { ok: false, error: "rating must be a whole number between 1 and 5" };
   }
   const reviewText = input.reviewText?.trim();
-  if (reviewText && reviewText.length > MAX_REVIEW_TEXT_LENGTH) {
+  if (!reviewText) {
+    return { ok: false, error: "reviewText is required" };
+  }
+  if (reviewText.length > MAX_REVIEW_TEXT_LENGTH) {
     return { ok: false, error: `reviewText must be at most ${MAX_REVIEW_TEXT_LENGTH} characters` };
   }
 
-  const eligibility = await getReviewEligibility(campaignId, backerAddress, now);
+  const eligibility = await getReviewEligibility(campaignId, backerAddress, now, campaignLookup);
   if (!eligibility.eligible) {
     return { ok: false, error: REVIEW_ERRORS[eligibility.reason], reason: eligibility.reason };
   }
@@ -173,8 +168,10 @@ export async function submitCampaignReview(
     campaignId,
     backerAddress,
     rating: input.rating,
-    reviewText: reviewText || undefined,
+    reviewText,
     createdAt: now,
+    status: "PENDING",
+    featured: false,
   };
   reviews.set(campaignId, [...(reviews.get(campaignId) ?? []), review]);
   return { ok: true, review, summary: getRatingSummary(campaignId) };
@@ -183,11 +180,29 @@ export async function submitCampaignReview(
 const REVIEW_ERRORS: Record<ReviewEligibilityReason, string> = {
   eligible: "",
   campaign_not_found: "Campaign not found",
-  campaign_not_closed: "Reviews open once the campaign closes",
-  review_window_pending: `Reviews open ${REVIEW_OPENING_DELAY_DAYS} days after the campaign closes`,
-  not_a_backer: "Only backers who received rewards can leave a review",
+  not_a_backer: "Only campaign backers can leave a review",
   already_reviewed: "You have already reviewed this campaign",
 };
+
+export function moderateCampaignReview(
+  campaignId: string,
+  reviewId: string,
+  action: "approve" | "reject" | "feature" | "unfeature",
+): CampaignReview | null {
+  const entries = reviews.get(key(campaignId)) ?? [];
+  const review = entries.find((entry) => entry.id === reviewId);
+  if (!review) return null;
+  if (action === "approve") {
+    review.status = "APPROVED";
+  } else if (action === "reject") {
+    review.status = "REJECTED";
+    review.featured = false;
+  } else {
+    if (review.status !== "APPROVED") return null;
+    review.featured = action === "feature";
+  }
+  return review;
+}
 
 /** Test helper: wipe all stored reviews. */
 export function resetCampaignReviews(): void {

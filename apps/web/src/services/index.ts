@@ -109,3 +109,31 @@ export {
   campaignImpactNftService,
   ImpactNFTError,
 } from './campaign-impact-nft.service';
+export {
+  CampaignMilestoneReleaseService,
+  campaignMilestoneReleaseService,
+  VOTING_WINDOW_HOURS,
+  VOTING_WINDOW_MS,
+} from './campaign-milestone-release.service';
+export {
+  CampaignNFTRewardService,
+  campaignNFTRewardService,
+  NFTRewardTierError,
+} from './campaign-nft-reward.service';
+export {
+  BackerNotificationService,
+  backerNotificationService,
+  getBackerNotificationDataSource,
+  setBackerNotificationDataSource,
+  InMemoryBackerNotificationPreferencesDataSource,
+} from './backer-notification.service';
+export {
+  generateQRCodeSVG,
+  generateQRCodePNGDataURL,
+  downloadQRCodeSVG,
+  downloadQRCodePNG,
+  QR_CODE_SIZE_OPTIONS,
+  type QRCodeSize,
+  type QRCodeSizeOption,
+  type GenerateQRCodeOptions,
+} from './campaign-qr-code.service';

@@ -3,6 +3,9 @@
 import React, { useState } from "react";
 import { updateCampaignSchema, UpdateCampaignFormData } from "@/lib/validations";
 import { Campaign, CampaignStatus } from "@/types";
+import { CampaignSeoPanel } from "./seo/CampaignSeoPanel";
+import { InvestmentTermsForm } from "./roi/InvestmentTermsForm";
+import { useTranslation } from "@/i18n/I18nProvider";
 
 interface CampaignEditModalProps {
   isOpen: boolean;
@@ -32,6 +35,7 @@ export const CampaignEditModal: React.FC<CampaignEditModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const { t } = useTranslation();
 
   if (!isOpen) return null;
 
@@ -95,7 +99,7 @@ export const CampaignEditModal: React.FC<CampaignEditModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full p-6 text-white shadow-2xl">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 text-white shadow-2xl">
         <div className="flex justify-between items-center pb-4 border-b border-slate-800">
           <h2 className="text-xl font-bold text-emerald-400">Edit Campaign Details</h2>
           <button
@@ -179,6 +183,24 @@ export const CampaignEditModal: React.FC<CampaignEditModalProps> = ({
                 <p className="text-red-400 text-xs mt-1">{errors.deadline}</p>
               )}
             </div>
+
+            {/* Advanced: SEO (#1222) and investment terms (#1244) save independently. */}
+            <details className="rounded-lg border border-slate-800 bg-slate-950/40 p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-200">
+                {t("seo.advanced")}
+              </summary>
+              <div className="mt-4 space-y-8">
+                <CampaignSeoPanel
+                  campaignId={campaign.id}
+                  campaignName={name || campaign.species}
+                  campaignDescription={description}
+                />
+                <InvestmentTermsForm
+                  campaignId={campaign.id}
+                  defaultFundingGoal={campaign.goal_amount ? campaign.goal_amount.toString() : undefined}
+                />
+              </div>
+            </details>
 
             <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
               <button

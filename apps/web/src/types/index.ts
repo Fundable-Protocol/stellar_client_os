@@ -45,3 +45,6 @@ export * from './onchain-tracking';
 export * from './creator-revenue-share';
 export * from './fraud-detection';
 export * from './impact-nft';
+export * from './campaign-milestone-release';
+export * from './campaign-reward-nft';
+export * from './backer-notification-preferences';

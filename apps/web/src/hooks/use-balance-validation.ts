@@ -5,22 +5,47 @@ import { useTokenBalance } from "./use-token-balance";
  * Debounced balance validation hook.
  *
  * Compares an input amount against the user's on-chain balance for the
- * selected token. Returns an inline error string when the input exceeds
- * the balance, and an `insufficientBalance` flag to disable submit.
+ * settlement token (XLM or USDC). When the backer's selected display
+ * currency differs from the settlement currency, the amount is validated
+ * against the converted settlement amount and a warning is surfaced so the
+ * UI can show the conversion before confirmation.
  */
 export function useBalanceValidation(
   amount: string,
   tokenCode: string | undefined,
-  delay = 300
+  delay = 300,
+  options?: {
+    /** Currency the backer selected at checkout (USD, EUR, XLM, USDC). */
+    displayCurrency?: string;
+    /** Amount in the settlement token after conversion. */
+    convertedAmount?: string;
+    /** Settlement token code (XLM or USDC). Defaults to `tokenCode`. */
+    settlementTokenCode?: string;
+  }
 ) {
-  const { balance, isLoading } = useTokenBalance(tokenCode);
+  const settlementTokenCode = options?.settlementTokenCode ?? tokenCode;
+  const { balance, isLoading } = useTokenBalance(settlementTokenCode);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const displayCurrency = options?.displayCurrency;
+  const convertedAmount = options?.convertedAmount;
+
+  // Warn when the backer's display currency differs from the settlement token
+  const conversionWarning = useMemo(() => {
+    if (!displayCurrency || !settlementTokenCode) return null;
+    if (displayCurrency.toUpperCase() === settlementTokenCode.toUpperCase()) {
+      return null;
+    }
+    return `You are paying in ${displayCurrency}; the pledge settles in ${settlementTokenCode}.`;
+  }, [displayCurrency, settlementTokenCode]);
 
   // Compute error synchronously; debounce via effect side-effect only
   const error = useMemo(() => {
     if (!amount || !balance) return null;
 
-    const inputNum = parseFloat(amount);
+    // Validate the converted settlement amount when a conversion is provided
+    const amountToValidate = convertedAmount ?? amount;
+    const inputNum = parseFloat(amountToValidate);
     const balanceNum = parseFloat(balance);
 
     if (isNaN(inputNum) || inputNum <= 0) {
@@ -28,10 +53,10 @@ export function useBalanceValidation(
     }
 
     if (inputNum > balanceNum) {
-      return `Insufficient ${tokenCode} balance. Available: ${balance}`;
+      return `Insufficient ${settlementTokenCode} balance. Available: ${balance}`;
     }
     return null;
-  }, [amount, balance, tokenCode]);
+  }, [amount, convertedAmount, balance, settlementTokenCode]);
 
   // Keep a debounced version for actual validation display
   const [debouncedError, setDebouncedError] = useState<string | null>(null);
@@ -54,5 +79,6 @@ export function useBalanceValidation(
     error: finalError,
     insufficientBalance: !!finalError,
     isLoading,
+    conversionWarning,
   };
 }

@@ -1,0 +1,160 @@
+{
+  "common": {
+    "save": "حفظ",
+    "saving": "جارٍ الحفظ…",
+    "saved": "تم الحفظ",
+    "cancel": "إلغاء",
+    "close": "إغلاق",
+    "delete": "حذف",
+    "remove": "إزالة",
+    "refresh": "تحديث",
+    "loading": "جارٍ التحميل…",
+    "retry": "إعادة المحاولة",
+    "copy": "نسخ",
+    "copied": "تم النسخ",
+    "optional": "اختياري",
+    "somethingWentWrong": "حدث خطأ ما. يُرجى المحاولة مرة أخرى.",
+    "connectWalletPrompt": "اربط محفظتك لإدارة هذه الإعدادات."
+  },
+  "nav": {
+    "mainNavigation": "التنقل الرئيسي",
+    "brand": "Fundable",
+    "home": "الرئيسية",
+    "balances": "الأرصدة",
+    "social": "اجتماعي",
+    "grants": "المنح",
+    "howItWorks": "كيف يعمل",
+    "faqs": "الأسئلة الشائعة",
+    "contact": "اتصل بنا"
+  },
+  "header": {
+    "openMenu": "فتح قائمة التنقل",
+    "closeMenu": "إغلاق قائمة التنقل",
+    "viewNotifications": "عرض الإشعارات",
+    "connectingWallet": "جارٍ ربط المحفظة…",
+    "connecting": "جارٍ الربط…",
+    "connected": "متصل",
+    "walletConnected": "المحفظة متصلة: {address}"
+  },
+  "language": {
+    "label": "اللغة",
+    "select": "اختر اللغة",
+    "current": "اللغة الحالية: {language}"
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "sections": "أقسام الإعدادات",
+    "notifications": {
+      "title": "إعدادات الإشعارات",
+      "nav": "الإشعارات",
+      "description": "اختر طريقة تلقي أخبار الحملات التي دعمتها."
+    },
+    "language": {
+      "title": "اللغة والمنطقة",
+      "nav": "اللغة",
+      "description": "اختر اللغة المستخدمة في واجهة Fundable. يُحفظ اختيارك على هذا الجهاز.",
+      "rtlNotice": "تُعرض العربية من اليمين إلى اليسار."
+    },
+    "webhooks": {
+      "title": "الويب هوك",
+      "nav": "الويب هوك",
+      "description": "استلم إشعارات POST موقّعة عند حدوث أي شيء في حملاتك."
+    }
+  },
+  "seo": {
+    "sectionTitle": "البحث ومشاركة الوسائط الاجتماعية (SEO)",
+    "advanced": "متقدم",
+    "description": "خصّص طريقة ظهور هذه الحملة في محركات البحث وعند مشاركتها على وسائل التواصل الاجتماعي.",
+    "fallbackNotice": "اترك الحقل فارغًا لاستخدام اسم الحملة ووصفها.",
+    "titleLabel": "عنوان الصفحة",
+    "titlePlaceholder": "مثال: استعادة 2000 شجرة مانغروف في لاغوس",
+    "descriptionLabel": "الوصف التعريفي",
+    "descriptionPlaceholder": "ملخص من جملة أو جملتين يشجّع على النقر.",
+    "ogImageLabel": "رابط صورة Open Graph",
+    "ogImageHint": "استخدم صورة عبر https، ويُفضّل أن تكون 1200 × 630 بكسل.",
+    "characterCount": "{count} / {max} حرفًا",
+    "statusGood": "طول مناسب",
+    "statusShort": "قصير قليلًا",
+    "statusLong": "تجاوز الحد الموصى به بمقدار {count}",
+    "searchPreview": "معاينة نتيجة البحث",
+    "socialPreview": "معاينة المشاركة الاجتماعية",
+    "noImage": "لم تُحدَّد صورة",
+    "saveSuccess": "تم حفظ إعدادات SEO.",
+    "invalidImage": "يجب أن يكون رابط الصورة رابط http(s) كاملًا."
+  },
+  "webhooks": {
+    "configTitle": "نقطة نهاية الويب هوك",
+    "urlLabel": "رابط الاستلام",
+    "urlPlaceholder": "https://example.com/hooks/fundable",
+    "secretLabel": "سر التوقيع",
+    "secretHint": "يحمل كل طلب ترويسة X-Webhook-Signature: قيمة HMAC-SHA256 لـ \"timestamp.body\" باستخدام هذا السر.",
+    "secretPlaceholder": "اتركه فارغًا لإنشاء سر تلقائيًا",
+    "secretMasked": "السر المحفوظ: {secret}",
+    "secretRevealOnce": "انسخ هذا السر الآن. لن يُعرض مرة أخرى.",
+    "rotateSecret": "تغيير السر",
+    "eventsLabel": "الأحداث المرسلة",
+    "enabled": "تفعيل الإرسال",
+    "sendTest": "إرسال حدث تجريبي",
+    "testQueued": "أُضيف الحدث التجريبي إلى قائمة الانتظار. راجع السجل بعد بضع ثوانٍ.",
+    "saved": "تم حفظ إعدادات الويب هوك.",
+    "removed": "تمت إزالة الويب هوك.",
+    "retryPolicy": "تُعاد محاولة الإرسال الفاشل حتى {count} مرات مع تأخير متزايد أُسيًّا.",
+    "events": {
+      "pledge_created": "تعهّد جديد",
+      "campaign_milestone_reached": "تحقيق مرحلة",
+      "campaign_ended": "انتهاء الحملة",
+      "refund_requested": "طلب استرداد",
+      "webhook_test": "حدث تجريبي"
+    },
+    "log": {
+      "title": "سجل أحداث الويب هوك",
+      "description": "محاولات الإرسال الأخيرة إلى نقطة النهاية الخاصة بك.",
+      "empty": "لا توجد عمليات إرسال بعد.",
+      "notConfigured": "اضبط نقطة نهاية في الإعدادات لبدء استلام الأحداث.",
+      "configure": "فتح إعدادات الويب هوك",
+      "time": "الوقت",
+      "event": "الحدث",
+      "status": "الحالة",
+      "attempt": "المحاولة",
+      "response": "الاستجابة",
+      "delivered": "تم التسليم",
+      "failed": "فشل",
+      "retrying": "إعادة المحاولة",
+      "attemptOf": "{attempt} من {max}"
+    }
+  },
+  "roi": {
+    "title": "قدّر عائدك",
+    "subtitle": "يتقاسم الداعمون {percent}% من إيرادات هذه الحملة لمدة {years} سنوات.",
+    "pledgeAmount": "مبلغ التعهّد",
+    "yourShare": "حصتك من مجمّع الداعمين",
+    "annualPayout": "الدفعة المقدّرة في السنة الأولى",
+    "totalReturn": "إجمالي العائد المقدّر",
+    "netProfit": "صافي الربح المقدّر",
+    "roi": "العائد على الاستثمار المقدّر",
+    "multiple": "مضاعف العائد",
+    "payback": "فترة الاسترداد المقدّرة",
+    "paybackYear": "السنة {year}",
+    "paybackNever": "ليس خلال المدة",
+    "yearlyBreakdown": "التقدير سنة بسنة",
+    "yearLabel": "السنة {year}",
+    "disclaimer": "التوقعات تقديرات فقط تستند إلى توقعات إيرادات صاحب الحملة، وليست ضمانًا لأي عائد. قد تكون النتائج الفعلية أقل، وقد تخسر جزءًا من تعهّدك أو كله.",
+    "terms": {
+      "title": "شروط الاستثمار",
+      "description": "حدّد شروط تقاسم الإيرادات التي يستخدمها الداعمون لتقدير عائدهم المحتمل.",
+      "type": "نوع الحملة",
+      "revenue_share": "تقاسم الإيرادات",
+      "equity": "حصص ملكية",
+      "revenueSharePercent": "نسبة الإيرادات للداعمين (%)",
+      "projectedAnnualRevenue": "الإيرادات السنوية المتوقعة",
+      "fundingGoal": "هدف التمويل",
+      "termYears": "المدة (بالسنوات)",
+      "annualGrowthPercent": "النمو السنوي المتوقع للإيرادات (%)",
+      "currency": "العملة",
+      "minPledge": "الحد الأدنى للتعهّد",
+      "maxPledge": "الحد الأقصى للتعهّد",
+      "saved": "تم حفظ شروط الاستثمار.",
+      "notInvestment": "لا تقدّم هذه الحملة عائدًا ماليًا."
+    }
+  }
+}

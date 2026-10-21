@@ -19,6 +19,62 @@ function addressToString(address: AddressParam): string {
 }
 
 /**
+ * Supported currencies for multi-currency pledges.
+ *
+ * - `USD`  — US Dollar (fiat, converted to on-chain token at pledge time)
+ * - `EUR`  — Euro (fiat, converted to on-chain token at pledge time)
+ * - `XLM`  — Stellar Lumens (native on-chain asset)
+ * - `USDC` — USD Coin (on-chain stablecoin)
+ */
+export type Currency = "USD" | "EUR" | "XLM" | "USDC";
+
+/**
+ * A conversion quote describing how an original pledge amount in one
+ * currency converts into the campaign's settlement currency.
+ *
+ * The quote is produced off-chain (e.g. by an oracle or price feed) and
+ * passed to `contributeWithQuote` so the contract can record both the
+ * original and converted amounts for receipts and auditing.
+ */
+export interface ConversionQuote {
+  /** Currency the backer selected at checkout. */
+  originalCurrency: Currency;
+  /** Amount the backer pledged, denominated in `originalCurrency`. */
+  originalAmount: bigint;
+  /** Currency the campaign settles in (typically the campaign token). */
+  convertedCurrency: Currency;
+  /** Amount actually transferred on-chain, denominated in `convertedCurrency`. */
+  convertedAmount: bigint;
+  /**
+   * Conversion rate applied (convertedAmount / originalAmount), scaled by
+   * 1e7 to preserve precision as an integer.  Displayed to the backer
+   * before confirmation.
+   */
+  rate: bigint;
+  /** Unix timestamp (seconds) at which the quote was issued. */
+  quotedAt: bigint;
+}
+
+/**
+ * Dual-amount contribution record returned by `getContributionWithCurrency`.
+ *
+ * Receipts show both the original amount the backer pledged and the
+ * converted amount that was actually settled on-chain.
+ */
+export interface ContributionRecord {
+  /** Original currency selected by the backer. */
+  originalCurrency: Currency;
+  /** Original amount pledged, in `originalCurrency`. */
+  originalAmount: bigint;
+  /** Currency the contribution was settled in. */
+  convertedCurrency: Currency;
+  /** Converted amount settled on-chain, in `convertedCurrency`. */
+  convertedAmount: bigint;
+  /** Conversion rate applied, scaled by 1e7. */
+  rate: bigint;
+}
+
+/**
  * Campaign lifecycle status.
  *
  * Mirrors the `CampaignStatus` enum in the on-chain contract.
@@ -68,6 +124,10 @@ export const CampaignFundingErrors: Record<number, { message: string }> = {
   17: { message: "StreamContractNotSet" },
   18: { message: "RewardsAlreadyStreamed" },
   19: { message: "CampaignNotClaimed" },
+  20: { message: "UnsupportedCurrency" },
+  21: { message: "InvalidConversionQuote" },
+  22: { message: "QuoteExpired" },
+  23: { message: "ConversionRateMismatch" },
 };
 
 /**
@@ -187,6 +247,59 @@ export class CampaignFundingClient {
           amount: params.amount,
         }),
       "Contribute to campaign"
+    );
+  }
+
+  /**
+   * Contribute to an active campaign using a multi-currency conversion quote.
+   *
+   * The backer selects their preferred currency at checkout; the quote
+   * describes the conversion into the campaign's settlement currency.  The
+   * contract records both the original and converted amounts so receipts can
+   * display them side by side.
+   *
+   * @param params.contributor       - Backer address.
+   * @param params.campaign_id       - Target campaign ID.
+   * @param params.originalCurrency  - Currency selected by the backer.
+   * @param params.originalAmount    - Amount pledged in `originalCurrency`.
+   * @param params.convertedCurrency - Settlement currency of the campaign.
+   * @param params.convertedAmount   - Amount settled on-chain in
+   *                                   `convertedCurrency`.
+   * @param params.quote             - Conversion quote (rate + timestamp) that
+   *                                   was displayed to the backer before
+   *                                   confirmation.
+   * @throws {FundableStellarError} If the currency is unsupported, the quote
+   *   is invalid or expired, the rate does not match the amounts, or the
+   *   campaign is not active.
+   */
+  public async contributeWithQuote(params: {
+    contributor: AddressParam;
+    campaign_id: bigint;
+    originalCurrency: Currency;
+    originalAmount: bigint;
+    convertedCurrency: Currency;
+    convertedAmount: bigint;
+    quote: ConversionQuote;
+  }): Promise<AssembledTransaction<null>> {
+    return executeWithErrorHandling(
+      () =>
+        this.client.contribute_with_quote({
+          contributor: addressToString(params.contributor),
+          campaign_id: params.campaign_id,
+          original_currency: params.originalCurrency,
+          original_amount: params.originalAmount,
+          converted_currency: params.convertedCurrency,
+          converted_amount: params.convertedAmount,
+          quote: {
+            original_currency: params.quote.originalCurrency,
+            original_amount: params.quote.originalAmount,
+            converted_currency: params.quote.convertedCurrency,
+            converted_amount: params.quote.convertedAmount,
+            rate: params.quote.rate,
+            quoted_at: params.quote.quotedAt,
+          },
+        }),
+      "Contribute to campaign with conversion quote"
     );
   }
 
@@ -377,6 +490,31 @@ export class CampaignFundingClient {
           contributor: addressToString(params.contributor),
         }),
       "Get contribution"
+    );
+  }
+
+  /**
+   * Read back the stored dual amounts (original + converted) for a
+   * contribution made via `contributeWithQuote`.
+   *
+   * Useful for rendering receipts that show both the amount the backer
+   * pledged and the amount actually settled on-chain.
+   *
+   * @returns A `ContributionRecord` with both currencies and amounts, or
+   *   `undefined` if the contributor has no recorded contribution.
+   * @throws {FundableStellarError} If the campaign does not exist.
+   */
+  public async getContributionWithCurrency(params: {
+    campaign_id: bigint;
+    contributor: AddressParam;
+  }): Promise<AssembledTransaction<ContributionRecord | undefined>> {
+    return executeWithErrorHandling(
+      () =>
+        this.client.get_contribution_with_currency({
+          campaign_id: params.campaign_id,
+          contributor: addressToString(params.contributor),
+        }) as Promise<AssembledTransaction<ContributionRecord | undefined>>,
+      "Get contribution with currency"
     );
   }
 

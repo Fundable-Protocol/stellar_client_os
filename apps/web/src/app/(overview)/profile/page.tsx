@@ -1,4 +1,5 @@
 import { CreatorProfile } from "@/components/modules/profile/CreatorProfile";
+import { BackerBadgeProfile } from "@/components/modules/profile/BackerBadgeProfile";
 
 export const metadata = {
   title: "Creator Profile | Fundable",
@@ -10,6 +11,7 @@ export default function ProfilePage() {
   return (
     <main className="h-full overflow-y-auto px-4 py-8 md:py-10">
       <CreatorProfile />
+      <BackerBadgeProfile address="profile" />
     </main>
   );
 }

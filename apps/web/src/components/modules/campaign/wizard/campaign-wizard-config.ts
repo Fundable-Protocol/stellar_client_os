@@ -67,6 +67,7 @@ export interface CampaignWizardData {
   shortDescription: string;
   fullStory: string;
   imageUrl: string;
+  imageAlt?: string;
 
   // Step 2: Goals
   goalAmount: string;
@@ -78,6 +79,7 @@ export interface CampaignWizardData {
   startDate: string;
   endDate: string;
   milestones: MilestoneItem[];
+  stretchGoals?: StretchGoalItem[];
 
   // Step 4: Impact Statement
   impactStatement: string;
@@ -100,6 +102,7 @@ export const INITIAL_WIZARD_DATA: CampaignWizardData = {
   shortDescription: "",
   fullStory: "",
   imageUrl: "",
+  imageAlt: "",
 
   goalAmount: "",
   token: "XLM",
@@ -108,6 +111,8 @@ export const INITIAL_WIZARD_DATA: CampaignWizardData = {
 
   startDate: new Date().toISOString().split("T")[0],
   endDate: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+  scheduledPublishAt: "",
+  budgetBreakdown: [],
   milestones: [
     {
       id: "m-1",
@@ -138,6 +143,7 @@ export const detailsSchema = z.object({
   shortDescription: z.string().min(10, "Short description must be at least 10 characters").max(300, "Short description cannot exceed 300 characters"),
   fullStory: z.string().min(20, "Full story must be at least 20 characters"),
   imageUrl: z.string().url("Must be a valid image URL").or(z.string().length(0)),
+  imageAlt: z.string().optional(),
   language: z.string().min(1, "Language is required"),
 });
 
@@ -150,6 +156,7 @@ export const goalsSchema = z.object({
 
 export const timelineSchema = z.object({
   startDate: z.string().min(1, "Start date is required"),
+  scheduledPublishAt: z.string().optional(),
   endDate: z.string().min(1, "End date is required"),
 }).refine((data) => new Date(data.endDate) > new Date(data.startDate), {
   message: "End date must be after start date",

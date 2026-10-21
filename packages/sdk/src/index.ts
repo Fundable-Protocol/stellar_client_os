@@ -47,6 +47,7 @@ export {
 } from "./CampaignFundingClient.js";
 export * from "./CarbonCreditClient.js";
 export * from "./ImpactNFTClient.js";
+export * from "./NFTRewardTierClient.js";
 export * from "./nft-milestone.js";
 export * from "./SpeciesProofClient.js";
 export * from "./utils/checked-math.js";

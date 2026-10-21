@@ -25,6 +25,7 @@ import {
   REFERRAL_BONUS_XLM,
 } from "@/services/social.service";
 import { getCampaignsByCreator, type Campaign } from "@/services/campaign.service";
+import { CreatorSocialSettings } from "@/components/campaign/CreatorSocialSettings";
 
 export interface PlanterProfileProps {
   initialAddress?: string;
@@ -614,6 +615,9 @@ export const PlanterProfile: React.FC<PlanterProfileProps> = ({ initialAddress }
           </div>
         )}
       </section>
+
+      {/* ── Creator Settings: Social Media Account Connections (#1266) ── */}
+      <CreatorSocialSettings creatorAddress={address} />
     </div>
   );
 };

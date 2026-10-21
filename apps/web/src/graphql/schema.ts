@@ -203,6 +203,17 @@ export const typeDefs = /* GraphQL */`
     FAILED
   }
 
+  enum CampaignCategory {
+    TECH
+    ART
+    SOCIAL_IMPACT
+    CLIMATE
+    EDUCATION
+    HEALTH
+    COMMUNITY
+    OTHER
+  }
+
   enum CampaignSortField {
     createdAt
     updatedAt
@@ -227,6 +238,8 @@ export const typeDefs = /* GraphQL */`
     maxGoalAmount: String
     createdAfter: Int
     createdBefore: Int
+    categories: [CampaignCategory!]
+    tags: [String!]
   }
 
   input CampaignSort {
@@ -285,6 +298,16 @@ export const typeDefs = /* GraphQL */`
     breakdown: CampaignHealthBreakdown!
   }
 
+  type CampaignMilestone {
+    id: ID!
+    campaignId: ID!
+    label: String!
+    amount: String!
+    percent: Float!
+    reached: Boolean!
+    reachedAt: Int
+  }
+
   type Campaign {
     id: ID!
     creator: String!
@@ -309,6 +332,9 @@ export const typeDefs = /* GraphQL */`
     healthScore: Int!
     healthLevel: String!
     healthAssessment: CampaignHealthAssessment
+    category: CampaignCategory
+    tags: [String!]!
+    milestones: [CampaignMilestone!]!
     sponsors: [CampaignSponsor!]!
     statusHistory: [CampaignStatusHistory!]!
   }
@@ -394,6 +420,16 @@ export const typeDefs = /* GraphQL */`
     visitors: Int!
     views: Int!
     share: Float!
+    pledges: Int
+    conversionRate: Float
+  }
+
+  type PledgeFunnelStage {
+    stage: String!
+    label: String!
+    count: Int!
+    conversionRate: Float!
+    dropoffRate: Float!
   }
 
   type FunnelStage {
@@ -427,15 +463,41 @@ export const typeDefs = /* GraphQL */`
     cumulative: String!
   }
 
+  type HourlyFundingPoint {
+    hour: String!
+    amount: String!
+    contributions: Int!
+    cumulative: String!
+  }
+
+  type BenchmarkMetric {
+    label: String!
+    current: Float!
+    benchmark: Float!
+    unit: String!
+    delta: Float!
+  }
+
+  type CampaignBenchmark {
+    category: String!
+    anonymizedSampleSize: Int!
+    comparedTo: String!
+    metrics: [BenchmarkMetric!]!
+    suggestions: [String!]!
+  }
+
   type CampaignAnalyticsDashboard {
     campaignId: ID!
     updatedAt: Int!
     trafficSources: [TrafficSourceStat!]!
     funnel: [FunnelStage!]!
+    pledgeFunnel: [PledgeFunnelStage!]
     demographics: [BackerDemographic!]!
     rewardTiers: [RewardTierStat!]!
     dailyTrend: [DailyFundingPoint!]!
+    hourlyTrend: [HourlyFundingPoint!]
     totals: CampaignAnalyticsTotals!
+    benchmark: CampaignBenchmark!
   }
 
   type CampaignAnalyticsTotals {
@@ -443,6 +505,23 @@ export const typeDefs = /* GraphQL */`
     contributions: Int!
     totalFunded: String!
     conversionRate: Float!
+  }
+
+  """Supported export formats for the campaign analytics dashboard."""
+  enum AnalyticsExportFormat {
+    CSV
+    PDF
+  }
+
+  """An exported analytics report, base64-encoded for transport."""
+  type CampaignAnalyticsExport {
+    campaignId: ID!
+    format: AnalyticsExportFormat!
+    filename: String!
+    mimeType: String!
+    """Base64-encoded report contents."""
+    payload: String!
+    generatedAt: Int!
   }
 
   enum GrantProgramStatus {
@@ -569,6 +648,17 @@ export const typeDefs = /* GraphQL */`
     trends.
     """
     campaignAnalytics(campaignId: ID!, network: Network): CampaignAnalyticsDashboard
+
+    """
+    Export the creator analytics dashboard (traffic sources, conversion
+    funnel, backer demographics, and daily funding trend) as a CSV or PDF
+    report, returned base64-encoded.
+    """
+    campaignAnalyticsExport(
+      campaignId: ID!
+      format: AnalyticsExportFormat = CSV
+      network: Network
+    ): CampaignAnalyticsExport
 
     """
     The platform-funded grant matching programs available to underrepresented

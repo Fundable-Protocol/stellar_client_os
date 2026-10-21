@@ -13,6 +13,10 @@ vi.mock("@/providers/StellarWalletProvider", () => ({
   }),
 }));
 
+vi.mock("@/components/campaign/PersonalizedCampaignRecommendations", () => ({
+  PersonalizedCampaignRecommendations: () => null,
+}));
+
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("react-hot-toast", () => ({ default: toast }));
 

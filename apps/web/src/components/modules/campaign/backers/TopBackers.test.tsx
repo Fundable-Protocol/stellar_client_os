@@ -1,6 +1,6 @@
 import React from "react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { TopBackers } from "./TopBackers";
 import { backersService } from "@/services/campaign-backers.service";
 import { ANONYMOUS_BACKER_LABEL } from "@/types/campaign-backers";
@@ -32,6 +32,24 @@ describe("TopBackers", () => {
     expect(within(rows[0]).getByText("Alice Adams")).toBeTruthy();
     expect(within(rows[1]).getByText("Bob Bale")).toBeTruthy();
     expect(within(rows[2]).getByText("Carol Cruz")).toBeTruthy();
+  });
+
+  it("refreshes the visible ranking when a new pledge arrives", () => {
+    render(<TopBackers campaignId={CAMPAIGN} />);
+    expect(screen.getAllByTestId(/^backer-row-/)).toHaveLength(3);
+
+    act(() => {
+      backersService.recordContribution({
+        campaignId: CAMPAIGN,
+        backerAddress: "GDana...DDDD",
+        amount: "2000",
+        token: "XLM",
+        displayName: "Dana Doyle",
+      });
+    });
+
+    expect(screen.getAllByTestId(/^backer-row-/)).toHaveLength(4);
+    expect(screen.getByText("Dana Doyle")).toBeTruthy();
   });
 
   it("shows at most ten rows", () => {

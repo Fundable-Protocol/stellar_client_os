@@ -1,15 +1,15 @@
 "use client";
 
-import React, { use } from "react";
+import React from "react";
 import { useRouter } from "next/navigation";
 import { CampaignARVisualizer } from "@/components/modules/campaign/ar/CampaignARVisualizer";
 
 export default function CampaignARPage({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: { id: string };
 }) {
-  const { id } = use(params);
+  const { id } = params;
   const router = useRouter();
 
   // Default / fallback campaign metadata for direct AR view

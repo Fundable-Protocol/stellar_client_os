@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { backersService, seedDemoBackers, DEMO_CAMPAIGN_ID, DEMO_CREATOR_ADDRESS } from "./campaign-backers.service";
 import {
   ANONYMOUS_BACKER_LABEL,
@@ -40,6 +40,19 @@ describe("campaign-backers.service — contributions", () => {
       .toThrow(/positive contribution amount/);
     expect(() => backersService.recordContribution({ campaignId: "", backerAddress: ALICE, amount: "10" }))
       .toThrow(/campaignId is required/);
+  });
+
+  it("notifies the campaign leaderboard when a new contribution is recorded", () => {
+    const listener = vi.fn();
+    const unsubscribe = backersService.subscribe(CAMPAIGN, listener);
+
+    backersService.recordContribution({ campaignId: CAMPAIGN, backerAddress: ALICE, amount: "100" });
+    backersService.recordContribution({ campaignId: "another-campaign", backerAddress: BOB, amount: "200" });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+    backersService.recordContribution({ campaignId: CAMPAIGN, backerAddress: CAROL, amount: "300" });
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("defaults new backers to a public, featureable preference", () => {

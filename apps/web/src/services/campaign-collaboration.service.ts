@@ -1,4 +1,10 @@
-import { CoCreator, CoCreatorInvite, CoCreatorRole } from "@/types/collaboration";
+import {
+  CoCreator,
+  CoCreatorInvite,
+  CoCreatorRole,
+  CampaignPermissionKey,
+  hasPermission,
+} from "@/types/collaboration";
 
 const initialCollaborators: CoCreator[] = [
   {
@@ -60,6 +66,7 @@ class CampaignCollaborationService {
     role: CoCreatorRole;
     invitedBy: string;
     invitedByName: string;
+    inviteeEmail?: string;
     expiresInDays?: number;
   }): CoCreatorInvite {
     const token = `inv_${Math.random().toString(36).substring(2, 10)}_${Date.now()}`;
@@ -71,6 +78,7 @@ class CampaignCollaborationService {
       role: params.role,
       invitedBy: params.invitedBy,
       invitedByName: params.invitedByName,
+      inviteeEmail: params.inviteeEmail,
       createdAt: Date.now(),
       expiresAt: Date.now() + days * 86400000,
       isUsed: false,
@@ -138,6 +146,45 @@ class CampaignCollaborationService {
       return true;
     }
     return false;
+  }
+
+  /** Find a collaborator by their Stellar address. */
+  getCollaboratorByAddress(campaignId: string, stellarAddress: string): CoCreator | undefined {
+    const list = this.collaborators.get(campaignId) || [];
+    return list.find(
+      (c) => c.stellarAddress.toLowerCase() === stellarAddress.toLowerCase()
+    );
+  }
+
+  /**
+   * Resolve the effective role for an address on a campaign. The campaign
+   * creator (owner) is always treated as `OWNER`. Addresses that are neither
+   * the owner nor an invited collaborator resolve to `VIEWER`.
+   */
+  getEffectiveRole(
+    campaignId: string,
+    stellarAddress: string,
+    ownerAddress?: string
+  ): CoCreatorRole {
+    if (ownerAddress && ownerAddress.toLowerCase() === stellarAddress.toLowerCase()) {
+      return "OWNER";
+    }
+    return this.getCollaboratorByAddress(campaignId, stellarAddress)?.role ?? "VIEWER";
+  }
+
+  /**
+   * Server-side permission check. Returns `true` if the address is allowed to
+   * perform the requested action. Used by mutation routes to enforce
+   * role-based permissions before applying changes.
+   */
+  checkPermission(
+    campaignId: string,
+    stellarAddress: string,
+    permission: CampaignPermissionKey,
+    ownerAddress?: string
+  ): boolean {
+    const role = this.getEffectiveRole(campaignId, stellarAddress, ownerAddress);
+    return hasPermission(role, permission);
   }
 }
 

@@ -1,4 +1,4 @@
-import { MILESTONE_PERCENTAGES } from "../lib/campaign-milestones";
+import { MILESTONE_PERCENTAGES, evaluateMilestones } from "../lib/campaign-milestones";
 import type { VerificationAuditEntry, VerificationEvidence } from "@/types/campaign-verification";
 import { EmailService, type SendEmailOptions } from "./email.service";
 import {
@@ -7,12 +7,48 @@ import {
   type CampaignPushNotifier,
 } from "./campaign-notification.service";
 import { CampaignWebhookService } from "./campaign-webhook.service";
+import { creatorWebhookService } from "./creator-webhook.service";
 import { pushNotificationService } from "./push-notification.service";
 import { campaignImpactNftService } from "./campaign-impact-nft.service";
+import { campaignNFTRewardService } from "./campaign-nft-reward.service";
 import type { CampaignWebhookEvent } from "@/types/webhook";
 import type { CampaignLocalizedContent } from "@/lib/translation";
+import type { CampaignLiveStream } from "@/lib/live-stream";
+
+export type { CampaignLiveStream, LiveStreamPlatform, LiveStreamStatus } from "@/lib/live-stream";
 
 export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
+
+/** Primary category a campaign can be filed under for browse/search facets. */
+export const CAMPAIGN_CATEGORIES = [
+  "Tech",
+  "Art",
+  "Social Impact",
+  "Environment",
+  "Education",
+  "Health",
+  "Community",
+  "Other",
+] as const;
+
+export type CampaignCategory = (typeof CAMPAIGN_CATEGORIES)[number];
+
+/** Maximum number of custom tags a campaign creator may attach. */
+export const MAX_CAMPAIGN_TAGS = 10;
+
+/**
+ * A creator-defined funding milestone. `percentage` is the fraction of the goal
+ * (0–100) at which the milestone fires; `amount` is an optional explicit target
+ * that takes precedence when present. `notifiedAt` records when the milestone
+ * notification was dispatched so it is only ever sent once.
+ */
+export interface CampaignMilestone {
+  id: string;
+  label: string;
+  percentage: number;
+  amount?: string;
+  notifiedAt?: number;
+}
 
 export type CampaignSortField =
   | "createdAt"
@@ -38,6 +74,17 @@ export interface SponsorRecord {
   amount: string;
   token: string;
   sponsoredAt: number;
+}
+
+export type CharityBadgeType = "TAX_EXEMPT" | "CHARITY_VERIFIED";
+
+/** Trust badge awarded to a campaign by a platform admin after reviewing charity documents. */
+export interface CampaignCharityBadge {
+  type: CharityBadgeType;
+  /** Public link to the supporting documentation (e.g. IRS determination letter). */
+  documentationUrl: string;
+  awardedBy: string;
+  awardedAt: number;
 }
 
 export interface CampaignNonprofitPartner {
@@ -152,6 +199,9 @@ export interface CampaignRecord {
   /** Optional creator-authored copy for post-pledge thank-you emails. */
   pledgeThankYouGreeting?: string;
   pledgeThankYouBody?: string;
+  pledgeThankYouImageUrl?: string;
+  pledgeThankYouVideoUrl?: string;
+  pledgeThankYouNextSteps?: string;
   name: string;
   description?: string;
   /** Detected ISO 639-1 language code of the campaign description. */
@@ -178,7 +228,15 @@ export interface CampaignRecord {
   /** Optional broad geographic region for discovery filtering. */
   region?: string;
   /** Intended campaign duration in milliseconds, used for duplicate detection. */
+  /** Optional campaign category (e.g., Environmental & Reforestation). */
+  category?: CampaignCategory | string;
+  /** Custom searchable tags (max {@link MAX_CAMPAIGN_TAGS}). */
+  tags?: string[];
+  /** Creator-defined funding milestones with automated notifications. */
+  milestones?: CampaignMilestone[];
   durationMs?: number;
+  deadline?: number;
+  countdownEnabled?: boolean;
   status: CampaignStatus;
   goalAmount: string;
   raisedAmount: string;
@@ -202,6 +260,8 @@ export interface CampaignRecord {
   sponsors: SponsorRecord[];
   /** Partner details are eligible for certificates only after independent verification. */
   nonprofitPartner?: CampaignNonprofitPartner;
+  /** Tax-Exempt / Charity Verified badge shown to backers; set only by a platform admin. */
+  charityBadge?: CampaignCharityBadge;
   statusHistory: StatusHistoryEntry[];
   creatorVerification?: CampaignVerificationSummary;
   verification?: CampaignVerificationSummary;
@@ -224,30 +284,53 @@ export interface CampaignRecord {
   featured?: boolean;
   /** Timestamp when the campaign was featured as a success story. */
   featuredAt?: number;
+  /** Whether this campaign is curated by the platform editorial team as a Staff Pick. */
+  isStaffPick?: boolean;
+  /** Editorial note or reason why the campaign was curated as a Staff Pick. */
+  staffPickReason?: string;
+  /** Timestamp when the campaign was designated as a Staff Pick. */
+  staffPickedAt?: number;
   insuranceClaim?: CampaignInsuranceClaim;
+  /**
+   * Country-level access restrictions for this campaign.
+   *
+   * - When `mode` is `"allow"` only visitors whose country is in
+   *   `countryCodes` may back the campaign.
+   * - When `mode` is `"block"` visitors whose country is in
+   *   `countryCodes` are denied access.
+   * - `null` or absent means no restrictions.
+   */
+  geoRestriction?: import("./campaign-geo-restriction.service").GeoRestriction | null;
   /** Time-limited stretch goals that unlock special backer rewards. */
   stretchGoals?: import("./campaign-stretch-goals.service").StretchGoal[];
+  /** Tiered funding goals with escalating deliverables (issue #1247). */
+  goalTiers?: {
+    minimum: {
+      amount: string;
+      description: string;
+    };
+    goal: {
+      amount: string;
+      description: string;
+    };
+    stretch?: {
+      amount: string;
+      description: string;
+    };
+  };
   /** Funding-percentage milestones already emailed to the creator. */
   /** Funding milestones (e.g. 25, 50, 75, 100) that have already triggered a
-   * creator notification for this campaign (issue #793). */
+   * creator notification for this campaign (issue #793). Retained for
+   * backwards compatibility alongside creator-defined {@link milestones}. */
   milestonesNotified?: number[];
   /** Per-campaign sponsor/creator notification preferences (issue #1018). */
   notificationPreferences?: CampaignNotificationPreference[];
   /** Impact thresholds already reached, including those without subscribers. */
   impactMilestonesReached?: ImpactMilestone[];
   impactAchieved?: boolean;
-  /** Impact report summary generated at campaign close. */
-  impactReport?: CampaignImpactReportSummary;
-}
-
-export interface CampaignImpactReportSummary {
-  id: string;
-  generatedAt: number;
-  closedAt?: number;
-  publicUrl: string;
-  downloadUrl: string;
-  emailSent: boolean;
-  emailSentTo?: string;
+  /** Provider-validated live stream (YouTube Live / Twitch) attached by the
+   * campaign creator, including the replay link kept after the event ends. */
+  liveStream?: CampaignLiveStream;
 }
 
 export const IMPACT_MILESTONES = ["1000_trees", "5000_trees", "10_tons_co2"] as const;
@@ -304,6 +387,11 @@ export interface CampaignFilter {
   maxGoalAmount?: string;
   createdAfter?: number;
   createdBefore?: number;
+  isStaffPick?: boolean;
+  /** Multi-category facet filter (issue #1175). */
+  categories?: CampaignCategory[];
+  /** Tag facet filter; a campaign matches when it carries any listed tag. */
+  tags?: string[];
 }
 
 export interface CampaignQueryInput {
@@ -717,7 +805,19 @@ export async function recordCampaignContribution(
   );
 
   const notified = campaign.milestonesNotified ?? [];
-  const newlyReached = reached.filter((percentage) => !notified.includes(percentage));
+
+  // Prefer creator-defined milestones when present; otherwise fall back to the
+  // hard-coded 25/50/75/100 schedule (issue #1171).
+  const customMilestones = campaign.milestones ?? [];
+  const useCustomMilestones = customMilestones.length > 0;
+  const crossedCustomMilestones = useCustomMilestones
+    ? evaluateMilestones(customMilestones, previousRaised, newRaised, campaign.goalAmount)
+    : [];
+  const newlyCrossedCustom = crossedCustomMilestones.filter((milestone) => milestone.notifiedAt === undefined);
+
+  const newlyReached = useCustomMilestones
+    ? newlyCrossedCustom.map((milestone) => milestone.percentage)
+    : reached.filter((percentage) => !notified.includes(percentage));
 
   if (newlyReached.length > 0 && campaign.creatorEmail && !campaign.notificationPreferences?.length) {
     // Build impact metrics to include in every milestone email (#983).
@@ -732,9 +832,14 @@ export async function recordCampaignContribution(
       location: campaign.location,
     };
     for (const percentage of newlyReached) {
+      const label = useCustomMilestones
+        ? newlyCrossedCustom.find((milestone) => milestone.percentage === percentage)?.label
+        : undefined;
       await emailService.sendEmail({
         to: campaign.creatorEmail,
-        subject: `${campaign.name} reached ${percentage}% of its goal`,
+        subject: label
+          ? `${campaign.name}: ${label} reached`
+          : `${campaign.name} reached ${percentage}% of its goal`,
         html: milestoneEmailHtml(campaign.name, percentage, impactMetrics),
       });
     }
@@ -751,10 +856,19 @@ export async function recordCampaignContribution(
     for (const push of dispatch.pushes) await options.pushNotifier.sendPush(push);
   }
 
+  const updatedMilestones = useCustomMilestones
+    ? customMilestones.map((milestone) =>
+        newlyCrossedCustom.some((crossed) => crossed.id === milestone.id)
+          ? { ...milestone, notifiedAt: now }
+          : milestone,
+      )
+    : campaign.milestones;
+
   const updated: CampaignRecord = {
     ...campaign,
     raisedAmount: newRaised.toString(),
-    milestonesNotified: [...notified, ...newlyReached],
+    milestonesNotified: [...new Set([...notified, ...newlyReached])],
+    milestones: updatedMilestones,
     notificationPreferences: dispatch.updatedPreferences,
     updatedAt: now,
   };
@@ -788,6 +902,9 @@ export async function createCampaign(input: {
   location?: string;
   countries?: string[];
   speciesTags?: string[];
+  category?: CampaignCategory | string;
+  tags?: string[];
+  milestones?: CampaignMilestone[];
   region?: string;
   treeSpecies?: string;
 /** GPS coordinates of the campaign's planting site(s), stored for the global
@@ -801,6 +918,7 @@ export async function createCampaign(input: {
   co2SequestrationKg?: string;
   durationMs?: number;
   deadline?: number;
+  countdownEnabled?: boolean;
   goalAmount: string;
   raisedAmount?: string;
   sponsorCount?: number;
@@ -831,9 +949,14 @@ export async function createCampaign(input: {
     location: input.location,
     countries: input.countries,
     speciesTags: input.speciesTags ?? [],
+    category: input.category,
+    tags: input.tags ? [...new Set(input.tags)].slice(0, MAX_CAMPAIGN_TAGS) : [],
+    milestones: input.milestones ? input.milestones.map((milestone) => ({ ...milestone })) : [],
     region: input.region,
     treeSpecies: input.treeSpecies,
-gpsLocations: input.gpsLocations,
+    gpsLocations: input.gpsLocations,
+    deadline: input.deadline,
+    countdownEnabled: input.countdownEnabled,
     underrepresentedTags: input.underrepresentedTags,
     species: input.species,
     treeCount: input.treeCount ?? 0,
@@ -984,8 +1107,14 @@ export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource 
     if (filter.createdBefore !== undefined && campaign.createdAt > filter.createdBefore) return false;
     if (filter.minGoalAmount && BigInt(campaign.goalAmount) < BigInt(filter.minGoalAmount)) return false;
     if (filter.maxGoalAmount && BigInt(campaign.goalAmount) > BigInt(filter.maxGoalAmount)) return false;
+    if (filter.isStaffPick !== undefined && Boolean(campaign.isStaffPick) !== filter.isStaffPick) return false;
+    if (filter.categories?.length && !filter.categories.includes(campaign.category as CampaignCategory)) return false;
+    if (filter.tags?.length) {
+      const campaignTags = new Set((campaign.tags ?? []).map((tag) => tag.toLowerCase()));
+      if (!filter.tags.some((tag) => campaignTags.has(tag.toLowerCase()))) return false;
+    }
     if (filter.search) {
-      const haystack = `${campaign.id} ${campaign.name} ${campaign.description ?? ""} ${campaign.creator} ${campaign.language ?? ""} ${campaign.translations ? Object.values(campaign.translations).join(" ") : ""}`.toLowerCase();
+      const haystack = `${campaign.id} ${campaign.name} ${campaign.description ?? ""} ${campaign.creator} ${campaign.language ?? ""} ${campaign.category ?? ""} ${(campaign.tags ?? []).join(" ")} ${campaign.translations ? Object.values(campaign.translations).join(" ") : ""}`.toLowerCase();
       if (!haystack.includes(filter.search.toLowerCase())) return false;
     }
     return true;
@@ -1036,6 +1165,21 @@ export async function transitionCampaignStatus(
     }],
   };
   const saved = await dataSource.saveCampaign(next);
+  if (toStatus === "COMPLETED" || toStatus === "FAILED") {
+    // Creator-configured lifecycle webhook (#1220).
+    void creatorWebhookService.notify(saved.creator, "campaign.ended", {
+      eventId: `${campaign.id}:ended:${now}`,
+      campaignId: campaign.id,
+      campaignName: saved.name,
+      outcome: toStatus,
+      endedAt: new Date(now).toISOString(),
+      raisedAmount: saved.raisedAmount,
+      goalAmount: saved.goalAmount,
+      sponsorCount: saved.sponsorCount,
+    }).catch((error) => {
+      console.error(`[Creator webhook] Failed to dispatch campaign.ended for ${campaign.id}:`, error);
+    });
+  }
   if (toStatus === "COMPLETED") {
     void new CampaignWebhookService().campaignCompleted({
       completionId: `${campaign.id}:completed:${now}`,
@@ -1052,10 +1196,8 @@ export async function transitionCampaignStatus(
       console.error(`[Impact NFT] Failed to auto-mint completion NFT for ${campaign.id}:`, error);
     });
 
-    void import("./automated-campaign-impact-report.service").then(({ generateCampaignImpactReport }) => {
-      return generateCampaignImpactReport(campaign.id, { dataSource, now });
-    }).catch((error) => {
-      console.error(`[Impact Report] Failed to auto-generate impact report for ${campaign.id}:`, error);
+    void campaignNFTRewardService.processCampaignCloseAirdrops(campaign.id, { dataSource, now }).catch((error) => {
+      console.error(`[NFT Rewards] Failed to process airdrops for ${campaign.id}:`, error);
     });
   }
 

@@ -1,0 +1,160 @@
+{
+  "common": {
+    "save": "Salvar",
+    "saving": "Salvando…",
+    "saved": "Salvo",
+    "cancel": "Cancelar",
+    "close": "Fechar",
+    "delete": "Excluir",
+    "remove": "Remover",
+    "refresh": "Atualizar",
+    "loading": "Carregando…",
+    "retry": "Tentar novamente",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "optional": "Opcional",
+    "somethingWentWrong": "Algo deu errado. Tente novamente.",
+    "connectWalletPrompt": "Conecte sua carteira para gerenciar estas configurações."
+  },
+  "nav": {
+    "mainNavigation": "Navegação principal",
+    "brand": "Fundable",
+    "home": "Início",
+    "balances": "Saldos",
+    "social": "Social",
+    "grants": "Bolsas",
+    "howItWorks": "Como funciona",
+    "faqs": "Perguntas frequentes",
+    "contact": "Contato"
+  },
+  "header": {
+    "openMenu": "Abrir menu de navegação",
+    "closeMenu": "Fechar menu de navegação",
+    "viewNotifications": "Ver notificações",
+    "connectingWallet": "Conectando carteira…",
+    "connecting": "Conectando…",
+    "connected": "Conectado",
+    "walletConnected": "Carteira conectada: {address}"
+  },
+  "language": {
+    "label": "Idioma",
+    "select": "Selecionar idioma",
+    "current": "Idioma atual: {language}"
+  },
+  "settings": {
+    "title": "Configurações",
+    "sections": "Seções de configurações",
+    "notifications": {
+      "title": "Configurações de notificação",
+      "nav": "Notificações",
+      "description": "Escolha como receber novidades das campanhas que você apoia."
+    },
+    "language": {
+      "title": "Idioma e região",
+      "nav": "Idioma",
+      "description": "Escolha o idioma usado na interface da Fundable. Sua escolha fica salva neste dispositivo.",
+      "rtlNotice": "O árabe é exibido da direita para a esquerda."
+    },
+    "webhooks": {
+      "title": "Webhooks",
+      "nav": "Webhooks",
+      "description": "Receba notificações POST assinadas quando algo acontecer nas suas campanhas."
+    }
+  },
+  "seo": {
+    "sectionTitle": "Busca e redes sociais (SEO)",
+    "advanced": "Avançado",
+    "description": "Personalize como esta campanha aparece nos buscadores e quando compartilhada nas redes sociais.",
+    "fallbackNotice": "Deixe um campo vazio para usar o nome e a descrição da campanha.",
+    "titleLabel": "Título da página",
+    "titlePlaceholder": "ex.: Restaurar 2.000 manguezais em Lagos",
+    "descriptionLabel": "Meta descrição",
+    "descriptionPlaceholder": "Um resumo de uma ou duas frases que dê vontade de clicar.",
+    "ogImageLabel": "URL da imagem Open Graph",
+    "ogImageHint": "Use uma imagem https, de preferência 1200 × 630 pixels.",
+    "characterCount": "{count} / {max} caracteres",
+    "statusGood": "Bom tamanho",
+    "statusShort": "Um pouco curto",
+    "statusLong": "{count} acima do limite recomendado",
+    "searchPreview": "Prévia do resultado de busca",
+    "socialPreview": "Prévia de compartilhamento",
+    "noImage": "Nenhuma imagem definida",
+    "saveSuccess": "Configurações de SEO salvas.",
+    "invalidImage": "A URL da imagem deve ser uma URL http(s) absoluta."
+  },
+  "webhooks": {
+    "configTitle": "Endpoint do webhook",
+    "urlLabel": "URL de destino",
+    "urlPlaceholder": "https://example.com/hooks/fundable",
+    "secretLabel": "Segredo de assinatura",
+    "secretHint": "Cada requisição traz o cabeçalho X-Webhook-Signature: HMAC-SHA256 de \"timestamp.body\" com este segredo.",
+    "secretPlaceholder": "Deixe vazio para gerar um",
+    "secretMasked": "Segredo salvo: {secret}",
+    "secretRevealOnce": "Copie este segredo agora. Ele não será exibido novamente.",
+    "rotateSecret": "Trocar segredo",
+    "eventsLabel": "Eventos a enviar",
+    "enabled": "Envios ativados",
+    "sendTest": "Enviar evento de teste",
+    "testQueued": "Evento de teste na fila. Confira o registro em alguns segundos.",
+    "saved": "Configurações do webhook salvas.",
+    "removed": "Webhook removido.",
+    "retryPolicy": "Envios com falha são repetidos até {count} vezes com espera exponencial.",
+    "events": {
+      "pledge_created": "Nova contribuição",
+      "campaign_milestone_reached": "Marco atingido",
+      "campaign_ended": "Campanha encerrada",
+      "refund_requested": "Reembolso solicitado",
+      "webhook_test": "Evento de teste"
+    },
+    "log": {
+      "title": "Registro de eventos do webhook",
+      "description": "Tentativas de envio recentes para o seu endpoint.",
+      "empty": "Nenhum envio ainda.",
+      "notConfigured": "Configure um endpoint nas configurações para começar a receber eventos.",
+      "configure": "Abrir configurações do webhook",
+      "time": "Hora",
+      "event": "Evento",
+      "status": "Status",
+      "attempt": "Tentativa",
+      "response": "Resposta",
+      "delivered": "Entregue",
+      "failed": "Falhou",
+      "retrying": "Repetindo",
+      "attemptOf": "{attempt} de {max}"
+    }
+  },
+  "roi": {
+    "title": "Estime seu retorno",
+    "subtitle": "Os apoiadores dividem {percent}% da receita desta campanha por {years} anos.",
+    "pledgeAmount": "Valor da contribuição",
+    "yourShare": "Sua parte no fundo dos apoiadores",
+    "annualPayout": "Pagamento estimado no ano 1",
+    "totalReturn": "Retorno total estimado",
+    "netProfit": "Lucro líquido estimado",
+    "roi": "ROI estimado",
+    "multiple": "Múltiplo de retorno",
+    "payback": "Payback estimado",
+    "paybackYear": "Ano {year}",
+    "paybackNever": "Não dentro do prazo",
+    "yearlyBreakdown": "Estimativa ano a ano",
+    "yearLabel": "Ano {year}",
+    "disclaimer": "As projeções são apenas estimativas baseadas na previsão de receita do criador. Elas não garantem retorno. Os resultados reais podem ser menores e você pode perder parte ou toda a sua contribuição.",
+    "terms": {
+      "title": "Condições de investimento",
+      "description": "Defina as condições de divisão de receita que os apoiadores usam para estimar o retorno.",
+      "type": "Tipo de campanha",
+      "revenue_share": "Divisão de receita",
+      "equity": "Participação societária",
+      "revenueSharePercent": "Receita destinada aos apoiadores (%)",
+      "projectedAnnualRevenue": "Receita anual projetada",
+      "fundingGoal": "Meta de financiamento",
+      "termYears": "Prazo (anos)",
+      "annualGrowthPercent": "Crescimento anual projetado da receita (%)",
+      "currency": "Moeda",
+      "minPledge": "Contribuição mínima",
+      "maxPledge": "Contribuição máxima",
+      "saved": "Condições de investimento salvas.",
+      "notInvestment": "Esta campanha não oferece retorno financeiro."
+    }
+  }
+}

@@ -434,3 +434,23 @@ distribution-scrollbar {
 .leaflet-control-attribution a {
   color: #a1a1aa !important;
 }
+
+/* ── Right-to-left support (#1202) ─────────────────────────────────────────
+ * The root layout sets <html dir="rtl"> for Arabic. Prefer logical utilities
+ * (ms-/me-/ps-/pe-/start-/end-) in new code; these rules cover the common
+ * physical-direction cases that remain in older components. */
+[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}
+
+[dir="rtl"] body {
+  font-family: var(--font-geist-sans), "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+}
+
+/* Numbers, addresses and code stay left-to-right inside RTL text. */
+[dir="rtl"] code,
+[dir="rtl"] kbd,
+[dir="rtl"] .ltr-isolate {
+  direction: ltr;
+  unicode-bidi: isolate;
+}

@@ -26,6 +26,7 @@ describe("CampaignImageGallery", () => {
     expect(images[1].getAttribute("fetchpriority")).toBe("auto");
     expect(images[2].getAttribute("loading")).toBe("lazy");
     expect(images[2].getAttribute("fetchpriority")).toBe("auto");
+    expect(images[0].getAttribute("crossorigin")).toBeNull();
   });
 
   it("does not render an empty gallery", () => {
