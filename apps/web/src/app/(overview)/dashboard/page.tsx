@@ -1,5 +1,6 @@
 import StatsOverview from "@/components/modules/dashboard/StatsOverview";
 import CreatorStatsDashboard from "@/components/modules/dashboard/CreatorStatsDashboard";
+import CampaignImpactReports from "@/components/modules/dashboard/CampaignImpactReports";
 import DashboardOverview from "@/components/modules/dashboard/DashboardOverview";
 import FeatureCards from "@/components/modules/dashboard/FeatureCards";
 import ImpactComparison from "@/components/modules/dashboard/ImpactComparison";

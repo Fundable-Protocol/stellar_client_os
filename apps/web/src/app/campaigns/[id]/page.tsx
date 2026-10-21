@@ -70,6 +70,10 @@ export default async function CampaignPage({
             <Leaf className="h-4 w-4" />
             Impact Calculator
           </Link>
+          <Link href={`/campaigns/${campaign.id}/impact-report`} className="inline-flex items-center gap-1.5 rounded-md border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-900/50 dark:bg-purple-950/30 dark:text-purple-300">
+            <FileText className="h-4 w-4" />
+            Impact Report
+          </Link>
           <Link href={`/campaigns/${campaign.id}/donate`} className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
             <Heart className="h-4 w-4" />
             Donate
