@@ -42,6 +42,58 @@ export interface TaxForm1099Record {
 export type TaxJurisdiction = "US" | "EU" | "OTHER";
 
 /**
+ * Minimal campaign shape needed to decide whether a contribution is eligible
+ * for a charitable tax receipt (issue #1233).
+ */
+export interface TaxReceiptCampaign {
+  /** Whether the campaign was registered as charitable / non-profit. */
+  isNonProfit?: boolean;
+  /** Whether the non-profit status was verified during onboarding. */
+  nonProfitVerified?: boolean;
+  /** Optional explicit eligibility flag set by the backend. */
+  taxReceiptEligible?: boolean;
+}
+
+/** Summary of a downloadable tax receipt for a single contribution. */
+export interface TaxReceiptSummary {
+  /** Campaign the contribution was made to. */
+  campaignId: string;
+  /** Stellar-wallet public key of the backer who contributed. */
+  backerAddress: string;
+  /** Calendar tax year the receipt covers, e.g. 2025. */
+  taxYear: number;
+  /** Contributed amount formatted with two decimals, e.g. "12500.00". */
+  amountUSDC: string;
+  /** Stable reference shared with the backend receipt generator. */
+  reference: string;
+  /** ISO 8601 timestamp of when the receipt was issued. */
+  issuedAt: string;
+}
+
+/**
+ * Whether a campaign's contributions qualify for a charitable tax receipt.
+ *
+ * Mirrors the web eligibility rule: the campaign must be flagged as
+ * non-profit and that status must have been verified during onboarding.
+ */
+export function isTaxReceiptEligible(campaign: TaxReceiptCampaign): boolean {
+  if (campaign.taxReceiptEligible === true) return true;
+  return campaign.isNonProfit === true && campaign.nonProfitVerified === true;
+}
+
+/**
+ * Build the deterministic receipt reference used by the backend, e.g.
+ * `tax-receipt:campaign-1:GABC…:2025`.
+ */
+export function formatTaxReceiptReference(
+  campaignId: string,
+  backerAddress: string,
+  taxYear: number,
+): string {
+  return `tax-receipt:${campaignId}:${backerAddress}:${taxYear}`;
+}
+
+/**
  * Supported tax-document types:
  * - `us-1099-nec`  — IRS 1099-NEC (nonemployee compensation) for US creators
  * - `eu-vat-oss`   — EU VAT OSS annual summary for EU creators

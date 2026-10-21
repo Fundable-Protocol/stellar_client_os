@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { CampaignRecord } from "@/services/campaign.service";
 import { useSyncQueue } from "./use-sync-queue";
+import { donationService } from "@/services/donation.service";
+import { graphqlClient } from "@/lib/graphql-client";
 
 // ---------------------------------------------------------------------------
 // Page size used when fetching from the API.
@@ -132,5 +134,104 @@ export function useCampaigns() {
   }, [isOnline]);
 
   return { campaigns, isLoading, hasMore };
+}
+
+// ---------------------------------------------------------------------------
+// Tax receipts (issue #1233)
+// Fetches the downloadable tax receipts for a backer's eligible (charitable /
+// non-profit) campaign contributions and exposes a helper to download the PDF.
+// ---------------------------------------------------------------------------
+const TAX_RECEIPTS_QUERY = `
+  query TaxReceipts($backerAddress: String!) {
+    taxReceipts(backerAddress: $backerAddress) {
+      id
+      reference
+      campaignId
+      campaignTitle
+      amount
+      currency
+      issuedAt
+    }
+  }
+`;
+
+export interface TaxReceipt {
+  id: string;
+  reference: string;
+  campaignId: string;
+  campaignTitle: string;
+  amount: string;
+  currency: string;
+  issuedAt: string;
+}
+
+export function useTaxReceipts(backerAddress?: string) {
+  const [receipts, setReceipts] = useState<TaxReceipt[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!backerAddress) {
+      setReceipts([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchReceipts = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const data = await graphqlClient.request<{ taxReceipts: TaxReceipt[] }>(
+          TAX_RECEIPTS_QUERY,
+          { backerAddress },
+        );
+
+        if (!cancelled) {
+          setReceipts(data?.taxReceipts ?? []);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e : new Error("Failed to load tax receipts"));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchReceipts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backerAddress]);
+
+  const downloadReceipt = useCallback(
+    async (receiptId: string) => {
+      const receipt = receipts.find((r) => r.id === receiptId);
+      const reference = receipt?.reference ?? receiptId;
+
+      const pdfBytes = await donationService.downloadTaxReceipt(receiptId);
+      const blob = new Blob([pdfBytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+
+      try {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${reference}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    },
+    [receipts],
+  );
+
+  return { receipts, isLoading, error, downloadReceipt };
 }
 

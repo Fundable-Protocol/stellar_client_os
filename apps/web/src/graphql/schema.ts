@@ -314,6 +314,10 @@ export const typeDefs = /* GraphQL */`
     name: String!
     description: String
     status: CampaignStatus!
+    """Whether the campaign is a verified charitable/non-profit campaign."""
+    nonprofitVerified: Boolean!
+    """Non-profit partner organisation backing the campaign, if any."""
+    nonprofitPartner: String
     goalAmount: String!
     raisedAmount: String!
     sponsorCount: Int!
@@ -676,6 +680,16 @@ export const typeDefs = /* GraphQL */`
     The grant allocations awarded to a campaign across all programs.
     """
     campaignGrantAllocations(campaignId: ID!): [GrantAllocation!]!
+
+    """
+    Tax receipts for all eligible charitable contributions made by a backer.
+    """
+    taxReceipts(backerAddress: String!): [TaxReceipt!]!
+
+    """
+    A single tax receipt, scoped to the backer who owns it.
+    """
+    taxReceipt(receiptId: ID!, backerAddress: String!): TaxReceipt
   }
 
   """

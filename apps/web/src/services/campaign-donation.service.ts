@@ -158,6 +158,7 @@ export class CampaignDonationService {
   private donations = new Map<string, CampaignDonation[]>();
   private receipts = new Map<string, DonationReceipt>();
   private idempotency = new Map<string, string>();
+  private taxReceipts = new Map<string, TaxReceipt>();
 
   private readonly milestoneEmailService: CampaignMilestoneEmailService;
 
@@ -410,6 +411,31 @@ export class CampaignDonationService {
         // A mail provider outage must not undo a confirmed on-chain donation.
       }
     }
+
+    // Charitable / non-profit campaigns issue a downloadable tax receipt.
+    // Generation and delivery failures must never roll back the donation.
+    if (isNonprofitEligible(recorded.campaign)) {
+      try {
+        const taxReceipt = await generateTaxReceiptForContribution({
+          campaign: recorded.campaign,
+          donation,
+          donorName: input.donorName,
+          donorEmail,
+        });
+        this.taxReceipts.set(taxReceipt.receiptId, taxReceipt);
+
+        if (donorEmail) {
+          try {
+            await this.emailService.sendTaxReceiptEmail({ to: donorEmail, receipt: taxReceipt });
+          } catch {
+            // Mail outage: the receipt stays available on the dashboard.
+          }
+        }
+      } catch {
+        // PDF generation failure must not undo a confirmed on-chain donation.
+      }
+    }
+
     return {
       ok: true,
       donation,
@@ -488,6 +514,22 @@ export class CampaignDonationService {
     return this.receipts.get(donationId);
   }
 
+  /** Every tax receipt issued to a backer, newest first. */
+  getTaxReceiptsForBacker(donorAddress: string): TaxReceipt[] {
+    const address = String(donorAddress ?? "").trim();
+    if (!address) return [];
+    return [...this.taxReceipts.values()]
+      .filter((receipt) => receipt.donorAddress === address)
+      .sort((a, b) => b.issuedAt - a.issuedAt);
+  }
+
+  /** A single tax receipt, scoped to its owning backer. */
+  getTaxReceipt(receiptId: string, donorAddress: string): TaxReceipt | undefined {
+    const receipt = this.taxReceipts.get(String(receiptId ?? "").trim());
+    if (!receipt) return undefined;
+    return receipt.donorAddress === String(donorAddress ?? "").trim() ? receipt : undefined;
+  }
+
   /** Exact per-token totals for a campaign so mixed tokens are never summed. */
   getSummary(campaignId: string): DonationSummary {
     const donations = this.campaignDonations(campaignId);
@@ -518,6 +560,7 @@ export class CampaignDonationService {
     this.donations.clear();
     this.receipts.clear();
     this.idempotency.clear();
+    this.taxReceipts.clear();
   }
 }
 

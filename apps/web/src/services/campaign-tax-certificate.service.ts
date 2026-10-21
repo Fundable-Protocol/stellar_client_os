@@ -118,6 +118,91 @@ async function buildCertificatePdf(input: Omit<CampaignTaxCertificate, "pdfBytes
   return document.save();
 }
 
+export interface CampaignTaxReceipt {
+  receiptId: string;
+  campaignId: string;
+  backerAddress: string;
+  amount: string;
+  token: string;
+  taxYear: number;
+  issuedAt: string;
+  pdfBytes: Uint8Array;
+}
+
+const taxReceiptStore = new Map<string, CampaignTaxReceipt>();
+
+function normalizeAddress(address: string): string {
+  return address.trim().toLowerCase();
+}
+
+export function isNonprofitEligible(campaign: { nonprofitPartner?: { verificationStatus?: string; legalName?: string; registrationNumber?: string; country?: string } } | null | undefined): boolean {
+  const partner = campaign?.nonprofitPartner;
+  return Boolean(
+    partner &&
+      partner.verificationStatus === "VERIFIED" &&
+      partner.legalName?.trim() &&
+      partner.registrationNumber?.trim() &&
+      partner.country?.trim(),
+  );
+}
+
+export async function generateTaxReceiptForContribution(
+  campaignId: string,
+  backerAddress: string,
+  amount: string,
+  token: string,
+  taxYear: number,
+  dataSource: CampaignDataSource = getCampaignDataSource(),
+  now = Date.now(),
+): Promise<CampaignTaxReceipt> {
+  if (!amount?.trim() || !/^\d+$/.test(amount.trim()) || BigInt(amount.trim()) <= 0n) {
+    throw new CampaignTaxCertificateError("amount must be a positive integer", "INVALID_INPUT");
+  }
+  if (!token?.trim()) throw new CampaignTaxCertificateError("token is required", "INVALID_INPUT");
+
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) throw new CampaignTaxCertificateError("Campaign not found", "CAMPAIGN_NOT_FOUND");
+  if (!isNonprofitEligible(campaign)) {
+    throw new CampaignTaxCertificateError("Campaign does not have a verified nonprofit partner", "INELIGIBLE_CAMPAIGN");
+  }
+
+  const certificate = await generateCampaignTaxCertificate(campaignId, backerAddress, taxYear, dataSource, now);
+  const receipt: CampaignTaxReceipt = {
+    receiptId: certificate.certificateId,
+    campaignId: certificate.campaignId,
+    backerAddress: normalizeAddress(backerAddress),
+    amount: amount.trim(),
+    token: token.trim().toUpperCase(),
+    taxYear: certificate.taxYear,
+    issuedAt: certificate.issuedAt,
+    pdfBytes: certificate.pdfBytes,
+  };
+  taxReceiptStore.set(receipt.receiptId, receipt);
+  return receipt;
+}
+
+export function listBackerTaxReceipts(backerAddress: string): CampaignTaxReceipt[] {
+  if (!backerAddress?.trim()) {
+    throw new CampaignTaxCertificateError("backerAddress is required", "INVALID_INPUT");
+  }
+  const owner = normalizeAddress(backerAddress);
+  return Array.from(taxReceiptStore.values())
+    .filter((receipt) => receipt.backerAddress === owner)
+    .sort((left, right) => right.issuedAt.localeCompare(left.issuedAt));
+}
+
+export function getBackerTaxReceipt(receiptId: string, backerAddress: string): CampaignTaxReceipt {
+  if (!receiptId?.trim()) throw new CampaignTaxCertificateError("receiptId is required", "INVALID_INPUT");
+  if (!backerAddress?.trim()) {
+    throw new CampaignTaxCertificateError("backerAddress is required", "INVALID_INPUT");
+  }
+  const receipt = taxReceiptStore.get(receiptId.trim());
+  if (!receipt || receipt.backerAddress !== normalizeAddress(backerAddress)) {
+    throw new CampaignTaxCertificateError("Receipt not found for this backer", "CAMPAIGN_NOT_FOUND");
+  }
+  return receipt;
+}
+
 export async function generateCampaignTaxCertificate(
   campaignId: string,
   sponsorAddress: string,

@@ -78,6 +78,21 @@ export interface CampaignCoordinates {
   longitude: number;
 }
 
+export type NonprofitVerificationStatus = "Pending" | "Verified" | "Rejected" | "Unverified";
+
+export interface NonprofitPartner {
+  legalName: string;
+  registrationNumber: string;
+  country: string;
+  verificationStatus: NonprofitVerificationStatus;
+}
+
+export interface CharityBadge {
+  label: string;
+  verified: boolean;
+  verifiedAt?: number;
+}
+
 export interface CampaignData {
   id: string;
   title: string;

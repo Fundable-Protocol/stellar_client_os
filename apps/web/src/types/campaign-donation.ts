@@ -128,6 +128,81 @@ export interface DonationSummary {
   latestDonationAt?: number;
 }
 
+/**
+ * A downloadable tax receipt for a contribution to a charitable / non-profit
+ * campaign (issue #1233). Only campaigns flagged as tax-receipt eligible during
+ * onboarding can issue receipts.
+ */
+export interface TaxReceipt {
+  receiptId: string;
+  campaignId: string;
+  campaignName: string;
+  backerAddress: string;
+  /** Normalised decimal amount, e.g. "25". */
+  amount: string;
+  token: DonationToken;
+  /** Calendar year the contribution is attributed to, e.g. 2024. */
+  taxYear: number;
+  issuedAt: number;
+  /** Raw PDF document bytes, base64-encoded for transport over GraphQL. */
+  pdfBytes: string;
+}
+
+/** Lightweight receipt metadata used by the GraphQL layer and the dashboard. */
+export interface TaxReceiptSummary {
+  receiptId: string;
+  /** Human-readable reference, e.g. "TAX-camp-101-2024-A1B2C3". */
+  reference: string;
+  campaignId: string;
+  campaignName: string;
+  taxYear: number;
+  amount: string;
+  token: DonationToken;
+  issuedAt: number;
+}
+
+/** Minimal campaign shape needed to decide tax-receipt eligibility. */
+export interface TaxReceiptEligibleCampaign {
+  /** Set during onboarding when the campaign is verified as charitable / non-profit. */
+  taxReceiptEligible?: boolean;
+  /** Optional organisation type recorded during onboarding. */
+  organizationType?: string;
+}
+
+const TAX_RECEIPT_ORGANIZATION_TYPES: readonly string[] = [
+  "nonprofit",
+  "non-profit",
+  "charity",
+  "charitable",
+];
+
+/**
+ * Whether a campaign is eligible to issue tax receipts. Campaigns must be
+ * explicitly flagged during onboarding; the organisation type is accepted as a
+ * fallback for campaigns onboarded before the flag existed.
+ */
+export function isTaxReceiptEligible(
+  campaign: TaxReceiptEligibleCampaign | null | undefined,
+): boolean {
+  if (!campaign) return false;
+  if (campaign.taxReceiptEligible === true) return true;
+  const organizationType = (campaign.organizationType ?? "").trim().toLowerCase();
+  return TAX_RECEIPT_ORGANIZATION_TYPES.includes(organizationType);
+}
+
+/** Deterministic tax receipt reference shared by the donation service and resolvers. */
+export function taxReceiptReference(
+  campaignId: string,
+  backerAddress: string,
+  taxYear: number,
+): string {
+  const campaignPart = (campaignId ?? "").trim() || "campaign";
+  const backerPart =
+    (backerAddress ?? "").replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase() || "000000";
+  const yearPart = Number.isFinite(taxYear) ? String(Math.trunc(taxYear)) : "0000";
+  return `TAX-${campaignPart}-${yearPart}-${backerPart}`;
+}
+
 export function isDonationToken(value: unknown): value is DonationToken {
   return value === "XLM" || value === "USDC";
 }

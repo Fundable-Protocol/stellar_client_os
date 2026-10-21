@@ -14,6 +14,7 @@ import {
   getCampaignAnalyticsDashboardExport,
 } from "@/services/campaign-analytics-dashboard.service";
 import { getGrantProgramService } from "@/services/grant-program.service";
+import { getDonationService } from "@/services/donation.service";
 import type {
   RegionFilter,
   CategoryFilter,
@@ -47,6 +48,14 @@ function paginate<T>(items: T[], pagination?: PaginationInput): T[] {
   const limit = Math.min(Math.max(pagination?.limit ?? 20, 1), 100);
   const offset = Math.max(pagination?.offset ?? 0, 0);
   return items.slice(offset, offset + limit);
+}
+
+function toTaxReceiptPayload(receipt: import("@/services/donation.service").TaxReceipt) {
+  return {
+    ...receipt,
+    issuedAt: Math.floor(receipt.issuedAt / 1000),
+    downloadUrl: `/api/tax-receipts/${encodeURIComponent(receipt.id)}/download`,
+  };
 }
 
 function toCampaignPayload(campaign: import("@/services/campaign.service").CampaignRecord) {
@@ -400,6 +409,37 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
           ...allocation,
           allocatedAt: Math.floor(allocation.allocatedAt / 1000),
         }));
+      },
+
+      /**
+       * Tax receipts for a backer's eligible campaign contributions (issue #1233).
+       * Only the owning backer may list their receipts.
+       */
+      taxReceipts: async (
+        _: unknown,
+        args: { backerAddress: string; campaignId?: string },
+      ) => {
+        const receipts = await getDonationService().getTaxReceiptsForBacker(args.backerAddress, {
+          campaignId: args.campaignId,
+        });
+        return receipts
+          .filter((receipt) => receipt.backerAddress === args.backerAddress)
+          .map(toTaxReceiptPayload);
+      },
+
+      /**
+       * A single tax receipt, downloadable by its owning backer (issue #1233).
+       */
+      taxReceipt: async (
+        _: unknown,
+        args: { id: string; backerAddress: string },
+      ) => {
+        const receipt = await getDonationService().getTaxReceipt(args.id);
+        if (!receipt) return null;
+        if (receipt.backerAddress !== args.backerAddress) {
+          throw new Error("Not authorized to access this tax receipt");
+        }
+        return toTaxReceiptPayload(receipt);
       },
     },
     Mutation: {
