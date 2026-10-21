@@ -12,6 +12,7 @@ import { VirtualizedCampaignGrid } from "@/components/modules/campaign/Virtualiz
 import { useCampaigns } from "@/hooks/use-campaigns";
 import { CharityBadge } from "@/components/modules/campaign/CharityBadge";
 import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
+import { LiveStreamBadge } from "@/components/modules/campaign/live-stream/LiveStreamBadge";
 import { StaffPicksSection } from "@/components/modules/campaign/StaffPicksSection";
 import { useCampaignWishlist } from "@/hooks/use-campaign-wishlist";
 import {
@@ -308,6 +309,7 @@ const { campaigns } = useCampaigns();
                                   {c.category}
                                 </Badge>
                                 {c.isStaffPick && <StaffPickBadge reason={c.staffPickReason} size="sm" />}
+                                <LiveStreamBadge status={c.streamStatus} />
                               </div>
                               <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 text-[10px] whitespace-nowrap ml-2">
                                 <ShieldCheck className="mr-1 h-3 w-3 inline" /> {c.status}

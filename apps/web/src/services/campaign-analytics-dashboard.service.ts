@@ -20,13 +20,28 @@ import {
   type CampaignDataSource,
 } from "./campaign.service";
 
-export type TrafficSourceName = "direct" | "search" | "social" | "referral" | "newsletter";
-export type FunnelStageName = "view" | "click_sponsor" | "contribute" | "confirm";
+export type TrafficSourceName =
+  | "direct"
+  | "social"
+  | "email"
+  | "search"
+  | "referral"
+  | "newsletter";
+
+export type FunnelStageName =
+  | "view"
+  | "visitors"
+  | "click_sponsor"
+  | "contribute"
+  | "pledge_initiated"
+  | "confirm"
+  | "pledge_completed";
 
 export const TRAFFIC_SOURCES: readonly TrafficSourceName[] = [
   "direct",
-  "search",
   "social",
+  "email",
+  "search",
   "referral",
   "newsletter",
 ];
@@ -36,6 +51,15 @@ export const FUNNEL_STAGES: readonly { stage: FunnelStageName; label: string }[]
   { stage: "click_sponsor", label: "Clicked sponsor" },
   { stage: "contribute", label: "Started contribution" },
   { stage: "confirm", label: "Confirmed on-chain" },
+];
+
+export const PLEDGE_FUNNEL_STAGES: readonly {
+  stage: "visitors" | "pledge_initiated" | "pledge_completed";
+  label: string;
+}[] = [
+  { stage: "visitors", label: "Visitors" },
+  { stage: "pledge_initiated", label: "Pledge initiated" },
+  { stage: "pledge_completed", label: "Pledge completed" },
 ];
 
 export interface RewardTierDefinition {
@@ -58,6 +82,9 @@ export interface TrafficSourceStat {
   visitors: number;
   views: number;
   share: number;
+  pledges: number;
+  /** Visit-to-pledge conversion rate as a percentage (0–100). */
+  conversionRate: number;
 }
 
 export interface FunnelStage {
@@ -65,6 +92,16 @@ export interface FunnelStage {
   label: string;
   count: number;
   /** Percentage of the FIRST funnel stage that reached this stage (0–100). */
+  conversionRate: number;
+  /** Percentage drop-off from the previous stage (positive = people left). */
+  dropoffRate: number;
+}
+
+export interface PledgeFunnelStage {
+  stage: "visitors" | "pledge_initiated" | "pledge_completed";
+  label: string;
+  count: number;
+  /** Percentage of initial visitors that reached this stage (0–100). */
   conversionRate: number;
   /** Percentage drop-off from the previous stage (positive = people left). */
   dropoffRate: number;
@@ -133,6 +170,7 @@ export interface CampaignAnalyticsDashboard {
   updatedAt: number;
   trafficSources: TrafficSourceStat[];
   funnel: FunnelStage[];
+  pledgeFunnel?: PledgeFunnelStage[];
   demographics: BackerDemographic[];
   rewardTiers: RewardTierStat[];
   dailyTrend: DailyFundingPoint[];
@@ -190,6 +228,7 @@ function stateFor(campaignId: string): DashboardState {
     };
     TRAFFIC_SOURCES.forEach((source) => state.traffic.set(source, { visitors: new Set(), views: 0 }));
     FUNNEL_STAGES.forEach(({ stage }) => state.funnel.set(stage, new Set()));
+    PLEDGE_FUNNEL_STAGES.forEach(({ stage }) => state.funnel.set(stage, new Set()));
     states.set(campaignId, state);
   }
   return state;
@@ -231,6 +270,8 @@ export async function recordTrafficSource(
   bucket.visitors.add(id);
   const existing = state.viewers.get(id);
   if (!existing) state.viewers.set(id, { source, firstSeen: at });
+  state.funnel.get("view")?.add(id);
+  state.funnel.get("visitors")?.add(id);
 }
 
 export async function recordFunnelStep(
@@ -241,10 +282,22 @@ export async function recordFunnelStep(
 ): Promise<void> {
   await assertCampaignExists(campaignId, dataSource);
   if (!viewerId?.trim()) throw new Error("viewerId is required");
-  if (!FUNNEL_STAGES.some(({ stage: s }) => s === stage)) {
+  const trimmed = viewerId.trim();
+  const state = stateFor(campaignId);
+  if (stage === "view" || stage === "visitors") {
+    state.funnel.get("view")?.add(trimmed);
+    state.funnel.get("visitors")?.add(trimmed);
+  } else if (stage === "contribute" || stage === "pledge_initiated") {
+    state.funnel.get("contribute")?.add(trimmed);
+    state.funnel.get("pledge_initiated")?.add(trimmed);
+  } else if (stage === "confirm" || stage === "pledge_completed") {
+    state.funnel.get("confirm")?.add(trimmed);
+    state.funnel.get("pledge_completed")?.add(trimmed);
+  } else if (stage === "click_sponsor") {
+    state.funnel.get("click_sponsor")?.add(trimmed);
+  } else {
     throw new Error("unknown funnel stage");
   }
-  stateFor(campaignId).funnel.get(stage)?.add(viewerId.trim());
 }
 
 export async function recordBackerDemographic(
@@ -270,6 +323,7 @@ export async function recordBackerContribution(
     backerId: string;
     region?: string;
     at?: number;
+    source?: TrafficSourceName;
   },
   dataSource = getCampaignDataSource(),
 ): Promise<void> {
@@ -280,6 +334,24 @@ export async function recordBackerContribution(
   if (!backerId) throw new Error("backerId is required");
 
   const state = stateFor(campaignId);
+  if (input.source && TRAFFIC_SOURCES.includes(input.source)) {
+    const bucket = state.traffic.get(input.source);
+    if (bucket) {
+      bucket.visitors.add(backerId);
+      if (bucket.views === 0) bucket.views = 1;
+    }
+    if (!state.viewers.has(backerId)) {
+      state.viewers.set(backerId, { source: input.source, firstSeen: at });
+    }
+  } else if (!state.viewers.has(backerId)) {
+    state.viewers.set(backerId, { source: "direct", firstSeen: at });
+    const directBucket = state.traffic.get("direct");
+    if (directBucket) {
+      directBucket.visitors.add(backerId);
+      if (directBucket.views === 0) directBucket.views = 1;
+    }
+  }
+
   const tier = resolveRewardTier(amount);
   state.contributions.push({
     viewerId: backerId,
@@ -289,6 +361,14 @@ export async function recordBackerContribution(
     tierId: tier.tierId,
   });
   state.rewardSelections.push({ tierId: tier.tierId, viewerId: backerId, amount, at });
+
+  // Pledging covers both initiation and completion
+  state.funnel.get("view")?.add(backerId);
+  state.funnel.get("visitors")?.add(backerId);
+  state.funnel.get("contribute")?.add(backerId);
+  state.funnel.get("pledge_initiated")?.add(backerId);
+  state.funnel.get("confirm")?.add(backerId);
+  state.funnel.get("pledge_completed")?.add(backerId);
 
   const day = toDateKey(at);
   const bucket = state.daily.get(day) ?? { contributions: 0, amount: 0n };
@@ -402,16 +482,52 @@ export async function getCampaignAnalyticsDashboard(
   if (!campaign) return null;
   const state = stateFor(campaignId);
 
-  const funnelViewers = state.funnel.get("view")?.size ?? 0;
+  // Identify all unique backers who completed a pledge
+  const pledgerIds = new Set<string>();
+  for (const contribution of state.contributions) {
+    pledgerIds.add(contribution.viewerId);
+  }
+  const confirmed = state.funnel.get("confirm");
+  if (confirmed) {
+    for (const id of confirmed) pledgerIds.add(id);
+  }
+  const completed = state.funnel.get("pledge_completed");
+  if (completed) {
+    for (const id of completed) pledgerIds.add(id);
+  }
+
+  // Count pledges broken down by traffic source
+  const pledgesBySource = new Map<TrafficSourceName, number>();
+  for (const source of TRAFFIC_SOURCES) {
+    pledgesBySource.set(source, 0);
+  }
+  for (const pledgerId of pledgerIds) {
+    const viewer = state.viewers.get(pledgerId);
+    const source: TrafficSourceName =
+      viewer?.source && TRAFFIC_SOURCES.includes(viewer.source)
+        ? viewer.source
+        : "direct";
+    pledgesBySource.set(source, (pledgesBySource.get(source) ?? 0) + 1);
+  }
+
+  const funnelViewers = Math.max(
+    state.funnel.get("view")?.size ?? 0,
+    state.funnel.get("visitors")?.size ?? 0,
+  );
   const totalVisitors = Math.max(funnelViewers, state.viewers.size);
+
   const trafficSources: TrafficSourceStat[] = TRAFFIC_SOURCES.map((source) => {
     const bucket = state.traffic.get(source)!;
+    const pledges = pledgesBySource.get(source) ?? 0;
+    const visitors = Math.max(bucket.visitors.size, pledges);
     return {
       source,
       label: sourceLabel(source),
-      visitors: bucket.visitors.size,
-      views: bucket.views,
+      visitors,
+      views: Math.max(bucket.views, visitors),
       share: toRate(bucket.views, state.traffic.size === 0 ? 0 : viewTotal(state)),
+      pledges,
+      conversionRate: toRate(pledges, visitors),
     };
   }).sort((a, b) => b.views - a.views);
 
@@ -428,6 +544,46 @@ export async function getCampaignAnalyticsDashboard(
       dropoffRate: index === 0 ? 0 : toRate(Math.max(previous - count, 0), previous),
     };
   });
+
+  const funnelVisitors = Math.max(firstStage, totalVisitors);
+  const funnelInitiated = Math.max(
+    state.funnel.get("contribute")?.size ?? 0,
+    state.funnel.get("pledge_initiated")?.size ?? 0,
+    pledgerIds.size,
+  );
+  const funnelCompleted = Math.max(
+    state.funnel.get("confirm")?.size ?? 0,
+    state.funnel.get("pledge_completed")?.size ?? 0,
+    pledgerIds.size,
+  );
+
+  const effectiveVisitors = Math.max(funnelVisitors, funnelInitiated, funnelCompleted);
+  const effectiveInitiated = Math.max(funnelInitiated, funnelCompleted);
+  const effectiveCompleted = funnelCompleted;
+
+  const pledgeFunnel: PledgeFunnelStage[] = [
+    {
+      stage: "visitors",
+      label: "Visitors",
+      count: effectiveVisitors,
+      conversionRate: 100,
+      dropoffRate: 0,
+    },
+    {
+      stage: "pledge_initiated",
+      label: "Pledge initiated",
+      count: effectiveInitiated,
+      conversionRate: toRate(effectiveInitiated, effectiveVisitors),
+      dropoffRate: toRate(Math.max(effectiveVisitors - effectiveInitiated, 0), effectiveVisitors),
+    },
+    {
+      stage: "pledge_completed",
+      label: "Pledge completed",
+      count: effectiveCompleted,
+      conversionRate: toRate(effectiveCompleted, effectiveVisitors),
+      dropoffRate: toRate(Math.max(effectiveInitiated - effectiveCompleted, 0), effectiveInitiated),
+    },
+  ];
 
   const demographicRegions = Array.from(state.demographics.entries());
   const totalDemographicAmount = sumBigInt(demographicRegions.map(([, bucket]) => bucket.totalAmount));
@@ -531,6 +687,7 @@ export async function getCampaignAnalyticsDashboard(
     updatedAt: now,
     trafficSources,
     funnel,
+    pledgeFunnel,
     demographics,
     rewardTiers,
     dailyTrend,
@@ -730,12 +887,13 @@ function finalFunnelCount(state: DashboardState): number {
 function sourceLabel(source: TrafficSourceName): string {
   const labels: Record<TrafficSourceName, string> = {
     direct: "Direct",
-    search: "Search",
     social: "Social",
+    email: "Email",
+    search: "Search",
     referral: "Referral",
     newsletter: "Newsletter",
   };
-  return labels[source];
+  return labels[source] ?? source;
 }
 
 export function seedCampaignAnalyticsDashboard(

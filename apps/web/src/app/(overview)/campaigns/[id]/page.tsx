@@ -50,7 +50,8 @@ import { BackerRoiCalculator } from "@/components/modules/campaign/roi/BackerRoi
 import { CampaignFollow } from "@/components/modules/campaign/CampaignFollow";
 import { VerificationMediaGallery, type VerificationMediaItem } from "@/components/modules/campaign/VerificationMediaGallery";
 import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
-import { CampaignSustainabilityScore } from "@/components/modules/campaign/sustainability/CampaignSustainabilityScore";
+import CampaignSustainabilityScore from "@/components/modules/campaign/sustainability/CampaignSustainabilityScore";
+import { calculateSustainabilityScore } from "@/lib/sustainability-score";
 import { SustainabilityScoreBadge } from "@/components/modules/campaign/sustainability/SustainabilityScoreBadge";
 import { OneTimeDonationButton } from "@/components/modules/campaign/donation/OneTimeDonationButton";
 import { CampaignCharityBadge } from "@/components/modules/campaign/CharityBadge";
@@ -58,7 +59,7 @@ import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
 import { CampaignWaitlist } from "@/components/modules/campaign/waitlist/CampaignWaitlist";
 import { CampaignUpdateFeed } from "@/components/modules/campaign/updates/CampaignUpdateFeed";
 import { AmbassadorDashboard } from "@/components/modules/campaign/ambassadors/AmbassadorDashboard";
-import { calculateSustainabilityScore } from "@/lib/sustainability-score";
+import { CampaignLiveStreamSection } from "@/components/modules/campaign/live-stream/CampaignLiveStreamSection";
 
 const translations = {
   en: {
@@ -774,10 +775,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
 
       {/* Campaign Sustainability Score - Environmental Index */}
       <CampaignSustainabilityScore
-        treeSpeciesDiversity={campaign.sustainability.treeSpeciesDiversity}
-        regionClimateImpact={campaign.sustainability.regionClimateImpact}
-        soilHealthImprovement={campaign.sustainability.soilHealthImprovement}
-        biodiversityPotential={campaign.sustainability.biodiversityPotential}
+        data={{
+          treeSpeciesDiversity: campaign.sustainability.treeSpeciesDiversity,
+          regionClimateImpact: campaign.sustainability.regionClimateImpact,
+          soilHealthImprovement: campaign.sustainability.soilHealthImprovement,
+          biodiversityPotential: campaign.sustainability.biodiversityPotential,
+        }}
       />
 
       {/* Funding Milestone Achievement Badges (25%, 50%, 75%, 100%) */}
@@ -785,6 +788,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
         raisedAmount={campaign.raisedAmount}
         goalAmount={campaign.goalAmount}
       />
+
+      {/* Live streaming: YouTube/Twitch player, replay links, creator controls (#1225) */}
+      <CampaignLiveStreamSection campaignId={campaign.id} />
 
       {/* Main Content Tabs (Overview, Sponsor Wall #724, Top Backers, Co-Creators #722) */}
       {/* Backer community spaces (#788) render inside the overview sidebar. */}

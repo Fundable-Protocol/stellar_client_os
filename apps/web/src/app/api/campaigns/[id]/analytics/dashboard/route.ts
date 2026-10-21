@@ -20,12 +20,20 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const TrafficSourceSchema = z.object({
-  source: z.enum(["direct", "search", "social", "referral", "newsletter"]),
+  source: z.enum(["direct", "social", "email", "search", "referral", "newsletter"]),
   viewerId: z.string().optional(),
 });
 
 const FunnelSchema = z.object({
-  stage: z.enum(["view", "click_sponsor", "contribute", "confirm"]),
+  stage: z.enum([
+    "view",
+    "visitors",
+    "click_sponsor",
+    "contribute",
+    "pledge_initiated",
+    "confirm",
+    "pledge_completed",
+  ]),
   viewerId: z.string().min(1),
 });
 
@@ -36,6 +44,7 @@ const ContributionSchema = z.object({
   region: z.string().optional(),
   at: z.number().optional(),
   token: z.string().optional(),
+  source: z.enum(["direct", "social", "email", "search", "referral", "newsletter"]).optional(),
 });
 
 const CarbonSellSchema = z.object({

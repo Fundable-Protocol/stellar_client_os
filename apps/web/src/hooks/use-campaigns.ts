@@ -74,7 +74,7 @@ export function useCampaigns() {
 
       try {
         while (true) {
-          const res = await fetch(`/api/campaigns?limit=${PAGE_SIZE}&offset=${offset}`);
+          const res = await fetch(`/api/campaigns?limit=${PAGE_SIZE}&offset=${offset}&includeStreamStatus=true`);
           if (!res.ok) break;
 
           const { data, pagination } = await res.json();
@@ -100,6 +100,9 @@ export function useCampaigns() {
             isStaffPick: Boolean(c.isStaffPick),
             staffPickReason: c.staffPickReason,
             charityBadge: c.charityBadge,
+            // Provider-backed live status for the card indicator (#1225).
+            liveStream: c.liveStream ?? undefined,
+            streamStatus: c.streamStatus ?? undefined,
             endDate: c.endDate || c.deadline ? new Date(c.deadline || c.endDate).toISOString() : undefined,
           }));
 

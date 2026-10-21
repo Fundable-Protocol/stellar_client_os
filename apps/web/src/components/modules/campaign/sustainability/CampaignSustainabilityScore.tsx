@@ -14,11 +14,7 @@ export interface CampaignSustainabilityInput {
 }
 
 export interface CampaignSustainabilityScoreProps {
-  /** The four sustainability pillars of the campaign. */
-  treeSpeciesDiversity: number;
-  regionClimateImpact: number;
-  soilHealthImprovement: number;
-  biodiversityPotential: number;
+  data: CampaignSustainabilityInput;
   className?: string;
 }
 
@@ -61,31 +57,30 @@ export function normalizeTreeSpeciesDiversity(count: number): number {
 export function calculateSustainabilityScore(
   input: CampaignSustainabilityInput,
 ): SustainabilityScoreResult {
-  const breakdown: SustainabilityBreakdown = {
-    treeSpeciesDiversity: normalizeTreeSpeciesDiversity(input.treeSpeciesDiversity),
-    regionClimateImpact: clamp0100(input.regionClimateImpact),
-    soilHealthImprovement: clamp0100(input.soilHealthImprovement),
-    biodiversityPotential: clamp0100(input.biodiversityPotential),
+  const treeSpeciesDiversity = clamp0100(input.treeSpeciesDiversity);
+  const regionClimateImpact = clamp0100(input.regionClimateImpact);
+  const soilHealthImprovement = clamp0100(input.soilHealthImprovement);
+  const biodiversityPotential = clamp0100(input.biodiversityPotential);
+
+  const score = Math.round(
+    treeSpeciesDiversity * WEIGHTS.treeSpeciesDiversity +
+      regionClimateImpact * WEIGHTS.regionClimateImpact +
+      soilHealthImprovement * WEIGHTS.soilHealthImprovement +
+      biodiversityPotential * WEIGHTS.biodiversityPotential,
+  );
+  const grade = score >= 80 ? "Strong" : score >= 55 ? "Moderate" : "Limited";
+
+  return {
+    score,
+    grade,
+    breakdown: {
+      treeSpeciesDiversity,
+      regionClimateImpact,
+      soilHealthImprovement,
+      biodiversityPotential,
+    },
   };
-
-  const weighted =
-    breakdown.treeSpeciesDiversity * WEIGHTS.treeSpeciesDiversity +
-    breakdown.regionClimateImpact * WEIGHTS.regionClimateImpact +
-    breakdown.soilHealthImprovement * WEIGHTS.soilHealthImprovement +
-    breakdown.biodiversityPotential * WEIGHTS.biodiversityPotential;
-
-  const score = Math.round(clamp0100(weighted));
-  const grade: SustainabilityScoreResult["grade"] =
-    score >= 70 ? "Strong" : score >= 40 ? "Moderate" : "Limited";
-
-  return { score, grade, breakdown };
 }
-
-const GRADE_STYLES: Record<SustainabilityScoreResult["grade"], string> = {
-  Strong: "bg-emerald-500/10 text-emerald-700 border-emerald-500/30",
-  Moderate: "bg-amber-500/10 text-amber-700 border-amber-500/30",
-  Limited: "bg-rose-500/10 text-rose-700 border-rose-500/30",
-};
 
 const PILLAR_LABELS: Record<keyof SustainabilityBreakdown, string> = {
   treeSpeciesDiversity: "Tree species diversity",
@@ -94,75 +89,33 @@ const PILLAR_LABELS: Record<keyof SustainabilityBreakdown, string> = {
   biodiversityPotential: "Biodiversity potential",
 };
 
-export default function CampaignSustainabilityScore({
-  treeSpeciesDiversity,
-  regionClimateImpact,
-  soilHealthImprovement,
-  biodiversityPotential,
-  className,
-}: CampaignSustainabilityScoreProps) {
-  const result = useMemo(
-    () =>
-      calculateSustainabilityScore({
-        treeSpeciesDiversity,
-        regionClimateImpact,
-        soilHealthImprovement,
-        biodiversityPotential,
-      }),
-    [treeSpeciesDiversity, regionClimateImpact, soilHealthImprovement, biodiversityPotential],
-  );
+export default function CampaignSustainabilityScore({ data, className }: CampaignSustainabilityScoreProps) {
+  const result = useMemo(() => calculateSustainabilityScore(data), [data]);
 
   return (
     <section
       aria-label="Campaign sustainability score"
-      className={[
-        "rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900",
-        className,
-      ].filter(Boolean).join(" ").trim()}
+      className={`rounded-xl border border-zinc-800 bg-zinc-900/60 p-6 ${className ?? ""}`.trim()}
     >
-      <header className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            Sustainability score
-          </h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          <h2 className="text-lg font-bold text-zinc-50">Sustainability score</h2>
+          <p className="mt-1 text-sm text-zinc-400">
             Environmental index derived from ecological impact metrics.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-4xl font-bold tabular-nums text-neutral-900 dark:text-neutral-100">
-            {result.score}
-          </span>
-          <span className="text-sm text-neutral-500 dark:text-neutral-400">/100</span>
-        </div>
-      </header>
-
-      <div className="mt-4 flex items-center gap-3">
-        <span
-          className={[
-            "inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold",
-            GRADE_STYLES[result.grade],
-          ].join(" ")}
-        >
-          {result.grade} sustainability
-        </span>
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
-          <div
-            className="h-full rounded-full bg-emerald-500 transition-all"
-            style={{ width: `${result.score}%` }}
-          />
+        <div className="text-right">
+          <span className="text-3xl font-extrabold text-emerald-400">{result.score}</span>
+          <span className="text-sm text-zinc-500">/100</span>
+          <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">{result.grade}</p>
         </div>
       </div>
 
-      <dl className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {(Object.keys(result.breakdown) as Array<keyof SustainabilityBreakdown>).map((key) => (
-          <div key={key} className="rounded-none bg-neutral-50 p-3 dark:bg-neutral-800/50">
-            <dt className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-              {PILLAR_LABELS[key]}
-            </dt>
-            <dd className="mt-1 text-sm font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
-              {Math.round(result.breakdown[key])}/100
-            </dd>
+      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {(Object.keys(PILLAR_LABELS) as Array<keyof SustainabilityBreakdown>).map((key) => (
+          <div key={key} className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-3">
+            <dt className="text-xs text-zinc-500">{PILLAR_LABELS[key]}</dt>
+            <dd className="mt-1 text-sm font-bold text-zinc-100">{result.breakdown[key]}/100</dd>
           </div>
         ))}
       </dl>

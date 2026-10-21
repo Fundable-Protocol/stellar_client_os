@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   BackerPrivacyPreference,
   BackerVisibility,
@@ -44,6 +44,8 @@ export function useTopBackers({
   }, [campaignId, limit, viewerAddress, creatorAddress, seedDemoData]);
 
   const [result, setResult] = useState<TopBackersResult>(loadResult);
+
+  useEffect(() => backersService.subscribe(campaignId, () => setResult(loadResult())), [campaignId, loadResult]);
 
   if (prevCampaignId !== campaignId) {
     setPrevCampaignId(campaignId);

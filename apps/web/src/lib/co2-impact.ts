@@ -205,13 +205,12 @@ export function calculateCo2Offset(
   const qty = normalizeTreeQuantity(quantity);
 
   const date = dateOrTimestamp === undefined ? new Date() : dateOrTimestamp;
-  // The seasonal bonus is a property of a known planting date. Callers without
-  // one (projection calculators, growth-stage models) must get a deterministic
-  // baseline rather than a multiplier that silently changes with the current
-  // calendar month (issue #907).
-  const seasonalMultiplier =
-    dateOrTimestamp === undefined ? 1 : getCampaignCreditMultiplierBps(date) / 10_000;
-  const co2Multiplier = seasonalMultiplier * growthRateMultiplier;
+  // The rainy-season bonus is a property of a known planting date. Callers
+  // without one (projection calculators, growth-stage models) must get a
+  // deterministic baseline rather than a multiplier that silently changes
+  // with the current calendar month (issue #907).
+  const rainySeason = dateOrTimestamp !== undefined && isRainySeason(dateOrTimestamp);
+  const co2Multiplier = (rainySeason ? 2 : 1) * growthRateMultiplier;
 
   const baseCo2PerYearKg = qty * species.co2PerTreePerYearKg;
   const co2PerYearKg = baseCo2PerYearKg * co2Multiplier;

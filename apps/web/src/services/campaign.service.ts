@@ -13,6 +13,9 @@ import { campaignImpactNftService } from "./campaign-impact-nft.service";
 import { campaignNFTRewardService } from "./campaign-nft-reward.service";
 import type { CampaignWebhookEvent } from "@/types/webhook";
 import type { CampaignLocalizedContent } from "@/lib/translation";
+import type { CampaignLiveStream } from "@/lib/live-stream";
+
+export type { CampaignLiveStream, LiveStreamPlatform, LiveStreamStatus } from "@/lib/live-stream";
 
 export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
 
@@ -325,6 +328,9 @@ export interface CampaignRecord {
   /** Impact thresholds already reached, including those without subscribers. */
   impactMilestonesReached?: ImpactMilestone[];
   impactAchieved?: boolean;
+  /** Provider-validated live stream (YouTube Live / Twitch) attached by the
+   * campaign creator, including the replay link kept after the event ends. */
+  liveStream?: CampaignLiveStream;
 }
 
 export const IMPACT_MILESTONES = ["1000_trees", "5000_trees", "10_tons_co2"] as const;

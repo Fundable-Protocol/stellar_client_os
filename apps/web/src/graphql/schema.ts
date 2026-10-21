@@ -420,6 +420,16 @@ export const typeDefs = /* GraphQL */`
     visitors: Int!
     views: Int!
     share: Float!
+    pledges: Int
+    conversionRate: Float
+  }
+
+  type PledgeFunnelStage {
+    stage: String!
+    label: String!
+    count: Int!
+    conversionRate: Float!
+    dropoffRate: Float!
   }
 
   type FunnelStage {
@@ -481,6 +491,7 @@ export const typeDefs = /* GraphQL */`
     updatedAt: Int!
     trafficSources: [TrafficSourceStat!]!
     funnel: [FunnelStage!]!
+    pledgeFunnel: [PledgeFunnelStage!]
     demographics: [BackerDemographic!]!
     rewardTiers: [RewardTierStat!]!
     dailyTrend: [DailyFundingPoint!]!

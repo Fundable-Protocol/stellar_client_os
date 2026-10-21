@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS campaign_traffic_sources (
   campaign_id uuid NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
   source text NOT NULL
     CONSTRAINT campaign_traffic_sources_source_check CHECK (
-      source IN ('direct', 'search', 'social', 'referral', 'newsletter')
+      source IN ('direct', 'social', 'email', 'search', 'referral', 'newsletter')
     ),
   viewer_id text NOT NULL,
   viewed_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS campaign_funnel_steps (
   campaign_id uuid NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
   stage text NOT NULL
     CONSTRAINT campaign_funnel_steps_stage_check CHECK (
-      stage IN ('view', 'click_sponsor', 'contribute', 'confirm')
+      stage IN ('view', 'visitors', 'click_sponsor', 'contribute', 'pledge_initiated', 'confirm', 'pledge_completed')
     ),
   viewer_id text NOT NULL,
   stepped_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
