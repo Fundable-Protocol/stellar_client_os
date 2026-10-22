@@ -17,7 +17,7 @@ import type { CampaignLiveStream } from "@/lib/live-stream";
 
 export type { CampaignLiveStream, LiveStreamPlatform, LiveStreamStatus } from "@/lib/live-stream";
 
-export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
+export type CampaignStatus = "DRAFT" | "PENDING_VERIFICATION" | "PRE_LAUNCH" | "ACTIVE" | "PAUSED" | "COMPLETED" | "FAILED";
 
 /** Primary category a campaign can be filed under for browse/search facets. */
 export const CAMPAIGN_CATEGORIES = [
@@ -320,6 +320,19 @@ export interface CampaignRecord {
       description: string;
     };
   };
+  /** IPFS Content Identifier for decentralized pitch deck document (Issue #1356). */
+  pitchDeckCid?: string;
+  pitchDeckUrl?: string;
+  pitchDeckHashHex?: string;
+  /** IPFS Content Identifier for decentralized campaign video (Issue #1356). */
+  videoCid?: string;
+  videoUrl?: string;
+  videoHashHex?: string;
+  /** Pre-launch landing page and early backer waitlist mode (Issue #1358). */
+  isPreLaunch?: boolean;
+  preLaunchSummary?: string;
+  preLaunchTeaserVideoCid?: string;
+  preLaunchExpectedDate?: string;
   /** Funding-percentage milestones already emailed to the creator. */
   /** Funding milestones (e.g. 25, 50, 75, 100) that have already triggered a
    * creator notification for this campaign (issue #793). Retained for
@@ -928,6 +941,18 @@ export async function createCampaign(input: {
   sponsors?: SponsorRecord[];
   network?: "testnet" | "mainnet";
   nonprofitPartner?: Omit<CampaignNonprofitPartner, "verificationStatus" | "verifiedAt" | "verifiedBy">;
+  /** IPFS Media (Issue #1356) */
+  pitchDeckCid?: string;
+  pitchDeckUrl?: string;
+  pitchDeckHashHex?: string;
+  videoCid?: string;
+  videoUrl?: string;
+  videoHashHex?: string;
+  /** Pre-Launch Configuration (Issue #1358) */
+  isPreLaunch?: boolean;
+  preLaunchSummary?: string;
+  preLaunchTeaserVideoCid?: string;
+  preLaunchExpectedDate?: string;
 }, dataSource = getCampaignDataSource(), now = Date.now()): Promise<CampaignRecord> {
   if (input.coordinates !== undefined) {
     const { latitude, longitude } = input.coordinates;
@@ -965,7 +990,17 @@ export async function createCampaign(input: {
     species: input.species,
     treeCount: input.treeCount ?? 0,
     durationMs: input.deadline !== undefined ? input.deadline - now : input.durationMs,
-    status: "DRAFT",
+    status: input.isPreLaunch ? "PRE_LAUNCH" : "DRAFT",
+    isPreLaunch: input.isPreLaunch,
+    preLaunchSummary: input.preLaunchSummary,
+    preLaunchTeaserVideoCid: input.preLaunchTeaserVideoCid,
+    preLaunchExpectedDate: input.preLaunchExpectedDate,
+    pitchDeckCid: input.pitchDeckCid,
+    pitchDeckUrl: input.pitchDeckUrl,
+    pitchDeckHashHex: input.pitchDeckHashHex,
+    videoCid: input.videoCid,
+    videoUrl: input.videoUrl,
+    videoHashHex: input.videoHashHex,
     goalAmount: input.goalAmount,
     raisedAmount: input.raisedAmount ?? "0",
     sponsorCount: input.sponsorCount ?? (input.sponsors ? input.sponsors.length : 0),
@@ -1133,8 +1168,9 @@ export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource 
 }
 
 const allowedTransitions: Record<CampaignStatus, CampaignStatus[]> = {
-  DRAFT: ["PENDING_VERIFICATION", "FAILED"],
-  PENDING_VERIFICATION: ["ACTIVE", "FAILED"],
+  DRAFT: ["PENDING_VERIFICATION", "PRE_LAUNCH", "ACTIVE", "FAILED"],
+  PRE_LAUNCH: ["ACTIVE", "PAUSED", "FAILED"],
+  PENDING_VERIFICATION: ["ACTIVE", "PRE_LAUNCH", "FAILED"],
   ACTIVE: ["PAUSED", "COMPLETED", "FAILED"],
   PAUSED: ["ACTIVE", "FAILED"],
   COMPLETED: [],
@@ -1203,6 +1239,15 @@ export async function transitionCampaignStatus(
     void campaignNFTRewardService.processCampaignCloseAirdrops(campaign.id, { dataSource, now }).catch((error) => {
       console.error(`[NFT Rewards] Failed to process airdrops for ${campaign.id}:`, error);
     });
+  }
+
+  if (toStatus === "ACTIVE" && (campaign.status === "PRE_LAUNCH" || campaign.isPreLaunch)) {
+    // Automated broadcast to waitlist followers on activation (Issue #1358)
+    import("./campaign-prelaunch.service").then(({ campaignPrelaunchService }) => {
+      campaignPrelaunchService.transitionToActiveAndBroadcast(campaign.id, changedBy).catch((err) => {
+        console.error(`[Pre-Launch] Broadcast failed on active transition for ${campaign.id}:`, err);
+      });
+    }).catch(() => {});
   }
 
   if (campaign.sponsorCount > 0) {

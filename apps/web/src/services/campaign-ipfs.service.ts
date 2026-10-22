@@ -25,6 +25,11 @@ export interface CampaignIpfsMetadata {
   attributes?: Record<string, string>;
   createdAt?: string;
   metadataVersion?: string;
+  pitchDeckCid?: string;
+  pitchDeckHashHex?: string;
+  videoCid?: string;
+  videoHashHex?: string;
+  isPreLaunch?: boolean;
 }
 
 export interface CampaignIpfsPinResult {

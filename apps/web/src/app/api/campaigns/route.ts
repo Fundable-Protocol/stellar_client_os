@@ -302,6 +302,16 @@ async function postCampaign(request: Request) {
       translations,
       localizedContent: body.localizedContent,
       insurancePool,
+      pitchDeckCid: body.pitchDeckCid,
+      pitchDeckUrl: body.pitchDeckUrl,
+      pitchDeckHashHex: body.pitchDeckHashHex,
+      videoCid: body.videoCid,
+      videoUrl: body.videoUrl,
+      videoHashHex: body.videoHashHex,
+      isPreLaunch: body.isPreLaunch === true,
+      preLaunchSummary: body.preLaunchSummary,
+      preLaunchTeaserVideoCid: body.preLaunchTeaserVideoCid,
+      preLaunchExpectedDate: body.preLaunchExpectedDate,
     });
 
     // Automated AI fraud detection review on campaign publish

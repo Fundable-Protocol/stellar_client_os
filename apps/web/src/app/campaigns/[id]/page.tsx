@@ -28,6 +28,9 @@ import { BackerMessageComposer } from "@/components/modules/campaign/BackerMessa
 // #1207 — Campaign boost purchase (creator only)
 import { CampaignBoostPurchase } from "@/components/modules/campaign/CampaignBoostPurchase";
 import { CampaignRisksAndChallenges } from "@/components/campaign/CampaignRisksAndChallenges";
+import { CampaignMediaGallery } from "@/components/modules/campaign/media/CampaignMediaGallery";
+import { PreLaunchWaitlistCard } from "@/components/modules/campaign/prelaunch/PreLaunchWaitlistCard";
+import { Rocket, Sparkles } from "lucide-react";
 
 export const runtime = "nodejs";
 
@@ -49,6 +52,40 @@ export default async function CampaignPage({
     <main className="mx-auto max-w-4xl space-y-6 px-6 py-10">
       <CampaignViewTracker campaignId={campaign.id} />
       <InAppSurveyNotificationBanner campaignId={campaign.id} />
+
+      {/* Pre-Launch / Coming Soon Mode Banner (Issue #1358) */}
+      {(campaign.status === "PRE_LAUNCH" || campaign.isPreLaunch) && (
+        <section className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-purple-500/40 bg-gradient-to-r from-purple-950/60 via-purple-900/30 to-zinc-950 p-4 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-purple-500/20 text-purple-300">
+                <Rocket className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white flex items-center gap-2">
+                  Campaign in Pre-Launch Mode
+                  <span className="flex h-2 w-2 rounded-full bg-purple-400 animate-pulse" />
+                </p>
+                <p className="text-xs text-zinc-300">
+                  Pledges will open soon. Sign up on the VIP waitlist to be alerted on Day One.
+                </p>
+              </div>
+            </div>
+            <Link
+              href={`/campaigns/${encodeURIComponent(campaign.id)}/pre-launch`}
+              className="inline-flex h-9 items-center justify-center rounded-lg bg-purple-600 px-4 text-xs font-semibold text-white shadow-md hover:bg-purple-500 shrink-0"
+            >
+              View Pre-Launch Teaser Page &rarr;
+            </Link>
+          </div>
+
+          <PreLaunchWaitlistCard
+            campaignId={campaign.id}
+            campaignName={campaign.name}
+          />
+        </section>
+      )}
+
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium text-fundable-purple-2">Impact campaign</p>
@@ -90,6 +127,18 @@ export default async function CampaignPage({
       </section>
 
       <CampaignRisksAndChallenges content={campaign.risksAndChallenges} />
+
+      {/* Decentralized IPFS Media Gallery — Issue #1356 */}
+      <CampaignMediaGallery
+        campaignId={campaign.id}
+        campaignName={campaign.name}
+        pitchDeckCid={(campaign as unknown as Record<string, unknown>).pitchDeckCid as string | undefined}
+        pitchDeckHashHex={(campaign as unknown as Record<string, unknown>).pitchDeckHashHex as string | undefined}
+        pitchDeckUrl={(campaign as unknown as Record<string, unknown>).pitchDeckUrl as string | undefined}
+        videoCid={(campaign as unknown as Record<string, unknown>).videoCid as string | undefined}
+        videoHashHex={(campaign as unknown as Record<string, unknown>).videoHashHex as string | undefined}
+        videoUrl={(campaign as unknown as Record<string, unknown>).videoUrl as string | undefined}
+      />
 
       {countdownVisible && deadline && <CampaignCountdown targetDate={deadline} />}
       <StretchGoals goals={campaign.stretchGoals ?? []} raisedAmount={campaign.raisedAmount} />

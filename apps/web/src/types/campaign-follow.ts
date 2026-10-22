@@ -2,6 +2,8 @@ export interface CampaignFollowPreferences {
   milestoneUpdates: boolean;
   verificationUpdates: boolean;
   completionUpdates: boolean;
+}
+
 /**
  * Types for Campaign Follow — Issue #942 (v1)
  *
@@ -16,7 +18,7 @@ export type FollowChannel = "EMAIL" | "IN_APP" | "WEBHOOK";
 
 export const FOLLOW_CHANNELS: Record<
   FollowChannel,
-  { label: string; hint: string }
+  { label: string; hint:https://github.com/thatElisha/niff-Stellar-shurance.git string }
 > = {
   EMAIL: {
     label: "Email",
@@ -76,11 +78,13 @@ export interface FollowNotificationPrefs {
 export interface CampaignFollow {
   id: string;
   campaignId: string;
-  email: string;
+  email?: string;
   walletAddress?: string;
-  preferences: CampaignFollowPreferences;
+  followerAddress?: string;
+  preferences?: CampaignFollowPreferences;
+  prefs?: FollowNotificationPrefs;
   createdAt: number;
-  updatedAt: number;
+  updatedAt?: number;
 }
 
 export interface CreateCampaignFollowInput {
@@ -88,10 +92,6 @@ export interface CreateCampaignFollowInput {
   email: string;
   walletAddress?: string;
   preferences?: Partial<CampaignFollowPreferences>;
-  /** Stellar address of the follower. */
-  followerAddress: string;
-  prefs: FollowNotificationPrefs;
-  createdAt: number; // timestamp ms
 }
 
 export interface FollowCampaignInput {
