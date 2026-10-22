@@ -1,0 +1,44 @@
+[
+  {
+    "id": "ys_blend_protocol_001",
+    "name": "Blend Protocol XLM Lending",
+    "type": "blend_protocol",
+    "anchorDomain": "blend.capital",
+    "contractAddress": "CBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "assetCode": "XLM",
+    "assetIssuer": "native",
+    "estimatedAPY": 450,
+    "minimumLockPeriod": 7,
+    "liquidityRisk": "low",
+    "isVerified": true,
+    "isActive": true
+  },
+  {
+    "id": "ys_tbill_anchor_001",
+    "name": "Tokenized T-Bill (Short-Term)",
+    "type": "tokenized_tbill",
+    "anchorDomain": "tbills.stellar.org",
+    "contractAddress": "CTXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "assetCode": "USTB",
+    "assetIssuer": "GAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "estimatedAPY": 520,
+    "minimumLockPeriod": 30,
+    "liquidityRisk": "low",
+    "isVerified": true,
+    "isActive": true
+  },
+  {
+    "id": "ys_money_market_001",
+    "name": "Stellar Money Market USDC",
+    "type": "money_market",
+    "anchorDomain": "moneymarket.stellar.org",
+    "contractAddress": "CMXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "assetCode": "USDC",
+    "assetIssuer": "GAXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "estimatedAPY": 380,
+    "minimumLockPeriod": 1,
+    "liquidityRisk": "medium",
+    "isVerified": true,
+    "isActive": true
+  }
+]
