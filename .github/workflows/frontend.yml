@@ -52,4 +52,7 @@ jobs:
       - name: Lint frontend
         run: pnpm lint
 
+      - name: Accessibility CI Audit (axe-core WCAG 2.1 AA)
+        run: pnpm test:a11y
+
   

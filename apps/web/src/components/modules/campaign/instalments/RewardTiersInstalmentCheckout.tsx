@@ -46,6 +46,15 @@ export function RewardTiersInstalmentCheckout({
   const [error, setError] = useState<string | null>(null);
   const [completedPledge, setCompletedPledge] = useState<BackerInstalmentPledge | null>(null);
 
+  useEffect(() => {
+    if (!selectedTier) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedTier(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedTier]);
+
   // Fetch campaign tiers if not provided
   useEffect(() => {
     if (initialTiers.length > 0) return;
@@ -245,93 +254,125 @@ export function RewardTiersInstalmentCheckout({
       {loadingTiers ? (
         <div className="py-8 text-center text-sm text-zinc-500">Loading reward tiers...</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {tiers.map((tier) => (
-            <div
-              key={tier.id}
-              className={`rounded-xl border p-5 transition-all flex flex-col justify-between ${
-                selectedTier?.id === tier.id
-                  ? "border-purple-600 bg-purple-50/20 dark:border-purple-500 dark:bg-purple-950/20 shadow-md ring-1 ring-purple-500"
-                  : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/60 hover:border-zinc-300 dark:hover:border-zinc-700"
-              }`}
-            >
-              <div className="space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold text-zinc-950 dark:text-white">{tier.name}</h3>
-                  <div className="flex flex-col items-end gap-1">
-                    {tier.nftReward?.enabled && (
-                      <Badge className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] whitespace-nowrap flex items-center gap-1">
-                        <Sparkles className="h-3 w-3" />
-                        Stellar NFT Included
-                      </Badge>
-                    )}
-                    {tier.instalmentEnabled && (
-                      <Badge className="bg-emerald-600 text-white text-[11px] whitespace-nowrap">
-                        Instalments Available
-                      </Badge>
-                    )}
+        <div
+          role="radiogroup"
+          aria-label="Available reward tiers and instalment options"
+          className="grid grid-cols-1 md:grid-cols-3 gap-4"
+        >
+          {tiers.map((tier) => {
+            const isSelected = selectedTier?.id === tier.id;
+            const handleKeyDown = (e: React.KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleSelectTier(tier);
+              }
+            };
+
+            return (
+              <div
+                key={tier.id}
+                role="radio"
+                tabIndex={0}
+                aria-checked={isSelected}
+                aria-label={`Reward tier ${tier.name}, ${tier.amount} ${tier.token}`}
+                onClick={() => handleSelectTier(tier)}
+                onKeyDown={handleKeyDown}
+                className={`rounded-xl border p-5 transition-all flex flex-col justify-between cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 ${
+                  isSelected
+                    ? "border-purple-600 bg-purple-50/20 dark:border-purple-500 dark:bg-purple-950/20 shadow-md ring-1 ring-purple-500"
+                    : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/60 hover:border-zinc-300 dark:hover:border-zinc-700"
+                }`}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-semibold text-zinc-950 dark:text-white">{tier.name}</h3>
+                    <div className="flex flex-col items-end gap-1">
+                      {tier.nftReward?.enabled && (
+                        <Badge className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] whitespace-nowrap flex items-center gap-1">
+                          <Sparkles className="h-3 w-3" />
+                          Stellar NFT Included
+                        </Badge>
+                      )}
+                      {tier.instalmentEnabled && (
+                        <Badge className="bg-emerald-600 text-white text-[11px] whitespace-nowrap">
+                          Instalments Available
+                        </Badge>
+                      )}
+                    </div>
                   </div>
+
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-bold text-zinc-950 dark:text-white">
+                      {tier.amount}
+                    </span>
+                    <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                      {tier.token}
+                    </span>
+                  </div>
+
+                  {tier.instalmentEnabled && (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                      Or from {(parseFloat(tier.amount) / 6).toFixed(2)} {tier.token}/mo (up to 6 months)
+                    </p>
+                  )}
+
+                  {tier.description && (
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      {tier.description}
+                    </p>
+                  )}
+
+                  {tier.perks && tier.perks.length > 0 && (
+                    <ul className="space-y-1 pt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                      {tier.perks.map((perk, idx) => (
+                        <li key={idx} className="flex items-center gap-1.5">
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                          <span>{perk}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
 
-                <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-zinc-950 dark:text-white">
-                    {tier.amount}
-                  </span>
-                  <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                    {tier.token}
-                  </span>
+                <div className="pt-4 mt-3 border-t border-zinc-100 dark:border-zinc-800">
+                  <Button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectTier(tier);
+                    }}
+                    aria-label={isSelected ? `Selected reward tier ${tier.name}` : `Select reward tier ${tier.name}`}
+                    className={`w-full text-xs font-semibold focus-visible:ring-2 focus-visible:ring-purple-400 ${
+                      isSelected
+                        ? "bg-purple-600 text-white hover:bg-purple-700"
+                        : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    {isSelected ? "Selected" : "Select Reward Tier"}
+                  </Button>
                 </div>
-
-                {tier.instalmentEnabled && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                    Or from {(parseFloat(tier.amount) / 6).toFixed(2)} {tier.token}/mo (up to 6 months)
-                  </p>
-                )}
-
-                {tier.description && (
-                  <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                    {tier.description}
-                  </p>
-                )}
-
-                {tier.perks && tier.perks.length > 0 && (
-                  <ul className="space-y-1 pt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                    {tier.perks.map((perk, idx) => (
-                      <li key={idx} className="flex items-center gap-1.5">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                        <span>{perk}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
-
-              <div className="pt-4 mt-3 border-t border-zinc-100 dark:border-zinc-800">
-                <Button
-                  onClick={() => handleSelectTier(tier)}
-                  className={`w-full text-xs font-semibold ${
-                    selectedTier?.id === tier.id
-                      ? "bg-purple-600 text-white hover:bg-purple-700"
-                      : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700"
-                  }`}
-                >
-                  {selectedTier?.id === tier.id ? "Selected" : "Select Reward Tier"}
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* Checkout Modal / Drawer for selected tier */}
       {selectedTier && (
-        <div className="mt-8 rounded-xl border border-purple-200 bg-white p-6 shadow-lg dark:border-purple-900/60 dark:bg-zinc-950">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="selected-tier-checkout-title"
+          className="mt-8 rounded-xl border border-purple-200 bg-white p-6 shadow-lg dark:border-purple-900/60 dark:bg-zinc-950"
+        >
           {completedPledge ? (
             <div className="text-center py-6 space-y-4">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950">
                 <ShieldCheck className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <h3 className="text-xl font-bold text-zinc-950 dark:text-white">Instalment Pledge Confirmed!</h3>
+              <h3 id="selected-tier-checkout-title" className="text-xl font-bold text-zinc-950 dark:text-white">
+                Instalment Pledge Confirmed!
+              </h3>
               <p className="text-sm text-zinc-600 dark:text-zinc-300 max-w-md mx-auto">
                 You have pledged for <strong>{completedPledge.tierName}</strong> on a {completedPledge.planMonths}-month instalment plan ({completedPledge.monthlyAmount} {completedPledge.token}/month).
               </p>
@@ -358,14 +399,19 @@ export function RewardTiersInstalmentCheckout({
             <div className="space-y-6">
               <div className="flex items-center justify-between border-b border-zinc-200 pb-4 dark:border-zinc-800">
                 <div>
-                  <h3 className="text-lg font-bold text-zinc-950 dark:text-white">
+                  <h3 id="selected-tier-checkout-title" className="text-lg font-bold text-zinc-950 dark:text-white">
                     Checkout: {selectedTier.name}
                   </h3>
                   <p className="text-xs text-zinc-500">
                     Total Tier Price: <strong className="text-zinc-900 dark:text-zinc-100">{selectedTier.amount} {selectedTier.token}</strong>
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedTier(null)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Close instalment checkout modal"
+                  onClick={() => setSelectedTier(null)}
+                >
                   ✕ Close
                 </Button>
               </div>
