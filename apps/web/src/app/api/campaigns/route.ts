@@ -118,6 +118,7 @@ async function postCampaign(request: Request) {
         registrationNumber?: unknown;
         country?: unknown;
       };
+      partners?: unknown;
     };
     if (!body.creator || !body.name || !body.goalAmount) {
       return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
@@ -294,6 +295,7 @@ async function postCampaign(request: Request) {
       underrepresentedTags: body.underrepresentedTags,
       durationMs,
       goalAmount: body.goalAmount,
+      partners: body.partners,
       network: body.network,
       deadline: body.deadline,
       countdownEnabled: body.countdownEnabled === true,

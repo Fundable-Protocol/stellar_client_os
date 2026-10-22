@@ -10,8 +10,8 @@ import { useTranslation } from "@/i18n/I18nProvider";
 interface CampaignEditModalProps {
   isOpen: boolean;
   onClose: () => void;
-  campaign: Campaign;
-  onSuccess?: (updatedCampaign: Partial<Campaign>) => void;
+  campaign: CampaignRecord;
+  onSuccess?: (updatedCampaign: Partial<CampaignRecord>) => void;
 }
 
 /**
@@ -31,8 +31,11 @@ export const CampaignEditModal: React.FC<CampaignEditModalProps> = ({
   const [risksAndChallenges, setRisksAndChallenges] = useState(campaign.risksAndChallenges || "");
   const [goalAmount, setGoalAmount] = useState(campaign.goal_amount ? campaign.goal_amount.toString() : "");
   const [deadline, setDeadline] = useState(
-    campaign.end_time ? new Date(campaign.end_time * 1000).toISOString().slice(0, 16) : ""
+    campaign.durationMs !== undefined
+      ? new Date(campaign.createdAt + campaign.durationMs).toISOString().slice(0, 16)
+      : ""
   );
+  const [partners, setPartners] = useState(campaign.partners ?? []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -40,7 +43,7 @@ export const CampaignEditModal: React.FC<CampaignEditModalProps> = ({
 
   if (!isOpen) return null;
 
-  const isEditable = campaign.status === CampaignStatus.Draft || campaign.status === CampaignStatus.Active;
+  const isEditable = campaign.status === "DRAFT" || campaign.status === "ACTIVE";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,12 +85,13 @@ export const CampaignEditModal: React.FC<CampaignEditModalProps> = ({
           risksAndChallenges,
           goalAmount,
           deadline: Math.floor(new Date(deadline).getTime() / 1000),
+          partners: partners.filter((partner) => partner.name || partner.logoUrl || partner.url),
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to update campaign");
+        throw new Error(errorData.message || errorData.error || "Failed to update campaign");
       }
 
       const updated = await response.json();
