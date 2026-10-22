@@ -7,6 +7,7 @@ import {
   resolveCampaignDiscussionVoter,
   verifyCampaignDiscussionChallenge,
 } from "@/services/campaign-discussion-auth.service";
+import { hasActivePledge } from "@/services/campaign-discussion.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,10 @@ const schema = z.discriminatedUnion("action", [
     address: z.string().min(1),
     nonce: z.string().uuid(),
     signature: z.string().min(1),
+  }).strict(),
+  z.object({
+    action: z.literal("check-access"),
+    address: z.string().min(1),
   }).strict(),
 ]);
 
@@ -59,6 +64,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (parsed.data.action === "challenge") {
       const challenge = issueCampaignDiscussionChallenge(id, parsed.data.address);
       return Response.json(challenge, { headers });
+    }
+    if (parsed.data.action === "check-access") {
+      const address = parsed.data.address;
+      const creatorAddr = campaign.creator || campaign.creatorAddress || "";
+      const isCreator = Boolean(
+        creatorAddr &&
+        address.trim().toLowerCase() === creatorAddr.trim().toLowerCase()
+      );
+      const hasPledge = hasActivePledge(id, address);
+      return Response.json({
+        address,
+        isCreator,
+        hasActivePledge: hasPledge,
+        canPost: isCreator || hasPledge,
+      }, { headers });
     }
 
     const actorToken = verifyCampaignDiscussionChallenge({
