@@ -1729,11 +1729,34 @@ impl CampaignFundingContract {
     /// * [`Error::CampaignNotFailed`]    — campaign is not in `Failed` state.
     /// * [`Error::NoContributionFound`]  — caller has no recorded contribution.
     pub fn refund(env: Env, contributor: Address, campaign_id: u64) {
+        Self::claim_refund(env, contributor, campaign_id);
+    }
+
+    /// Claim the contributor's full pledge after a campaign misses its soft cap.
+    ///
+    /// An expired active campaign below `min_target` is marked failed in this
+    /// same transaction, so contributors do not need a separate expiry call.
+    pub fn claim_refund(env: Env, contributor: Address, campaign_id: u64) {
         contributor.require_auth();
 
-        let campaign = Self::load_campaign(&env, campaign_id);
-
+        let mut campaign = Self::load_campaign(&env, campaign_id);
         let now = env.ledger().timestamp();
+
+        if campaign.status == CampaignStatus::Active
+            && now >= campaign.deadline
+            && campaign.total_raised < campaign.min_target
+        {
+            campaign.status = CampaignStatus::Failed;
+            Self::save_campaign(&env, campaign_id, &campaign);
+            env.events().publish(
+                ("CampaignStatusChanged", campaign_id),
+                CampaignStatusChangedEvent {
+                    campaign_id,
+                    new_status: CampaignStatus::Failed,
+                },
+            );
+        }
+
         let sixty_days = 60 * 24 * 60 * 60;
         let ninety_days = 90 * 24 * 60 * 60;
 
@@ -3852,6 +3875,31 @@ mod tests {
         // Full refund, no fee deducted.
         assert_eq!(token_client.balance(&contributor), 10_000);
         // Contribution record cleared.
+        assert_eq!(client.get_contribution(&id, &contributor), 0);
+    }
+
+    #[test]
+    fn test_claim_refund_marks_expired_campaign_failed_and_refunds_exact_pledge() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, token_client, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+        client.contribute(&contributor, &id, &3_000);
+        set_time(&env, 3_000);
+
+        client.claim_refund(&contributor, &id);
+
+        assert_eq!(client.get_campaign(&id).status, CampaignStatus::Failed);
+        assert_eq!(token_client.balance(&contributor), 10_000);
         assert_eq!(client.get_contribution(&id, &contributor), 0);
     }
 
