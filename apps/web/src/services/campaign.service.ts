@@ -965,6 +965,7 @@ export async function createCampaign(input: {
     species: input.species,
     treeCount: input.treeCount ?? 0,
     durationMs: input.deadline !== undefined ? input.deadline - now : input.durationMs,
+    deadline: input.deadline ?? (input.durationMs !== undefined ? now + input.durationMs : undefined),
     status: "DRAFT",
     goalAmount: input.goalAmount,
     raisedAmount: input.raisedAmount ?? "0",
