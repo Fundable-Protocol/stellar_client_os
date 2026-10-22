@@ -1,77 +1,84 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { campaignWebhookService } from "@/services/campaign-webhook.service";
+import { externalWebhookService } from "@/services/external-webhook.service";
 
-export const runtime = "nodejs";
-
-const TreeVerifiedSchema = z.object({
-  event: z.literal("tree_verified"),
-  verificationId: z.string().min(1, "verificationId is required"),
-  treeId: z.string().min(1, "treeId is required"),
-  verifiedAt: z.string().optional(),
-  verifier: z.string().optional(),
-  nullifier: z.string().optional(),
-  txHash: z.string().optional(),
-  metadata: z.record(z.any()).optional(),
+const CreateWebhookSchema = z.object({
+  platform: z.enum(["telegram", "discord"]),
+  webhookUrl: z.string().url("Invalid webhook URL"),
+  botToken: z.string().optional(),
+  events: z
+    .array(
+      z.enum([
+        "pledge.created",
+        "milestone.reached",
+        "stretch_goal.unlocked",
+        "refund.requested",
+        "campaign.completed",
+      ])
+    )
+    .min(1, "At least one event must be specified"),
+  enabled: z.boolean().optional(),
 });
 
-const BatchVerifiedSchema = z.object({
-  event: z.literal("batch_verified"),
-  batchId: z.string().min(1, "batchId is required"),
-  treeIds: z.array(z.string()).min(10, "batch_verified requires at least 10 verified trees"),
-  verifiedAt: z.string().optional(),
-  verifier: z.string().optional(),
-  txHash: z.string().optional(),
-  metadata: z.record(z.any()).optional(),
+const UpdateWebhookSchema = z.object({
+  webhookUrl: z.string().url().optional(),
+  botToken: z.string().optional(),
+  events: z
+    .array(
+      z.enum([
+        "pledge.created",
+        "milestone.reached",
+        "stretch_goal.unlocked",
+        "refund.requested",
+        "campaign.completed",
+      ])
+    )
+    .optional(),
+  enabled: z.boolean().optional(),
 });
 
-const MilestoneReachedSchema = z.object({
-  event: z.literal("campaign_milestone_reached"),
-  eventId: z.string().min(1, "eventId is required"),
-  campaignName: z.string().optional(),
-  milestone: z.number().optional(),
-  percentage: z.number().optional(),
-  raisedAmount: z.string().optional(),
-  goalAmount: z.string().optional(),
-  treeCount: z.number().optional(),
-});
-
-const CampaignCompletedSchema = z.object({
-  event: z.literal("campaign_completed"),
-  completionId: z.string().min(1, "completionId is required"),
-  completedAt: z.string().optional(),
-  treeCount: z.number().optional(),
-  raisedAmount: z.string().optional(),
-  goalAmount: z.string().optional(),
-  metadata: z.record(z.any()).optional(),
-});
-
-const WebhookEventSchema = z.discriminatedUnion("event", [
-  TreeVerifiedSchema,
-  BatchVerifiedSchema,
-  MilestoneReachedSchema,
-  CampaignCompletedSchema,
-]);
+/**
+ * GET /api/campaigns/[id]/webhooks
+ *
+ * Retrieve all external webhooks for a campaign.
+ */
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const webhooks = await externalWebhookService.getWebhooks(id);
+    
+    // Remove sensitive data before sending to client
+    const sanitized = webhooks.map((w) => ({
+      ...w,
+      botToken: w.botToken ? "***" : undefined,
+    }));
+    
+    return NextResponse.json(sanitized);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json(
+      { error: message || "Failed to retrieve webhooks" },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * POST /api/campaigns/[id]/webhooks
  *
- * Dispatches tree verification and milestone lifecycle webhooks for external integrations (Issue #873).
- * Supported events:
- * - tree_verified (individual tree)
- * - batch_verified (10+ trees batch)
- * - campaign_milestone_reached (funding / planting milestone)
- * - campaign_completed (completion event)
+ * Create a new external webhook for a campaign.
  */
 export async function POST(
-  request: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id: campaignId } = await params;
-
   try {
-    const json = await request.json();
-    const parsed = WebhookEventSchema.safeParse(json);
+    const { id } = await params;
+    const body = await req.json();
+    const parsed = CreateWebhookSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -80,69 +87,131 @@ export async function POST(
       );
     }
 
-    const data = parsed.data;
-    const nowIso = new Date().toISOString();
+    const { platform, webhookUrl, botToken, events, enabled } = parsed.data;
 
-    switch (data.event) {
-      case "tree_verified":
-        await campaignWebhookService.treeVerified({
-          campaignId,
-          verificationId: data.verificationId,
-          treeId: data.treeId,
-          verifiedAt: data.verifiedAt || nowIso,
-          verifier: data.verifier,
-          nullifier: data.nullifier,
-          txHash: data.txHash,
-          metadata: data.metadata,
-        });
-        break;
+    const webhook = await externalWebhookService.createWebhook(
+      id,
+      platform,
+      webhookUrl,
+      events,
+      { botToken, enabled }
+    );
 
-      case "batch_verified":
-        await campaignWebhookService.batchVerified({
-          campaignId,
-          batchId: data.batchId,
-          treeIds: data.treeIds,
-          verifiedAt: data.verifiedAt || nowIso,
-          verifier: data.verifier,
-          txHash: data.txHash,
-          metadata: data.metadata,
-        });
-        break;
+    // Sanitize response
+    const sanitized = {
+      ...webhook,
+      botToken: webhook.botToken ? "***" : undefined,
+    };
 
-      case "campaign_milestone_reached":
-        await campaignWebhookService.campaignMilestoneReached({
-          campaignId,
-          eventId: data.eventId,
-          campaignName: data.campaignName,
-          milestone: data.milestone,
-          percentage: data.percentage,
-          raisedAmount: data.raisedAmount,
-          goalAmount: data.goalAmount,
-          treeCount: data.treeCount,
-        });
-        break;
+    return NextResponse.json(sanitized, { status: 201 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json(
+      { error: message || "Failed to create webhook" },
+      { status: 500 }
+    );
+  }
+}
 
-      case "campaign_completed":
-        await campaignWebhookService.campaignCompleted({
-          campaignId,
-          completionId: data.completionId,
-          completedAt: data.completedAt || nowIso,
-          treeCount: data.treeCount,
-          raisedAmount: data.raisedAmount,
-          goalAmount: data.goalAmount,
-          metadata: data.metadata,
-        });
-        break;
+/**
+ * PATCH /api/campaigns/[id]/webhooks/[webhookId]
+ *
+ * Update an existing webhook.
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const url = new URL(req.url);
+    const webhookId = url.searchParams.get("webhookId");
+
+    if (!webhookId) {
+      return NextResponse.json(
+        { error: "webhookId query parameter is required" },
+        { status: 400 }
+      );
     }
 
-    return NextResponse.json({
-      success: true,
-      event: data.event,
-      campaignId,
-      dispatchedAt: nowIso,
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const body = await req.json();
+    const parsed = UpdateWebhookSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation failed", details: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const webhook = await externalWebhookService.updateWebhook(webhookId, parsed.data);
+
+    if (!webhook) {
+      return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
+    }
+
+    // Verify webhook belongs to this campaign
+    if (webhook.campaignId !== id) {
+      return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
+    }
+
+    // Sanitize response
+    const sanitized = {
+      ...webhook,
+      botToken: webhook.botToken ? "***" : undefined,
+    };
+
+    return NextResponse.json(sanitized);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json(
+      { error: message || "Failed to update webhook" },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/campaigns/[id]/webhooks/[webhookId]
+ *
+ * Delete a webhook.
+ */
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const url = new URL(_req.url);
+    const webhookId = url.searchParams.get("webhookId");
+
+    if (!webhookId) {
+      return NextResponse.json(
+        { error: "webhookId query parameter is required" },
+        { status: 400 }
+      );
+    }
+
+    // Verify webhook exists and belongs to this campaign
+    const webhooks = await externalWebhookService.getWebhooks(id);
+    const webhook = webhooks.find((w) => w.id === webhookId);
+
+    if (!webhook) {
+      return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
+    }
+
+    const deleted = await externalWebhookService.deleteWebhook(webhookId);
+
+    if (!deleted) {
+      return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json(
+      { error: message || "Failed to delete webhook" },
+      { status: 500 }
+    );
   }
 }

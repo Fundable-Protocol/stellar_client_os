@@ -4,6 +4,7 @@ import { creatorWebhookService } from "@/services/creator-webhook.service";
 import { CampaignWebhookService } from "@/services/campaign-webhook.service";
 import { CampaignMilestoneEmailService } from "@/services/campaign-milestone-email.service";
 import { withCampaignApiRateLimit } from "@/middlewares/rate-limit.middleware";
+import { externalWebhookService } from "@/services/external-webhook.service";
 
 export const runtime = "nodejs";
 
@@ -31,6 +32,11 @@ async function postContribution(
       dispatchCreatorWebhooks(result.campaign, result.milestones, {
         amount: body.amount,
         // A stable source id lets retried requests be deduplicated downstream.
+        pledgeId: body.pledgeId ?? body.txHash ?? randomUUID(),
+        txHash: body.txHash,
+      }),
+      dispatchExternalWebhooks(result.campaign, result.milestones, {
+        amount: body.amount,
         pledgeId: body.pledgeId ?? body.txHash ?? randomUUID(),
         txHash: body.txHash,
       }),
@@ -133,6 +139,49 @@ async function dispatchSponsorMilestoneEmails(
     await milestoneEmailService.notifySponsors(campaign, milestones);
   } catch (error) {
     console.error(`[Milestone sponsor email] Unexpected failure for campaign ${campaign.id}:`, error);
+  }
+}
+
+/**
+ * Dispatch external webhook events (Telegram/Discord) for pledge and milestone events.
+ * Best-effort: failures must never fail the contribution.
+ */
+async function dispatchExternalWebhooks(
+  campaign: { id: string; name?: string; raisedAmount: string; goalAmount: string; sponsorCount: number },
+  milestones: number[],
+  pledge: { amount: string; pledgeId: string; txHash?: string },
+): Promise<void> {
+  try {
+    // Calculate percent funded
+    const raised = BigInt(campaign.raisedAmount || "0");
+    const goal = BigInt(campaign.goalAmount || "1");
+    const percentFunded = goal > 0n ? Number((raised * 100n) / goal) : 0;
+
+    // Dispatch pledge event
+    await externalWebhookService.dispatchPledge({
+      campaignId: campaign.id,
+      campaignName: campaign.name || "Untitled Campaign",
+      pledgeAmount: pledge.amount,
+      totalRaised: campaign.raisedAmount,
+      goalAmount: campaign.goalAmount,
+      sponsorCount: campaign.sponsorCount,
+      percentFunded,
+      txHash: pledge.txHash,
+    });
+
+    // Dispatch milestone events
+    for (const percentage of milestones) {
+      await externalWebhookService.dispatchMilestone({
+        campaignId: campaign.id,
+        campaignName: campaign.name || "Untitled Campaign",
+        percentage,
+        totalRaised: campaign.raisedAmount,
+        goalAmount: campaign.goalAmount,
+        sponsorCount: campaign.sponsorCount,
+      });
+    }
+  } catch (error) {
+    console.error(`[External webhook] Failed to dispatch events for ${campaign.id}:`, error);
   }
 }
 
