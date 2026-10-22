@@ -28,6 +28,7 @@ export function NFTRewardTiersSection({
 
   const [tiers, setTiers] = useState<NFTRewardTierItem[]>([]);
   const [airdrops, setAirdrops] = useState<NFTRewardAirdropRecord[]>([]);
+  const [selectedTierId, setSelectedTierId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [airdropping, setAirdropping] = useState(false);
@@ -190,12 +191,41 @@ export function NFTRewardTiersSection({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {tiers.map((tier) => (
-            <div
-              key={tier.id}
-              className="flex flex-col justify-between rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-sm"
-            >
+        <div
+          role="radiogroup"
+          aria-label="Stellar NFT reward tiers"
+          className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"
+        >
+          {/* Screen reader live region for selected tier */}
+          <div role="status" aria-live="polite" className="sr-only">
+            {selectedTierId
+              ? `Selected reward tier: ${tiers.find((t) => t.id === selectedTierId)?.name ?? ""}`
+              : "No reward tier selected"}
+          </div>
+          {tiers.map((tier) => {
+            const isSelected = selectedTierId === tier.id;
+            return (
+              <div
+                key={tier.id}
+                role="radio"
+                tabIndex={0}
+                aria-checked={isSelected}
+                aria-label={`Reward tier ${tier.name}, minimum pledge ${tier.minimumPledge} ${tier.token}`}
+                onClick={() => setSelectedTierId(tier.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedTierId(tier.id);
+                  }
+                }}
+                className={`flex flex-col justify-between rounded-xl border transition-all duration-150 overflow-hidden shadow-sm cursor-pointer
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2
+                  ${
+                    isSelected
+                      ? "border-purple-500 bg-purple-50/10 dark:bg-purple-950/20 ring-2 ring-purple-500/50"
+                      : "border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-zinc-400 dark:hover:border-zinc-700"
+                  }`}
+              >
               <div>
                 <div className="relative aspect-video w-full bg-zinc-100 dark:bg-zinc-800">
                   {tier.asset?.assetUrl ? (
@@ -263,14 +293,33 @@ export function NFTRewardTiersSection({
                 </div>
               </div>
 
-              <div className="border-t border-zinc-100 dark:border-zinc-800 p-3 bg-zinc-50 dark:bg-zinc-950/40 text-[11px] text-zinc-500 flex items-center justify-between">
-                <span>Airdrop: Auto on campaign close</span>
-                <span className="text-purple-600 dark:text-purple-400 font-medium flex items-center gap-1">
-                  <Wallet className="h-3 w-3" /> Connected Wallet
-                </span>
+              <div className="p-3 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedTierId(tier.id);
+                  }}
+                  aria-label={isSelected ? `Selected reward tier ${tier.name}` : `Select reward tier ${tier.name}`}
+                  className={`w-full text-xs font-semibold focus-visible:ring-2 focus-visible:ring-purple-400 ${
+                    isSelected
+                      ? "bg-purple-600 text-white hover:bg-purple-700"
+                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                  }`}
+                >
+                  {isSelected ? "✓ Selected Reward" : "Select Reward Tier"}
+                </Button>
+                <div className="bg-zinc-50 dark:bg-zinc-950/40 text-[11px] text-zinc-500 flex items-center justify-between">
+                  <span>Airdrop: Auto on close</span>
+                  <span className="text-purple-600 dark:text-purple-400 font-medium flex items-center gap-1">
+                    <Wallet className="h-3 w-3" aria-hidden="true" /> Connected Wallet
+                  </span>
+                </div>
               </div>
             </div>
-          ))}
+          );
+        })}
         </div>
       )}
 

@@ -67,7 +67,11 @@ export const AnimatedProgressBar: React.FC<AnimatedProgressBarProps> = ({
     <div
       className={`rounded-2xl bg-slate-900/90 border border-zinc-800 p-6 shadow-lg backdrop-blur-md ${className}`}
     >
-      <div className="flex items-center justify-between mb-3">
+      <div
+        className="flex items-center justify-between mb-3"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <div className="flex items-center gap-2">
           <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
             <Target className="size-5" />
