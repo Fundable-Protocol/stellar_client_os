@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1170" height="2532" viewBox="0 0 1170 2532">
+  <rect width="1170" height="2532" fill="#0d0019"/>
+  <circle cx="585" cy="1120" r="235" fill="#8256ff"/>
+  <g fill="#fff">
+    <circle cx="510" cy="1055" r="82"/>
+    <circle cx="660" cy="1034" r="82"/>
+    <circle cx="585" cy="1130" r="98"/>
+    <rect x="565" y="1118" width="40" height="138" rx="16"/>
+    <rect x="470" y="1270" width="230" height="26" rx="13"/>
+  </g>
+  <text x="585" y="1510" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="84" font-weight="700" text-anchor="middle">Fundable</text>
+  <text x="585" y="1580" fill="#c9baff" font-family="Arial, Helvetica, sans-serif" font-size="34" text-anchor="middle">Grow impact together</text>
+</svg>
