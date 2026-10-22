@@ -1,8 +1,20 @@
 import { randomUUID } from "node:crypto";
+import { parseTokenAmount } from "@/types/campaign-backers";
+import {
+  DEMO_CAMPAIGN_ID,
+  backersService,
+  seedDemoBackers,
+} from "./campaign-backers.service";
 import type {
   VerifiedCampaignDiscussionActor,
   VerifiedCampaignDiscussionVoter,
 } from "./campaign-discussion-auth.service";
+
+export type CampaignCommentCategory =
+  | "general"
+  | "feature_suggestion"
+  | "stretch_goal"
+  | "announcement";
 
 export interface CampaignDiscussionComment {
   id: string;
@@ -11,6 +23,7 @@ export interface CampaignDiscussionComment {
   authorName: string;
   authorAddress?: string;
   content: string;
+  category?: CampaignCommentCategory;
   createdAt: number;
   upvotes: number;
   hasUpvoted: boolean;
@@ -35,7 +48,9 @@ export type CampaignDiscussionErrorCode =
   | "invalid_voter"
   | "comment_not_found"
   | "creator_required"
-  | "invalid_official_answer";
+  | "invalid_official_answer"
+  | "unauthorized_wallet"
+  | "pledge_required";
 
 const CAMPAIGN_DISCUSSION_ERROR_MESSAGES: Record<CampaignDiscussionErrorCode, string> = {
   invalid_content: `Comment must be between 1 and ${DISCUSSION_CONTENT_MAX_LENGTH} characters.`,
@@ -45,6 +60,8 @@ const CAMPAIGN_DISCUSSION_ERROR_MESSAGES: Record<CampaignDiscussionErrorCode, st
   comment_not_found: "Comment not found.",
   creator_required: "Only the campaign creator can perform this action.",
   invalid_official_answer: "Only the creator can mark a reply as an official answer.",
+  unauthorized_wallet: "A verified Stellar wallet identity is required to participate in the discussion.",
+  pledge_required: "Write and comment permissions are gated to Stellar addresses that have an active pledge in the campaign.",
 };
 
 export class CampaignDiscussionError extends Error {
@@ -54,13 +71,35 @@ export class CampaignDiscussionError extends Error {
   }
 }
 
+/** Check whether a Stellar address has an active positive pledge in the campaign. */
+export function hasActivePledge(campaignId: string, backerAddress?: string): boolean {
+  if (!campaignId?.trim() || !backerAddress?.trim()) return false;
+  const id = campaignId.trim();
+  const address = backerAddress.trim().toLowerCase();
+
+  if (id === DEMO_CAMPAIGN_ID) {
+    seedDemoBackers(id);
+  }
+
+  const contributions = backersService.getContributions(id);
+  return contributions.some((entry) => {
+    if (entry.backerAddress.trim().toLowerCase() !== address) return false;
+    const scaled = parseTokenAmount(entry.amount);
+    return scaled !== null && scaled > 0n;
+  });
+}
+
 function findComment(campaignId: string, commentId: string) {
   return (discussions.get(campaignId) ?? []).find((comment) => comment.id === commentId);
 }
 
 function toPublicComment(comment: StoredCampaignDiscussionComment, voterId?: string): CampaignDiscussionComment {
   const { voterIds, ...publicComment } = comment;
-  return { ...publicComment, hasUpvoted: Boolean(voterId && voterIds.has(voterId)) };
+  return {
+    ...publicComment,
+    category: comment.category ?? "general",
+    hasUpvoted: Boolean(voterId && voterIds.has(voterId)),
+  };
 }
 
 function compareComments(left: StoredCampaignDiscussionComment, right: StoredCampaignDiscussionComment): number {
@@ -81,8 +120,11 @@ export function createCampaignDiscussionComment(input: {
   authorName: string;
   actor?: VerifiedCampaignDiscussionActor;
   content: string;
+  category?: CampaignCommentCategory;
   officialAnswer?: boolean;
   creatorAddress: string;
+  hasActivePledgeCheck?: (campaignId: string, address: string) => boolean;
+  skipPledgeGate?: boolean;
   now?: number;
 }): CampaignDiscussionComment {
   const content = input.content.trim();
@@ -94,6 +136,23 @@ export function createCampaignDiscussionComment(input: {
     throw new CampaignDiscussionError("invalid_author_name");
   }
 
+  if (!input.actor && !input.skipPledgeGate) {
+    throw new CampaignDiscussionError("unauthorized_wallet");
+  }
+
+  const isCreator = Boolean(
+    input.actor &&
+    input.actor.address.trim().toLowerCase() === input.creatorAddress.trim().toLowerCase(),
+  );
+
+  if (input.actor && !isCreator && !input.skipPledgeGate) {
+    const checkPledge = input.hasActivePledgeCheck ?? hasActivePledge;
+    const isBacker = checkPledge(input.campaignId, input.actor.address);
+    if (!isBacker) {
+      throw new CampaignDiscussionError("pledge_required");
+    }
+  }
+
   const comments = discussions.get(input.campaignId) ?? [];
   let parentId: string | null = null;
   if (input.parentId) {
@@ -103,11 +162,8 @@ export function createCampaignDiscussionComment(input: {
     parentId = input.parentId;
   }
 
-  const isCreatorReply = Boolean(
-    input.actor
-      && input.actor.address.trim().toLowerCase() === input.creatorAddress.trim().toLowerCase(),
-  );
-  if (input.officialAnswer && (!isCreatorReply || !parentId)) {
+  const isCreatorReply = Boolean(isCreator && parentId);
+  if (input.officialAnswer && (!isCreator || !parentId)) {
     throw new CampaignDiscussionError("invalid_official_answer");
   }
 
@@ -118,6 +174,7 @@ export function createCampaignDiscussionComment(input: {
     authorName,
     ...(input.actor ? { authorAddress: input.actor.address } : {}),
     content,
+    category: input.category ?? "general",
     createdAt: input.now ?? Date.now(),
     upvotes: 0,
     voterIds: new Set(),
@@ -133,7 +190,7 @@ export function createCampaignDiscussionComment(input: {
 export function setCampaignDiscussionUpvote(
   campaignId: string,
   commentId: string,
-  voter: VerifiedCampaignDiscussionVoter,
+  voter: VerifiedCampaignDiscussionVoter | { id: string },
   upvoted: boolean,
 ): CampaignDiscussionComment {
   const voterId = voter.id;

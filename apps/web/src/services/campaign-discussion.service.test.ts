@@ -14,18 +14,20 @@ import {
 } from "./campaign-discussion-auth.service";
 import {
   createCampaignDiscussionComment,
+  hasActivePledge,
   listCampaignDiscussionComments,
   resetCampaignDiscussion,
   setCampaignDiscussionUpvote,
   toggleCampaignDiscussionPin,
 } from "./campaign-discussion.service";
+import { backersService } from "./campaign-backers.service";
 
 const campaignId = "campaign-discussion-test";
-const creatorAddress = "GCREATOR";
 
 beforeEach(() => {
   resetCampaignDiscussion();
   resetCampaignDiscussionAuth();
+  backersService.reset();
 });
 
 function verifiedActor(keypair: Keypair, campaign = campaignId) {
@@ -42,33 +44,119 @@ function verifiedActor(keypair: Keypair, campaign = campaignId) {
   return actor;
 }
 
-describe("campaign discussion", () => {
-  it("creates threaded creator replies and restricts official answers", () => {
+describe("campaign discussion service", () => {
+  it("gates write/comment permissions to addresses with an active pledge or creator", () => {
     const creator = Keypair.fromRawEd25519Seed(Buffer.from(randomBytes(32)));
     const creatorActor = verifiedActor(creator);
+    const backer = Keypair.fromRawEd25519Seed(Buffer.from(randomBytes(32)));
+    const backerActor = verifiedActor(backer);
+    const nonBacker = Keypair.fromRawEd25519Seed(Buffer.from(randomBytes(32)));
+    const nonBackerActor = verifiedActor(nonBacker);
+
+    // Record an active pledge for backer
+    backersService.recordContribution({
+      campaignId,
+      backerAddress: backer.publicKey(),
+      amount: "150",
+      token: "XLM",
+    });
+
+    expect(hasActivePledge(campaignId, backer.publicKey())).toBe(true);
+    expect(hasActivePledge(campaignId, nonBacker.publicKey())).toBe(false);
+
+    // Unauthenticated comment fails
+    expect(() =>
+      createCampaignDiscussionComment({
+        campaignId,
+        authorName: "Anonymous",
+        content: "Trying to post without wallet",
+        creatorAddress: creator.publicKey(),
+      }),
+    ).toThrow("A verified Stellar wallet identity is required to participate in the discussion.");
+
+    // Non-backer without an active pledge fails
+    expect(() =>
+      createCampaignDiscussionComment({
+        campaignId,
+        authorName: "Non-Backer",
+        actor: nonBackerActor,
+        content: "I have no pledge here",
+        creatorAddress: creator.publicKey(),
+      }),
+    ).toThrow("Write and comment permissions are gated to Stellar addresses that have an active pledge in the campaign.");
+
+    // Verified backer with active pledge succeeds
+    const backerComment = createCampaignDiscussionComment({
+      campaignId,
+      authorName: "Verified Backer",
+      actor: backerActor,
+      content: "Can we add solar sensors as a stretch goal?",
+      category: "stretch_goal",
+      creatorAddress: creator.publicKey(),
+    });
+    expect(backerComment).toMatchObject({
+      authorAddress: backer.publicKey(),
+      content: "Can we add solar sensors as a stretch goal?",
+      category: "stretch_goal",
+      isCreatorReply: false,
+    });
+
+    // Creator succeeds without needing a pledge
+    const creatorComment = createCampaignDiscussionComment({
+      campaignId,
+      authorName: "Creator",
+      actor: creatorActor,
+      content: "Welcome to the token-gated backer forum!",
+      category: "announcement",
+      creatorAddress: creator.publicKey(),
+    });
+    expect(creatorComment).toMatchObject({
+      authorAddress: creator.publicKey(),
+      category: "announcement",
+    });
+  });
+
+  it("creates threaded creator replies with Creator Response and restricts official answers", () => {
+    const creator = Keypair.fromRawEd25519Seed(Buffer.from(randomBytes(32)));
+    const creatorActor = verifiedActor(creator);
+    const backer = Keypair.fromRawEd25519Seed(Buffer.from(randomBytes(32)));
+    const backerActor = verifiedActor(backer);
+
+    backersService.recordContribution({
+      campaignId,
+      backerAddress: backer.publicKey(),
+      amount: "50",
+      token: "XLM",
+    });
+
     const question = createCampaignDiscussionComment({
       campaignId,
       authorName: "Backer",
-      content: "How will the funds be used?",
+      actor: backerActor,
+      content: "How will the funds be used for the stretch goal?",
+      category: "stretch_goal",
       creatorAddress: creator.publicKey(),
       now: 100,
     });
 
-    expect(() => createCampaignDiscussionComment({
-      campaignId,
-      parentId: question.id,
-      authorName: "Visitor",
-      content: "Following!",
-      officialAnswer: true,
-      creatorAddress: creator.publicKey(),
-    })).toThrow("Only the creator can mark a reply as an official answer.");
+    expect(() =>
+      createCampaignDiscussionComment({
+        campaignId,
+        parentId: question.id,
+        authorName: "Backer",
+        actor: backerActor,
+        content: "Following!",
+        officialAnswer: true,
+        creatorAddress: creator.publicKey(),
+      }),
+    ).toThrow("Only the creator can mark a reply as an official answer.");
 
     const answer = createCampaignDiscussionComment({
       campaignId,
       parentId: question.id,
       authorName: "Campaign creator",
       actor: creatorActor,
-      content: "Funds go directly to project costs.",
+      content: "Funds go directly toward sensor deployment.",
       officialAnswer: true,
       creatorAddress: creator.publicKey(),
       now: 200,
@@ -83,12 +171,18 @@ describe("campaign discussion", () => {
   });
 
   it("toggles each viewer's upvote and exposes only their own vote state", () => {
+    const creator = Keypair.fromRawEd25519Seed(Buffer.from(randomBytes(32)));
+    const creatorActor = verifiedActor(creator);
+
     const comment = createCampaignDiscussionComment({
       campaignId,
-      authorName: "Visitor",
-      content: "A useful comment",
-      creatorAddress,
+      authorName: "Creator",
+      actor: creatorActor,
+      content: "Feature suggestion: add GPS tracking",
+      category: "feature_suggestion",
+      creatorAddress: creator.publicKey(),
     });
+
     const voterToken = issueCampaignDiscussionVoterToken(campaignId);
     const voter = resolveCampaignDiscussionVoter(campaignId, voterToken);
     if (!voter) throw new Error("Issued voter token should resolve.");
@@ -111,30 +205,46 @@ describe("campaign discussion", () => {
     });
   });
 
-  it("allows only the creator to pin comments and sorts pinned comments first", () => {
+  it("allows only the creator to pin comments and sorts pinned announcements first", () => {
     const creator = Keypair.fromRawEd25519Seed(Buffer.from(randomBytes(32)));
     const creatorActor = verifiedActor(creator);
+    const backer = Keypair.fromRawEd25519Seed(Buffer.from(randomBytes(32)));
+    const backerActor = verifiedActor(backer);
+
+    backersService.recordContribution({
+      campaignId,
+      backerAddress: backer.publicKey(),
+      amount: "200",
+      token: "XLM",
+    });
+
     const first = createCampaignDiscussionComment({
       campaignId,
-      authorName: "First",
-      content: "First comment",
-      creatorAddress,
+      authorName: "Creator",
+      actor: creatorActor,
+      content: "Announcement: Stretch goal 2 unlocked!",
+      category: "announcement",
+      creatorAddress: creator.publicKey(),
       now: 100,
     });
     const second = createCampaignDiscussionComment({
       campaignId,
-      authorName: "Second",
-      content: "Second comment",
-      creatorAddress,
+      authorName: "Backer",
+      actor: backerActor,
+      content: "Awesome news!",
+      category: "general",
+      creatorAddress: creator.publicKey(),
       now: 200,
     });
 
-    expect(() => toggleCampaignDiscussionPin({
-      campaignId,
-      commentId: first.id,
-      actor: verifiedActor(Keypair.fromRawEd25519Seed(Buffer.from(randomBytes(32)))),
-      creatorAddress: creator.publicKey(),
-    })).toThrow("Only the campaign creator can perform this action.");
+    expect(() =>
+      toggleCampaignDiscussionPin({
+        campaignId,
+        commentId: first.id,
+        actor: backerActor,
+        creatorAddress: creator.publicKey(),
+      }),
+    ).toThrow("Only the campaign creator can perform this action.");
 
     toggleCampaignDiscussionPin({
       campaignId,
@@ -142,6 +252,8 @@ describe("campaign discussion", () => {
       actor: creatorActor,
       creatorAddress: creator.publicKey(),
     });
+
     expect(listCampaignDiscussionComments(campaignId).map(({ id }) => id)).toEqual([first.id, second.id]);
+    expect(listCampaignDiscussionComments(campaignId)[0].pinned).toBe(true);
   });
 });
