@@ -1,9 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { widgetIframeSrc, type WidgetColors } from "@/lib/widget-theme";
+import {
+  buildEmbedSnippet,
+  buildWebComponentSnippet,
+  widgetIframeSrc,
+  type WidgetColors,
+} from "@/lib/widget-theme";
 
-export type WidgetTheme = "light" | "dark" | "forest";
+export type WidgetTheme = "light" | "dark" | "forest" | "auto";
 
 export interface CampaignImpactWidgetModalProps {
   isOpen: boolean;
@@ -107,7 +112,7 @@ const gradeStyles: Record<SustainabilityScoreResult["grade"], string> = {
   Stuttgart: "bg-slate-500/15 text-slate-300 border-slate-500/40",
 };
 
-const WIDGET_THEME_DEFAULTS: Record<WidgetTheme, Required<WidgetColors>> = {
+const WIDGET_THEME_DEFAULTS: Record<Exclude<WidgetTheme, "auto">, Required<WidgetColors>> = {
   forest: { accentColor: "#6ee7b7", backgroundColor: "#0b1f16" },
   dark: { accentColor: "#34d399", backgroundColor: "#0f172a" },
   light: { accentColor: "#059669", backgroundColor: "#ffffff" },
@@ -133,28 +138,21 @@ export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps>
   onClose,
   campaignId,
   campaignTitle,
-  yearFounded,
-  treesPlanted,
-  co2OffsetTonnes,
 }) => {
-  const [theme, setTheme] = useState<WidgetTheme>("forest");
+  const [theme, setTheme] = useState<WidgetTheme>("auto");
+  const [embedFormat, setEmbedFormat] = useState<"iframe" | "web-component">("iframe");
   const [accentColor, setAccentColor] = useState(WIDGET_THEME_DEFAULTS.forest.accentColor);
   const [backgroundColor, setBackgroundColor] = useState(WIDGET_THEME_DEFAULTS.forest.backgroundColor);
   const [copied, setCopied] = useState(false);
-  const [origin, setOrigin] = useState("");
   const [speciesCount, setSpeciesCount] = useState(0);
+  const origin =
+    typeof window === "undefined" ? "https://fundable.stellar" : window.location.origin;
   const [sustainabilityInputs, setSustainabilityInputs] = useState<SustainabilityInputs>({
     treeSpeciesDiversity: 0.72,
     regionClimateImpact: 0.68,
     soilHealthImprovement: 0.6,
     biodiversityPotential: 0.75,
   });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setOrigin(window.location.origin);
-    }
-  }, []);
 
   useEffect(() => {
     if (!isOpen || !campaignId) return;
@@ -174,14 +172,29 @@ export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps>
 
   if (!isOpen) return null;
 
-  const embedColors = { accentColor, backgroundColor };
+  const embedColors = theme === "auto" ? {} : { accentColor, backgroundColor };
   const embedUrl = widgetIframeSrc(
     String(campaignId),
-    origin || "https://fundable.stellar",
+    origin,
     theme,
     embedColors,
   );
-  const embedCode = `<iframe src="${embedUrl}" width="100%" height="390" frameborder="0" style="border:0;border-radius:14px;max-width:440px;display:block;margin:0 auto;overflow:hidden;" title="${escapeHtmlAttribute(campaignTitle)} Impact Widget"></iframe>`;
+  const embedCode =
+    embedFormat === "iframe"
+      ? buildEmbedSnippet(
+          String(campaignId),
+          origin,
+          theme,
+          embedColors,
+        ).replace(
+          'title="Fundable campaign impact"',
+          `title="${escapeHtmlAttribute(campaignTitle)} funding widget"`,
+        )
+      : buildWebComponentSnippet(
+          String(campaignId),
+          origin,
+          theme,
+        );
 
   const sustainability = calculateSustainabilityScore(sustainabilityInputs);
 
@@ -210,7 +223,7 @@ export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps>
       aria-labelledby="widget-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-2xl width-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[W0vH]">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
           <div>
@@ -237,9 +250,10 @@ Embed real-time tree and CO₂ impact on your website or blog.
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
               Select Widget Theme
             </label>
-            <div className="grid grid-cols-3 gap-2.5">
-              {
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {(
                 [
+                  { id: "auto", label: "🖥 Match site", desc: "Adapts to your website" },
                   { id: "forest", label: "🌱 Forest", desc: "Green & Emerald" },
                   { id: "dark", label: "🌍 Dark", desc: "Slate & Neon" },
                   { id: "light", label: "☀️ Light", desc: "Clean & Crisp" },
@@ -250,8 +264,10 @@ Embed real-time tree and CO₂ impact on your website or blog.
                   type="button"
                   onClick={() => {
                     setTheme(t.id);
-                    setAccentColor(WIDGET_THEME_DEFAULTS[t.id].accentColor);
-                    setBackgroundColor(WIDGET_THEME_DEFAULTS[t.id].backgroundColor);
+                    if (t.id !== "auto") {
+                      setAccentColor(WIDGET_THEME_DEFAULTS[t.id].accentColor);
+                      setBackgroundColor(WIDGET_THEME_DEFAULTS[t.id].backgroundColor);
+                    }
                   }}
                   className={`p-2.5 rounded-xl border text-left transition ${
                     theme === t.id
@@ -266,13 +282,14 @@ Embed real-time tree and CO₂ impact on your website or blog.
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className={`grid grid-cols-2 gap-4 ${theme === "auto" ? "opacity-50" : ""}`}>
             <label className="text-xs font-semibold text-slate-300">
               Progress and button color
               <input
                 aria-label="Widget accent color"
                 type="color"
                 value={accentColor}
+                disabled={theme === "auto"}
                 onChange={(event) => setAccentColor(event.target.value)}
                 className="mt-2 block h-10 w-full cursor-pointer rounded border border-slate-700 bg-slate-800 p-1"
               />
@@ -283,6 +300,7 @@ Embed real-time tree and CO₂ impact on your website or blog.
                 aria-label="Widget background color"
                 type="color"
                 value={backgroundColor}
+                disabled={theme === "auto"}
                 onChange={(event) => setBackgroundColor(event.target.value)}
                 className="mt-2 block h-10 w-full cursor-pointer rounded border border-slate-700 bg-slate-800 p-1"
               />
@@ -410,9 +428,27 @@ Embed real-time tree and CO₂ impact on your website or blog.
 
           {/* HTML Embed Code Snippet */}
           <div>
+            <div className="mb-3 flex gap-2" role="group" aria-label="Embed format">
+              <button
+                type="button"
+                aria-pressed={embedFormat === "iframe"}
+                onClick={() => setEmbedFormat("iframe")}
+                className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-200 aria-pressed:border-emerald-500"
+              >
+                Responsive iframe
+              </button>
+              <button
+                type="button"
+                aria-pressed={embedFormat === "web-component"}
+                onClick={() => setEmbedFormat("web-component")}
+                className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-200 aria-pressed:border-emerald-500"
+              >
+                Web Component
+              </button>
+            </div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                HTML Embed Code
+                {embedFormat === "iframe" ? "HTML iframe code" : "Web Component code"}
               </label>
               <button
                 type="button"

@@ -1,4 +1,6 @@
 import { getCampaign } from "@/services/campaign.service";
+import { campaignFundingToken } from "@/lib/widget-theme";
+import { donationService } from "@/services/campaign-donation.service";
 
 export interface CampaignProgressMetrics {
   campaignId: string;
@@ -8,6 +10,10 @@ export interface CampaignProgressMetrics {
   co2SequestrationTonnes: string;
   raisedAmount: string;
   goalAmount: string;
+  campaignName?: string;
+  campaignDeadline?: number;
+  campaignCreatedAt?: number;
+  fundingToken?: "XLM" | "USDC" | "mixed" | "unknown";
   cachedAt: number;
   expiresAt: number;
   ttlSeconds: number;
@@ -157,6 +163,13 @@ export class CampaignProgressCacheService {
         co2SequestrationTonnes: campaign.co2Sequestration ?? co2Tonnes,
         raisedAmount: campaign.raisedAmount ?? "0",
         goalAmount: campaign.goalAmount ?? "0",
+        campaignName: campaign.name,
+        campaignDeadline: campaign.deadline,
+        campaignCreatedAt: campaign.createdAt,
+        fundingToken: campaignFundingToken(
+          campaign.sponsors,
+          donationService.getSummary(campaignId),
+        ),
       },
       ttlSeconds
     );

@@ -28,7 +28,7 @@ import {
   DEFAULT_MILESTONES,
   evaluateMilestones,
   type CampaignMilestone,
-} from "./campaign-milestones";
+} from "@/lib/campaign-milestones";
 import { CampaignMilestoneEmailService } from "./campaign-milestone-email.service";
 import { buildCampaignNotificationDispatch } from "./campaign-notification.service";
 

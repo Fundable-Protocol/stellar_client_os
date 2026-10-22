@@ -100,6 +100,25 @@ Every response from `/api/v1/*` includes real-time rate limit and daily quota he
     - `format`: `json` (returns `iframeSrc`, `iframeSnippet`, `scriptSnippet`, and impact metrics) or `html` (renders standalone embeddable HTML card)
     - `environment`: `sandbox` | `production`
 
+#### Creator website embed (no API token)
+
+Campaign creators can copy either embed format from the campaign's **Embed Campaign Widget** dialog. These public widget URLs are separate from the authenticated `/api/v1` endpoint:
+
+```html
+<iframe src="https://fundable.stellar/api/campaigns/CAMPAIGN_ID/widget?theme=auto"
+        width="100%" height="390" loading="lazy"
+        title="Fundable campaign impact"></iframe>
+```
+
+For a Web Component that follows the host page's light/dark theme, include:
+
+```html
+<fundable-widget campaign-id="CAMPAIGN_ID" theme="auto"></fundable-widget>
+<script src="https://fundable.stellar/fundable-widget.js" defer></script>
+```
+
+Both formats render cached campaign progress and poll for updates every 15 seconds. The creator dialog's generated iframe snippet includes a small host-theme sync script; a manually written iframe using `theme=auto` follows the browser color preference. Set `?theme=dark` on the iframe URL, or `theme="dark"` on the component, to force dark mode. The **Back Project** button opens the campaign's donation flow. A single observed token is labeled XLM or USDC; mixed records are labeled `mixed XLM/USDC`, and missing/unsupported currency records are called out rather than guessed.
+
 ### Receive & Test Webhooks
 - **`GET /api/v1/webhooks`** (Scope: `webhooks:manage`) — List active webhook subscriptions and recent delivery logs.
 - **`POST /api/v1/webhooks`** (Scope: `webhooks:manage`) — Register a webhook endpoint for `campaign.created`, `campaign.donation_received`, `campaign.milestone_reached`, `campaign.completed`, `tree_verified`, or `batch_verified`.

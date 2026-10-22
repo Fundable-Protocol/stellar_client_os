@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, renderWidgetHtml, renderStatTile, renderProgressBar } from "./route";
 import {
   InMemoryCampaignDataSource,
@@ -6,6 +6,8 @@ import {
   type CampaignRecord,
 } from "@/services/campaign.service";
 import { WIDGET_THEMES } from "@/lib/widget-theme";
+import { campaignProgressCache } from "@/services/campaign-progress-cache.service";
+import { donationService } from "@/services/campaign-donation.service";
 
 const campaign = (overrides: Partial<CampaignRecord> = {}): CampaignRecord => ({
   id: "campaign-w1",
@@ -25,7 +27,13 @@ const campaign = (overrides: Partial<CampaignRecord> = {}): CampaignRecord => ({
 });
 
 beforeEach(() => {
+  campaignProgressCache.clear();
+  donationService.reset();
   setCampaignDataSource(new InMemoryCampaignDataSource());
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 async function seedCampaign(record: CampaignRecord) {
@@ -62,6 +70,36 @@ describe("renderWidgetHtml (pure)", () => {
     );
     expect(html).toContain("100%");
   });
+
+  it("shows funding currency, deadline, and a direct back-project action", () => {
+    const html = renderWidgetHtml(
+      campaign({
+        deadline: Math.floor(Date.now() / 1000) + 86_400,
+        sponsors: [{ id: "s1", campaignId: "c1", address: "G", amount: "10", token: "XLM", sponsoredAt: 1 }],
+      }),
+      "light",
+    );
+    expect(html).toContain("XLM</span> raised");
+    expect(html).toContain("1 day remaining");
+    expect(html).toContain(">Back Project</a>");
+    expect(html).toContain("/campaigns/campaign-w1/donate");
+  });
+
+  it("does not assign a single currency to mixed or unknown campaign totals", () => {
+    const mixed = renderWidgetHtml(
+      campaign({
+        sponsors: [
+          { id: "s1", campaignId: "campaign-w1", address: "G1", amount: "10", token: "XLM", sponsoredAt: 1 },
+          { id: "s2", campaignId: "campaign-w1", address: "G2", amount: "20", token: "USDC", sponsoredAt: 2 },
+        ],
+      }),
+      "light",
+    );
+    expect(mixed).toContain('id="funding-token">mixed XLM/USDC</span> raised');
+
+    const unknown = renderWidgetHtml(campaign(), "light");
+    expect(unknown).toContain('id="funding-token">token units (currency unspecified)</span> raised');
+  });
 });
 
 describe("renderStatTile / renderProgressBar", () => {
@@ -95,6 +133,13 @@ describe("GET /api/campaigns/[id]/widget", () => {
     expect(res.status).toBe(404);
   });
 
+  it("rejects malformed campaign identifiers", async () => {
+    const res = await GET(new Request("https://app.test/api/campaigns/../widget"), {
+      params: Promise.resolve({ id: "../" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("honors ?theme= and ?format=meta", async () => {
     await seedCampaign(campaign());
 
@@ -104,13 +149,86 @@ describe("GET /api/campaigns/[id]/widget", () => {
     );
     expect(await themed.text()).toContain("#0b1f16");
 
+    const dark = await GET(
+      new Request("https://app.test/api/campaigns/campaign-w1/widget?theme=dark"),
+      { params: Promise.resolve({ id: "campaign-w1" }) },
+    );
+    expect(await dark.text()).toContain("#0f172a");
+
     const meta = await GET(
       new Request("https://app.test/api/campaigns/campaign-w1/widget?format=meta"),
       { params: Promise.resolve({ id: "campaign-w1" }) },
     );
     expect(meta.headers.get("Content-Type")).toContain("application/json");
     const body = await meta.json();
-    expect(body.iframeSrc).toContain("/api/campaigns/campaign-w1/widget?theme=light");
+    expect(body.iframeSrc).toContain("/api/campaigns/campaign-w1/widget?theme=auto");
     expect(body.snippet).toContain("<iframe");
+  });
+
+  it("uses the cached progress snapshot for repeat widget and poll requests", async () => {
+    await seedCampaign(campaign({
+      deadline: 1_700_086_400,
+      sponsors: [{ id: "s1", campaignId: "campaign-w1", address: "G", amount: "10", token: "XLM", sponsoredAt: 1 }],
+    }));
+    const first = await GET(
+      new Request("https://app.test/api/campaigns/campaign-w1/widget"),
+      { params: Promise.resolve({ id: "campaign-w1" }) },
+    );
+    const second = await GET(
+      new Request("https://app.test/api/campaigns/campaign-w1/widget?format=json"),
+      { params: Promise.resolve({ id: "campaign-w1" }) },
+    );
+    expect(first.headers.get("X-Cache")).toBe("MISS");
+    expect(second.headers.get("X-Cache")).toBe("HIT");
+    expect(await second.json()).toMatchObject({
+      fundingToken: "XLM",
+      fundingTokenLabel: "XLM",
+      campaignUrl: "https://app.test/campaigns/campaign-w1/donate",
+    });
+  });
+
+  it("reports mixed sponsorship currencies in the cached widget response", async () => {
+    await seedCampaign(campaign({
+      sponsors: [
+        { id: "s1", campaignId: "campaign-w1", address: "G1", amount: "10", token: "XLM", sponsoredAt: 1 },
+        { id: "s2", campaignId: "campaign-w1", address: "G2", amount: "20", token: "USDC", sponsoredAt: 2 },
+      ],
+    }));
+    const response = await GET(
+      new Request("https://app.test/api/campaigns/campaign-w1/widget?format=json"),
+      { params: Promise.resolve({ id: "campaign-w1" }) },
+    );
+    expect(await response.json()).toMatchObject({
+      fundingToken: "mixed",
+      fundingTokenLabel: "mixed XLM/USDC",
+    });
+  });
+
+  it("uses the per-token donation summary to identify mixed currency totals", async () => {
+    await seedCampaign(campaign());
+    vi.spyOn(donationService, "getSummary").mockReturnValue({
+      campaignId: "campaign-w1",
+      donationCount: 2,
+      totalsByToken: { XLM: "25", USDC: "30" },
+    });
+
+    const response = await GET(
+      new Request("https://app.test/api/campaigns/campaign-w1/widget?format=json"),
+      { params: Promise.resolve({ id: "campaign-w1" }) },
+    );
+    expect(await response.json()).toMatchObject({
+      fundingToken: "mixed",
+      fundingTokenLabel: "mixed XLM/USDC",
+    });
+  });
+
+  it("returns an explicit embeddable error document when campaign lookup fails", async () => {
+    vi.spyOn(campaignProgressCache, "getOrFetch").mockRejectedValue(new Error("RPC unavailable"));
+    const response = await GET(
+      new Request("https://app.test/api/campaigns/campaign-w1/widget"),
+      { params: Promise.resolve({ id: "campaign-w1" }) },
+    );
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain("temporarily unavailable");
   });
 });

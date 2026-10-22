@@ -3,11 +3,18 @@ import {
   resolveWidgetTheme,
   resolveWidgetColor,
   progressPercent,
+  daysRemaining,
+  campaignFundingToken,
+  buildEmbedSnippet,
+  widgetIframeSrc,
+  WIDGET_IFRAME_MIN_HEIGHT,
   WIDGET_THEMES,
   type WidgetColors,
+  type WidgetEmbedTheme,
   type WidgetTheme,
 } from "@/lib/widget-theme";
-import { getCampaign } from "@/services/campaign.service";
+import { campaignProgressCache } from "@/services/campaign-progress-cache.service";
+import type { CampaignRecord } from "@/services/campaign.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +42,51 @@ function resolveWidgetColors(theme: WidgetTheme, params: URLSearchParams): Widge
     accentColor: resolveWidgetColor(params.get("color"), defaults.accentColor),
     backgroundColor: resolveWidgetColor(params.get("background"), defaults.backgroundColor),
   };
+}
+
+const WIDGET_PROGRESS_TTL_SECONDS = 15;
+const CAMPAIGN_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+type WidgetCampaign = Pick<
+  CampaignRecord,
+  "id" | "name" | "goalAmount" | "raisedAmount" | "treeCount" | "createdAt"
+> &
+  Partial<Pick<CampaignRecord, "deadline" | "sponsors">> & {
+    fundingToken?: "XLM" | "USDC" | "mixed" | "unknown";
+  };
+
+function formatAmount(amount: string): string {
+  const normalized = amount.replaceAll(",", "");
+  if (/^-?\d+$/.test(normalized)) return BigInt(normalized).toLocaleString("en-US");
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric)
+    ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(numeric)
+    : amount;
+}
+
+async function getWidgetCampaign(id: string) {
+  let result = await campaignProgressCache.getOrFetch(id, false, WIDGET_PROGRESS_TTL_SECONDS);
+  if (
+    result.metrics.campaignName === undefined ||
+    result.metrics.campaignCreatedAt === undefined ||
+    result.metrics.fundingToken === undefined
+  ) {
+    campaignProgressCache.invalidate(id);
+    result = await campaignProgressCache.getOrFetch(id, false, WIDGET_PROGRESS_TTL_SECONDS);
+  }
+  const metrics = result.metrics;
+  const campaign: WidgetCampaign = {
+    id: metrics.campaignId,
+    name: metrics.campaignName ?? metrics.campaignId,
+    goalAmount: metrics.goalAmount,
+    raisedAmount: metrics.raisedAmount,
+    treeCount: metrics.treeCount,
+    createdAt: metrics.campaignCreatedAt ?? Date.now(),
+    deadline: metrics.campaignDeadline,
+  };
+  const fundingToken = metrics.fundingToken ?? "unknown";
+  campaign.fundingToken = fundingToken;
+  return { campaign, cacheHit: result.cacheHit, fundingToken };
 }
 
 // ── Escaping (all values are escaped before interpolation) ───────────────────
@@ -78,10 +130,11 @@ export function renderProgressBar(
  * Pure function of (campaign, theme) — no env or network access.
  */
 export function renderWidgetHtml(
-  campaign: NonNullable<Awaited<ReturnType<typeof getCampaign>>>,
+  campaign: WidgetCampaign,
   theme: WidgetTheme,
   colors: WidgetColors = {},
-  campaignUrl: string = `/campaigns/${encodeURIComponent(campaign.id)}`,
+  campaignUrl: string = `/campaigns/${encodeURIComponent(campaign.id)}/donate`,
+  autoTheme = false,
 ): string {
   const t = WIDGET_THEMES[theme];
   const themeColors = THEME_COLORS[theme];
@@ -90,6 +143,14 @@ export function renderWidgetHtml(
   const trees = Math.max(0, campaign.treeCount);
   const impact = calculateCo2Offset(DEFAULT_SPECIES_ID, trees, campaign.createdAt);
   const pct = progressPercent(campaign);
+  const remainingDays = daysRemaining(campaign.deadline);
+  const currency = campaign.fundingToken ?? campaignFundingToken(campaign.sponsors);
+  const currencyLabel =
+    currency === "mixed"
+      ? "mixed XLM/USDC"
+      : currency === "unknown"
+        ? "token units (currency unspecified)"
+        : currency;
 
   const tiles = [
     renderStatTile(trees.toLocaleString(), "Trees", t, accentColor),
@@ -111,6 +172,7 @@ export function renderWidgetHtml(
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: ${autoTheme ? "light dark" : theme};
     background: ${backgroundColor};
     color: ${t.text === "text-slate-900" ? "#0f172a" : t.text === "text-white" ? "#ffffff" : "#ecfdf5"};
     padding: 16px;
@@ -136,6 +198,17 @@ export function renderWidgetHtml(
   .footer a { font-weight: 600; text-decoration: none; }
   .campaign-cta { display:block; margin-top:16px; padding:10px 14px; border-radius:9px; background:${accentColor}; color:#fff; text-align:center; font-size:13px; font-weight:700; text-decoration:none; }
   .live-status { margin-top:8px; text-align:center; font-size:10px; ${t.muted === "text-slate-500" ? "color:#64748b" : t.muted === "text-slate-400" ? "color:#94a3b8" : "color:rgba(167,243,208,0.7)"} }
+  @media (prefers-color-scheme: dark) {
+    ${autoTheme ? `
+    body { background:#0f172a; color:#f8fafc; }
+    .card,.tile { border-color:#334155; }
+    .eyebrow,.species,.live-status { color:#94a3b8; }
+    .track { background:#1e293b !important; }
+    .fill,.campaign-cta { background-color:#34d399 !important; }
+    .tile-value { color:#34d399 !important; }
+    .campaign-cta { color:#ffffff !important; }
+    ` : ""}
+  }
 </style>
 </head>
 <body>
@@ -150,10 +223,12 @@ export function renderWidgetHtml(
       </div>
       <div id="progress-bar">${renderProgressBar(pct, t, accentColor)}</div>
       <div class="row">
-        <span><span id="raised-amount">${escapeHtml(campaign.raisedAmount)}</span> raised</span>
-        <span>goal <span id="goal-amount">${escapeHtml(campaign.goalAmount)}</span></span>
+        <span><span id="raised-amount">${escapeHtml(formatAmount(campaign.raisedAmount))}</span> <span id="funding-token">${currencyLabel}</span> raised</span>
+        <span>goal <span id="goal-amount">${escapeHtml(formatAmount(campaign.goalAmount))}</span></span>
       </div>
     </div>
+
+    <p class="live-status" id="days-remaining">${remainingDays === null ? "Funding timeline not set" : remainingDays === 0 ? "Funding deadline reached" : `${remainingDays} ${remainingDays === 1 ? "day" : "days"} remaining`}</p>
 
     <div class="grid">
       ${tiles}
@@ -161,7 +236,7 @@ export function renderWidgetHtml(
 
     <p class="species">${escapeHtml(speciesLine)}</p>
 
-    <a class="campaign-cta" id="campaign-cta" href="${escapeHtml(campaignUrl)}" target="_blank" rel="noopener noreferrer">View campaign</a>
+    <a class="campaign-cta" id="campaign-cta" href="${escapeHtml(campaignUrl)}" target="_blank" rel="noopener noreferrer">Back Project</a>
     <p class="footer">Powered by <a href="https://fundable.stellar" target="_blank" rel="noopener noreferrer">Fundable</a></p>
     <p class="live-status" id="live-status" aria-live="polite">Live updates enabled</p>
   </div>
@@ -177,6 +252,11 @@ export function renderWidgetHtml(
         document.querySelector("#progress-bar .fill").style.width = data.progressPercent + "%";
         document.getElementById("raised-amount").textContent = data.raisedAmount;
         document.getElementById("goal-amount").textContent = data.goalAmount;
+        document.getElementById("funding-token").textContent = data.fundingTokenLabel;
+        document.getElementById("days-remaining").textContent = data.daysRemaining === null
+          ? "Funding timeline not set"
+          : data.daysRemaining === 0 ? "Funding deadline reached"
+          : data.daysRemaining + (data.daysRemaining === 1 ? " day remaining" : " days remaining");
         document.getElementById("campaign-cta").href = data.campaignUrl;
         status.textContent = "Live updates enabled";
       } catch {
@@ -189,23 +269,15 @@ export function renderWidgetHtml(
 </html>`;
 }
 
-import {
-  buildEmbedSnippet,
-  widgetIframeSrc,
-  WIDGET_IFRAME_MIN_HEIGHT,
-} from "@/lib/widget-theme";
-
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
   const url = new URL(request.url);
-
-  const campaign = await getCampaign(id);
-  if (!campaign) {
-    return new Response("Campaign not found.", {
-      status: 404,
+  if (!CAMPAIGN_ID_PATTERN.test(id)) {
+    return new Response("Invalid campaign identifier.", {
+      status: 400,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
   }
@@ -213,17 +285,42 @@ export async function GET(
   const themeParam = url.searchParams.get("theme") ?? undefined;
   const theme = resolveWidgetTheme(themeParam);
   const colors = resolveWidgetColors(theme, url.searchParams);
-  const campaignUrl = new URL(`/campaigns/${encodeURIComponent(campaign.id)}`, url.origin).toString();
+  const autoTheme = themeParam === undefined || themeParam === "auto";
+  const embedTheme: WidgetEmbedTheme = autoTheme ? "auto" : theme;
+  const embedColors = {
+    accentColor: url.searchParams.has("color") ? colors.accentColor : undefined,
+    backgroundColor: url.searchParams.has("background") ? colors.backgroundColor : undefined,
+  };
+
+  let campaign: WidgetCampaign;
+  let cacheHit: boolean;
+  let fundingToken: "XLM" | "USDC" | "mixed" | "unknown";
+  try {
+    ({ campaign, cacheHit, fundingToken } = await getWidgetCampaign(id));
+  } catch (error) {
+    if (error instanceof Error && error.message === `Campaign ${id} not found`) {
+      return new Response(
+        "<!doctype html><html lang=\"en\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Campaign unavailable</title><body style=\"font:16px system-ui;padding:24px;color:#475569\">This campaign could not be found.</body></html>",
+        { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+      );
+    }
+    console.error(`[campaign-widget] Could not load campaign ${id}`, error);
+    return new Response(
+      "<!doctype html><html lang=\"en\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Widget unavailable</title><body style=\"font:16px system-ui;padding:24px;color:#475569\">Campaign progress is temporarily unavailable. Please try again shortly.</body></html>",
+      { status: 500, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    );
+  }
+  const campaignUrl = new URL(`/campaigns/${encodeURIComponent(campaign.id)}/donate`, url.origin).toString();
 
   // ?format=meta → JSON metadata + copy-paste snippet for campaign owners.
   if (url.searchParams.get("format") === "meta") {
     return Response.json(
       {
         campaignId: id,
-        theme,
-        iframeSrc: widgetIframeSrc(id, url.origin, theme, colors),
+        theme: embedTheme,
+        iframeSrc: widgetIframeSrc(id, url.origin, embedTheme, embedColors),
         minHeight: WIDGET_IFRAME_MIN_HEIGHT,
-        snippet: buildEmbedSnippet(id, url.origin, theme, colors),
+        snippet: buildEmbedSnippet(id, url.origin, embedTheme, embedColors),
       },
       { headers: { "Cache-Control": "no-store" } },
     );
@@ -235,21 +332,35 @@ export async function GET(
       {
         title: campaign.name,
         progressPercent: pct,
-        raisedAmount: campaign.raisedAmount,
-        goalAmount: campaign.goalAmount,
+        raisedAmount: formatAmount(campaign.raisedAmount),
+        goalAmount: formatAmount(campaign.goalAmount),
+        fundingToken,
+        fundingTokenLabel:
+          fundingToken === "mixed"
+            ? "mixed XLM/USDC"
+            : fundingToken === "unknown"
+              ? "token units (currency unspecified)"
+              : fundingToken,
+        daysRemaining: daysRemaining(campaign.deadline),
         campaignUrl,
       },
-      { headers: { "Cache-Control": "no-store" } },
+      {
+        headers: {
+          "Cache-Control": "public, max-age=15, stale-while-revalidate=15",
+          "X-Cache": cacheHit ? "HIT" : "MISS",
+        },
+      },
     );
   }
 
-  const html = renderWidgetHtml(campaign, theme, colors, campaignUrl);
+  const html = renderWidgetHtml(campaign, theme, colors, campaignUrl, autoTheme);
 
   return new Response(html, {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, max-age=60, s-maxage=60",
+      "Cache-Control": "public, max-age=15, s-maxage=15, stale-while-revalidate=15",
+      "X-Cache": cacheHit ? "HIT" : "MISS",
       // Note: no X-Frame-Options / CSP frame-ancestors is set here on purpose —
       // absence is what allows any external site to embed this endpoint.
     },
