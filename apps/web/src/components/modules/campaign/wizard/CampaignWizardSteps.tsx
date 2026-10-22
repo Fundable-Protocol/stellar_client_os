@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Calendar, Target, Sparkles, Layers, Image as ImageIcon, ShieldCheck, Bold, Italic, List } from "lucide-react";
+import { Plus, Trash2, Calendar, Target, Sparkles, Layers, Image as ImageIcon, ShieldCheck, Bold, Italic, List, Rocket, Film, FileText, Bell, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { IpfsMediaUploader } from "../media/IpfsMediaUploader";
 import {
   CampaignWizardData,
   WizardStepErrors,
@@ -252,6 +253,125 @@ export function DetailsStep({ data, errors, updateField }: StepProps) {
           <p className="mt-1 text-xs text-zinc-500">
             Required if a cover image is provided to satisfy WCAG 2.1 AA Non-text Content criteria.
           </p>
+        </div>
+
+        {/* IPFS Media Assets (Issue #1356) */}
+        <div className="border-t border-zinc-800 pt-5 space-y-4">
+          <div>
+            <h4 className="text-base font-semibold text-zinc-100 flex items-center gap-2">
+              <Layers className="h-5 w-5 text-purple-400" />
+              Decentralized IPFS Media Assets
+            </h4>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Permanently pin your pitch deck and demo videos to IPFS for censorship-resistant, on-chain verifiable delivery.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <IpfsMediaUploader
+              type="pitch_deck"
+              title="Pitch Deck / Whitepaper (PDF)"
+              description="Upload campaign documentation permanently to IPFS"
+              accept="application/pdf,.pdf"
+              initialCid={data.pitchDeckCid}
+              initialHashHex={data.pitchDeckHashHex}
+              onUploaded={(asset) => {
+                updateField("pitchDeckCid", asset.cid);
+                updateField("pitchDeckUrl", asset.gatewayUrl);
+                updateField("pitchDeckHashHex", asset.onChainHashHex);
+              }}
+            />
+
+            <IpfsMediaUploader
+              type="video"
+              title="Demo / Teaser Video"
+              description="Upload high-resolution video streamed directly via IPFS"
+              accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov"
+              initialCid={data.videoCid}
+              initialHashHex={data.videoHashHex}
+              onUploaded={(asset) => {
+                updateField("videoCid", asset.cid);
+                updateField("videoUrl", asset.gatewayUrl);
+                updateField("videoHashHex", asset.onChainHashHex);
+                if (!data.preLaunchTeaserVideoCid) {
+                  updateField("preLaunchTeaserVideoCid", asset.cid);
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Pre-Launch Mode & Waitlist Configuration (Issue #1358) */}
+        <div className="border-t border-zinc-800 pt-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h4 className="text-base font-semibold text-zinc-100 flex items-center gap-2">
+                <Rocket className="h-5 w-5 text-purple-400" />
+                Campaign Pre-Launch & Waitlist Mode
+              </h4>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Launch a teaser landing page before pledges open to collect early subscriber signups and build Day-One momentum.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={data.isPreLaunch}
+                onChange={(e) => updateField("isPreLaunch", e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-zinc-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+            </label>
+          </div>
+
+          {data.isPreLaunch && (
+            <div className="rounded-xl border border-purple-900/40 bg-purple-950/20 p-4 space-y-4 animate-in fade-in duration-200">
+              <div className="flex items-center gap-2 text-xs text-purple-300 font-medium">
+                <Bell className="h-4 w-4 text-purple-400" />
+                <span>Pre-Launch Mode Active: Campaign will publish a teaser landing page with &apos;Notify Me on Launch&apos; email signup.</span>
+              </div>
+
+              <div>
+                <Label htmlFor="preLaunchSummary" className="text-zinc-200 text-xs font-medium">
+                  Teaser Hook / Headline
+                </Label>
+                <Input
+                  id="preLaunchSummary"
+                  placeholder="e.g. Exclusive early access to our next-gen renewable energy protocol..."
+                  value={data.preLaunchSummary || ""}
+                  onChange={(e) => updateField("preLaunchSummary", e.target.value)}
+                  className="mt-1 border-zinc-700 bg-zinc-900 text-zinc-100 placeholder:text-zinc-500 text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="preLaunchExpectedDate" className="text-zinc-200 text-xs font-medium">
+                    Expected Public Launch Date (Optional)
+                  </Label>
+                  <Input
+                    id="preLaunchExpectedDate"
+                    type="date"
+                    value={data.preLaunchExpectedDate || ""}
+                    onChange={(e) => updateField("preLaunchExpectedDate", e.target.value)}
+                    className="mt-1 border-zinc-700 bg-zinc-900 text-zinc-100 text-sm"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="preLaunchTeaserVideoCid" className="text-zinc-200 text-xs font-medium">
+                    Teaser Video IPFS CID (Optional)
+                  </Label>
+                  <Input
+                    id="preLaunchTeaserVideoCid"
+                    placeholder="Qm... or bafy..."
+                    value={data.preLaunchTeaserVideoCid || data.videoCid || ""}
+                    onChange={(e) => updateField("preLaunchTeaserVideoCid", e.target.value)}
+                    className="mt-1 border-zinc-700 bg-zinc-900 text-zinc-100 font-mono text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -799,6 +919,34 @@ export function PreviewStep({
               <strong className="text-amber-200">{previewBoostedOffset} Tons</strong>
             </div>
           )}
+        </div>
+
+        {/* Pre-Launch & Media Summary (Issue #1356 & #1358) */}
+        <div className="rounded-lg border border-purple-900/50 bg-purple-950/20 p-4 space-y-2 md:col-span-2">
+          <span className="text-xs uppercase font-semibold text-purple-400 flex items-center gap-1.5">
+            <Rocket className="h-3.5 w-3.5" />
+            Launch Mode & IPFS Media Assets
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-zinc-300">
+            <div>
+              <p className="text-zinc-400">Launch Configuration:</p>
+              <p className="font-semibold text-zinc-100 mt-0.5">
+                {data.isPreLaunch ? "🚀 Pre-Launch Landing Page with Waitlist Active" : "Direct Live Launch"}
+              </p>
+              {data.isPreLaunch && data.preLaunchExpectedDate && (
+                <p className="text-purple-300 mt-1">Expected Launch: {data.preLaunchExpectedDate}</p>
+              )}
+            </div>
+            <div>
+              <p className="text-zinc-400">Decentralized IPFS Storage:</p>
+              <p className="text-zinc-200 mt-0.5">
+                Pitch Deck: {data.pitchDeckCid ? <span className="font-mono text-emerald-400">Pinned ({data.pitchDeckCid.slice(0, 10)}...)</span> : <span className="text-zinc-500">Not provided</span>}
+              </p>
+              <p className="text-zinc-200">
+                Demo Video: {data.videoCid ? <span className="font-mono text-emerald-400">Pinned ({data.videoCid.slice(0, 10)}...)</span> : <span className="text-zinc-500">Not provided</span>}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

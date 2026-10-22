@@ -48,6 +48,9 @@ describe("CampaignFollowService", () => {
 
     expect(count).toBe(1);
     expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "one@example.com" }));
+  });
+});
+
 import { beforeEach, describe, expect, it } from "vitest";
 import { followService } from "./campaign-follow.service";
 import {

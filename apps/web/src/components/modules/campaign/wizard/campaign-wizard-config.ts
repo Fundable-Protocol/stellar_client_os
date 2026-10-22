@@ -92,6 +92,22 @@ export interface CampaignWizardData {
   // Metadata
   isDraft: boolean;
 
+  // Pre-Launch Mode & Waitlist (Issue #1358)
+  isPreLaunch: boolean;
+  preLaunchSummary?: string;
+  preLaunchTeaserVideoCid?: string;
+  preLaunchTeaserVideoUrl?: string;
+  preLaunchPitchDeckCid?: string;
+  preLaunchExpectedDate?: string;
+
+  // IPFS Media Storage (Issue #1356)
+  pitchDeckCid?: string;
+  pitchDeckUrl?: string;
+  pitchDeckHashHex?: string;
+  videoCid?: string;
+  videoUrl?: string;
+  videoHashHex?: string;
+
   // Translation
   language: string;
   translations: Record<string, string>;
@@ -132,6 +148,16 @@ export const INITIAL_WIZARD_DATA: CampaignWizardData = {
   socialMetrics: "",
 
   isDraft: false,
+  isPreLaunch: false,
+  preLaunchSummary: "",
+  preLaunchTeaserVideoCid: "",
+  preLaunchExpectedDate: "",
+  pitchDeckCid: "",
+  pitchDeckUrl: "",
+  pitchDeckHashHex: "",
+  videoCid: "",
+  videoUrl: "",
+  videoHashHex: "",
   language: "en",
   translations: {},
   autoTranslate: false,
