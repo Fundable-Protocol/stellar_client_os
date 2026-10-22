@@ -20,6 +20,7 @@ import {
   SubmitCompletionReportInput,
   TriggerMilestoneReleaseInput,
 } from '@/types/campaign-milestone-release';
+import { backerBadgeService } from './backer-badge.service';
 import { backersService } from './campaign-backers.service';
 import { getCampaign, type CampaignRecord } from './campaign.service';
 import { pushNotificationService } from './push-notification.service';
@@ -391,6 +392,7 @@ export class CampaignMilestoneReleaseService {
 
     existingVotes.push(vote);
     this.votes.set(vKey, existingVotes);
+    backerBadgeService.recordEscrowVote(voterAddress, now);
 
     if (vote.approve) {
       tranche.votesFor += 1;

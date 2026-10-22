@@ -1,4 +1,4 @@
-import { CreatorProfile } from "@/components/modules/profile/CreatorProfile";
+import PlanterProfile from "@/components/modules/profile/PlanterProfile";
 import { BackerBadgeProfile } from "@/components/modules/profile/BackerBadgeProfile";
 
 export const metadata = {
@@ -10,8 +10,10 @@ export const metadata = {
 export default function ProfilePage() {
   return (
     <main className="h-full overflow-y-auto px-4 py-8 md:py-10">
-      <CreatorProfile />
-      <BackerBadgeProfile address="profile" />
+      <PlanterProfile />
+      <div className="max-w-6xl mx-auto mt-8">
+        <BackerBadgeProfile />
+      </div>
     </main>
   );
 }
