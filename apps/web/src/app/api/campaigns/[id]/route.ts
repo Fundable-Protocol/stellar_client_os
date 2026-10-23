@@ -241,40 +241,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       "location",
     ] as const;
     if (updateFields.some((field) => body[field] !== undefined)) {
-      const pushResult = await mobilePushService.sendCampaignUpdateNotification({
-        campaignId: id,
-        campaignTitle: updated.name,
-        details: {
-          summary: `${updated.name} has posted a new campaign update.`,
-        },
-      });
-      if (pushResult.errors > 0) {
-        console.error("Some mobile campaign update notifications failed.", {
-          campaignId: id,
-          errors: pushResult.errors,
-        });
-      }
-    }
-    if (
-      campaign.status !== updated.status &&
-      (updated.status === "COMPLETED" || updated.status === "FAILED")
-    ) {
-      const pushResult = await mobilePushService.sendMilestonePushNotification({
-        campaignId: id,
-        campaignTitle: updated.name,
-        milestone: "campaign_finished",
-        details: {},
-        deepLinkUrl: `https://fundable.stellar/campaigns/${encodeURIComponent(id)}`,
-      });
-      if (pushResult.errors > 0) {
-        console.error("Some mobile campaign completion notifications failed.", {
-          campaignId: id,
-          errors: pushResult.errors,
-        });
-      }
+      mobilePushService.notifyCampaignUpdated?.(updated);
     }
     return noStore(updated);
   } catch (error) {
-    return noStore({ error: error instanceof Error ? error.message : "Invalid JSON request body" }, { status: 400 });
+    return noStore({ error: error instanceof Error ? error.message : "Invalid request" }, { status: 400 });
   }
 }
