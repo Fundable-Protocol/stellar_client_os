@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Heart, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/i18n/I18nProvider";
 import { cn } from "@/lib/utils";
 import type { DonationToken } from "@/types/campaign-donation";
 import { CampaignDonationPanel } from "./CampaignDonationPanel";
@@ -28,6 +29,7 @@ export function OneTimeDonationButton({
   defaultToken,
   className,
 }: OneTimeDonationButtonProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -72,8 +74,8 @@ export function OneTimeDonationButton({
           className,
         )}
       >
-        <Heart className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
-        One-time Donate
+        <Heart className="me-1.5 h-3.5 w-3.5" aria-hidden="true" />
+        {t("pledge.oneTimeTrigger")}
       </Button>
 
       {open && (
@@ -92,14 +94,14 @@ export function OneTimeDonationButton({
           >
             <div className="mb-3 flex items-center justify-between">
               <h2 id={titleId} className="text-sm font-medium text-zinc-400">
-                One-time donation
+                {t("pledge.oneTimeTitle")}
               </h2>
               <Button
                 ref={closeRef}
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Close donation dialog"
+                aria-label={t("pledge.closeDialog")}
                 onClick={close}
                 className="text-zinc-400 hover:text-zinc-100"
               >
@@ -113,12 +115,12 @@ export function OneTimeDonationButton({
               defaultToken={defaultToken}
             />
             <p className="mt-3 text-center text-xs text-zinc-500">
-              Prefer a full page?{" "}
+              {t("pledge.openFullPage")}{" "}
               <Link
                 href={`/campaigns/${campaignId}/donate`}
                 className="text-zinc-300 underline underline-offset-2 hover:text-zinc-100"
               >
-                Open the donation page
+                {t("pledge.openDonationPage")}
               </Link>
             </p>
           </div>

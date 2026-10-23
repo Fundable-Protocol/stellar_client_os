@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getLanguageDirection,
   getTextDirection,
   resolveUiLocale,
   uiLocaleFromAcceptLanguage,
@@ -19,15 +20,22 @@ function placeholders(template: string): string[] {
 }
 
 describe("UI locale config", () => {
-  it("supports English, French, Spanish, Portuguese and Arabic", () => {
-    expect([...UI_LOCALES].sort()).toEqual(["ar", "en", "es", "fr", "pt"]);
+  it("supports English, French, Spanish, Portuguese, Arabic and Hebrew", () => {
+    expect([...UI_LOCALES].sort()).toEqual(["ar", "en", "es", "fr", "he", "pt"]);
   });
 
-  it("marks only Arabic as right-to-left", () => {
+  it("marks Arabic and Hebrew as right-to-left", () => {
     expect(getTextDirection("ar")).toBe("rtl");
-    for (const locale of UI_LOCALES.filter((l) => l !== "ar")) {
+    expect(getTextDirection("he")).toBe("rtl");
+    for (const locale of UI_LOCALES.filter((l) => l !== "ar" && l !== "he")) {
       expect(getTextDirection(locale)).toBe("ltr");
     }
+  });
+
+  it("resolves Hebrew tags to the Hebrew catalogue", () => {
+    expect(resolveUiLocale("he")).toBe("he");
+    expect(resolveUiLocale("he-IL")).toBe("he");
+    expect(uiLocaleFromAcceptLanguage("he-IL,ar;q=0.8")).toBe("he");
   });
 
   it("resolves regional tags and falls back to English", () => {
@@ -43,6 +51,22 @@ describe("UI locale config", () => {
     expect(uiLocaleFromAcceptLanguage("fr;q=0.2,pt;q=0.9")).toBe("pt");
     expect(uiLocaleFromAcceptLanguage("ja,zh;q=0.5")).toBe("en");
     expect(uiLocaleFromAcceptLanguage(null)).toBe("en");
+  });
+});
+
+describe("campaign content direction", () => {
+  it("marks Arabic, Persian, Hebrew and Urdu campaign copy as RTL", () => {
+    for (const language of ["ar", "fa", "he", "ur"]) {
+      expect(getLanguageDirection(language)).toBe("rtl");
+    }
+  });
+
+  it("normalises regional tags before resolving direction", () => {
+    expect(getLanguageDirection("he-IL")).toBe("rtl");
+    expect(getLanguageDirection("AR_eg")).toBe("rtl");
+    expect(getLanguageDirection("en-US")).toBe("ltr");
+    expect(getLanguageDirection("")).toBe("ltr");
+    expect(getLanguageDirection(null)).toBe("ltr");
   });
 });
 
@@ -83,7 +107,20 @@ describe("message catalogues", () => {
 describe("translate", () => {
   it("returns the localized string with values interpolated", () => {
     expect(translate("fr", "nav.home")).toBe("Accueil");
+    expect(translate("he", "nav.home")).toBe("בית");
     expect(translate("es", "seo.characterCount", { count: 12, max: 60 })).toBe("12 / 60 caracteres");
+  });
+
+  it("translates the Arabic and Hebrew pledge checkout and error states", () => {
+    expect(translate("ar", "pledge.submit", { amount: "10 XLM" })).toContain("10 XLM");
+    expect(translate("he", "pledge.backToCampaign")).toBe("חזרה לקמפיין");
+    expect(translate("he", "errors.genericTitle")).toBe("משהו השתבש");
+    expect(translate("ar", "campaign.progress.valuetext", {
+      percentage: 40,
+      raised: 400,
+      goal: 1000,
+      currency: "XLM",
+    })).toContain("40");
   });
 
   it("falls back to the key for unknown paths", () => {

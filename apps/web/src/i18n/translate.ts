@@ -4,6 +4,7 @@ import fr from "./messages/fr.json";
 import es from "./messages/es.json";
 import pt from "./messages/pt.json";
 import ar from "./messages/ar.json";
+import he from "./messages/he.json";
 
 /** English is the source of truth for the message catalogue shape. */
 export type Messages = typeof en;
@@ -21,7 +22,7 @@ export type TranslationValues = Record<string, string | number>;
 
 export type TranslateFn = (key: MessageKey, values?: TranslationValues) => string;
 
-export const MESSAGES: Record<UiLocale, Messages> = { en, fr, es, pt, ar };
+export const MESSAGES: Record<UiLocale, Messages> = { en, fr, es, pt, ar, he };
 
 function lookup(catalogue: unknown, key: string): string | undefined {
   let node: unknown = catalogue;

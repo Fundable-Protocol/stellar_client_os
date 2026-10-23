@@ -2,6 +2,7 @@
 
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/i18n/I18nProvider";
 import type { WizardStepDefinition } from "./wizard-config";
 
 interface WizardStepperProps {
@@ -17,18 +18,19 @@ export function WizardStepper({
   onStepSelect,
   disabled = false,
 }: WizardStepperProps) {
+  const { t } = useTranslation();
   const progressPercent =
     steps.length > 1 ? (currentIndex / (steps.length - 1)) * 100 : 100;
 
   return (
-    <nav aria-label="Stream creation progress" className="w-full">
+    <nav aria-label={t("campaign.stepper.streamAriaLabel")} className="w-full">
       <ol className="relative flex items-start justify-between gap-2">
         <div
           aria-hidden="true"
-          className="absolute left-0 right-0 top-4 hidden h-0.5 bg-zinc-700 sm:block"
+          className="absolute inset-x-0 top-4 hidden h-0.5 bg-zinc-700 sm:block"
         >
           <div
-            className="h-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-500 ease-out"
+            className="h-full bg-gradient-to-r rtl:bg-gradient-to-l from-purple-500 to-blue-500 transition-all duration-500 ease-out"
             style={{ width: `${progressPercent}%` }}
           />
         </div>
@@ -48,7 +50,7 @@ export function WizardStepper({
                 onClick={() => onStepSelect(index)}
                 disabled={!isNavigable}
                 aria-current={isCurrent ? "step" : undefined}
-                aria-label={`Step ${index + 1}: ${step.title}`}
+                aria-label={t("campaign.stepper.stepAriaLabel", { number: index + 1, title: step.title })}
                 className={cn(
                   "flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold transition-all",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900",

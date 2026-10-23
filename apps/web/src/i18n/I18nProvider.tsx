@@ -5,6 +5,7 @@ import {
   DEFAULT_UI_LOCALE,
   getTextDirection,
   UI_LOCALE_COOKIE,
+  uiIntlLocale,
   type TextDirection,
   type UiLocale,
 } from "./config";
@@ -57,7 +58,7 @@ export function I18nProvider({
   }, []);
 
   const value = useMemo<I18nContextValue>(() => {
-    const numberLocale = locale === "ar" ? "ar-EG" : locale;
+    const numberLocale = uiIntlLocale(locale);
     return {
       locale,
       dir: getTextDirection(locale),
@@ -75,7 +76,7 @@ const fallbackValue: I18nContextValue = {
   dir: "ltr",
   setLocale: () => {},
   t: createTranslator(DEFAULT_UI_LOCALE),
-  formatNumber: (n, options) => new Intl.NumberFormat(DEFAULT_UI_LOCALE, options).format(n),
+  formatNumber: (n, options) => new Intl.NumberFormat(uiIntlLocale(DEFAULT_UI_LOCALE), options).format(n),
 };
 
 /**
