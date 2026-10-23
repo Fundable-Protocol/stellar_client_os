@@ -27,6 +27,7 @@ members = [
     "sponsor-insurance",
     "campaign-diversity",
     "tax-deduction-certificate",
+    "quadratic-funding",
 ]
 
 [workspace.package]
