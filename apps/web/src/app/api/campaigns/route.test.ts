@@ -23,6 +23,7 @@ describe("campaign collection localization", () => {
       creator: "creator-1",
       name: "Coastal forest",
       description: "Restore coastal forests",
+      risksAndChallenges: "Seasonal flooding may delay planting; local partners have backup sites and schedules.",
       language: "en",
       goalAmount: "1000",
       localizedContent: { pt: { title: "Floresta costeira", description: "Restaurar florestas costeiras" } },
@@ -60,6 +61,7 @@ describe("campaign collection localization", () => {
       creator: "creator",
       name: "Campaign",
       goalAmount: "100",
+      risksAndChallenges: "Seasonal flooding may delay planting; local partners have backup sites and schedules.",
       autoTranslate: true,
     }));
     expect(autoTranslate.status).toBe(501);
@@ -77,6 +79,7 @@ describe("campaign collection localization", () => {
       creator: "creator-fraud-test",
       name: "Guaranteed 100% returns crypto campaign",
       description: "guaranteed 100% returns on timber investments",
+      risksAndChallenges: "Seasonal flooding may delay planting; local partners have backup sites and schedules.",
       goalAmount: "1000",
     }));
     expect(response.status).toBe(201);

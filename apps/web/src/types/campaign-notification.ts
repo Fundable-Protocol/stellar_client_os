@@ -2,7 +2,10 @@ export type CampaignMilestoneType =
   | 'trees_planted'
   | 'verification_complete'
   | 'campaign_finished'
-  | 'impact_achieved';
+  | 'impact_achieved'
+  | 'campaign_update';
+
+export type CampaignPushEventType = CampaignMilestoneType;
 
 export interface PushSubscriptionKeys {
   p256dh: string;
@@ -16,9 +19,10 @@ export interface CampaignPushSubscription {
   subscriberAddress: string;
   campaignId: string; // specific campaign ID or '*' for all sponsored campaigns
   endpoint: string;
-  keys: PushSubscriptionKeys;
+  keys?: PushSubscriptionKeys;
   deviceType: DeviceType;
   enabledMilestones: CampaignMilestoneType[];
+  enabledEvents?: CampaignPushEventType[];
   createdAt: string;
   updatedAt: string;
 }

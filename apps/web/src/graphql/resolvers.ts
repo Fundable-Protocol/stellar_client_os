@@ -14,6 +14,9 @@ import {
   getCampaignAnalyticsDashboardExport,
 } from "@/services/campaign-analytics-dashboard.service";
 import { getGrantProgramService } from "@/services/grant-program.service";
+import { getCampaignDisputeService } from "@/services/campaign-dispute.service";
+import { evaluateImpactMetric } from "@/services/campaign-impact-metric.service";
+import { getCampaignEscrowService } from "@/services/campaign-escrow.service";
 import type {
   RegionFilter,
   CategoryFilter,
@@ -401,6 +404,28 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
           allocatedAt: Math.floor(allocation.allocatedAt / 1000),
         }));
       },
+
+      campaignDisputes: async (
+        _: unknown,
+        args: { campaignId: string; status?: string },
+      ) => {
+        return getCampaignDisputeService().listDisputes(args.campaignId, { status: args.status });
+      },
+
+      dispute: async (
+        _: unknown,
+        args: { id: string },
+      ) => {
+        return getCampaignDisputeService().getDispute(args.id);
+      },
+    },
+    Campaign: {
+      impactMetric: async (
+        parent: { id: string; totalAmount?: string | number | bigint },
+      ) => {
+        const raisedAmount = toBigInt(String(parent.totalAmount ?? "0"));
+        return evaluateImpactMetric(parent.id, raisedAmount);
+      },
     },
     Mutation: {
       cloneCampaign: async (
@@ -443,6 +468,55 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
           totalAmount: args.input.goalAmount ?? campaign.totalAmount,
           endTime: args.input.deadline ?? campaign.endTime,
         };
+      },
+
+      fileDispute: async (
+        _: unknown,
+        args: {
+          input: {
+            campaignId: string;
+            backerAddress: string;
+            reason: string;
+            details?: string;
+          };
+        },
+      ) => {
+        return getCampaignDisputeService().fileDispute(args.input);
+      },
+
+      respondToDispute: async (
+        _: unknown,
+        args: { id: string; response: string },
+      ) => {
+        return getCampaignDisputeService().respondToDispute(args.id, args.response);
+      },
+
+      resolveDispute: async (
+        _: unknown,
+        args: {
+          id: string;
+          resolution: "PARTIAL_REFUND" | "FULL_REFUND" | "REJECTED";
+          refundAmount?: string;
+          mediatorNote?: string;
+        },
+      ) => {
+        const disputeService = getCampaignDisputeService();
+        const dispute = await disputeService.resolveDispute(args.id, {
+          resolution: args.resolution,
+          refundAmount: args.refundAmount,
+          mediatorNote: args.mediatorNote,
+        });
+
+        if (args.resolution === "PARTIAL_REFUND" || args.resolution === "FULL_REFUND") {
+          await getCampaignEscrowService().refundFromDispute({
+            campaignId: dispute.campaignId,
+            disputeId: dispute.id,
+            amount: args.refundAmount,
+            resolution: args.resolution,
+          });
+        }
+
+        return dispute;
       },
     },
   };

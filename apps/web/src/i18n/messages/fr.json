@@ -41,6 +41,12 @@
     "select": "Choisir la langue",
     "current": "Langue actuelle : {language}"
   },
+  "theme": {
+    "label": "Thème de couleur",
+    "system": "Système",
+    "light": "Clair",
+    "dark": "Sombre"
+  },
   "settings": {
     "title": "Paramètres",
     "sections": "Sections des paramètres",

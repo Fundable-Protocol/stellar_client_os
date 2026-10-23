@@ -37,6 +37,21 @@ duplicates. `bindSyncOnReconnect` subscribes to a `ConnectivityMonitor` and
 flushes the queue on an offline → online transition only; failed operations stay
 queued for the next attempt.
 
+## Campaign push notifications
+
+Mount the authenticated `CampaignDetailScreen` with the connected backer's
+Stellar address in `subscriberAddress`. The first screen visit requests OS
+notification permission if it has not already been decided, obtains the Expo
+push token, and registers it with the web app's `/api/mobile/push/subscribe`
+endpoint. The backend delivers campaign milestones, creator updates, and
+completion notifications through Expo's push service. Notification taps open
+the campaign using the configured `fundable://campaigns/:id` or
+`https://fundable.stellar/campaigns/:id` deep link.
+
+Backers can choose event types in **Settings → Notifications** after the mobile
+device has registered its token. Native app builds must include the Expo
+Notifications module and configure an Expo project ID for token registration.
+
 ## Wiring it into an app
 
 ### 1. Storage

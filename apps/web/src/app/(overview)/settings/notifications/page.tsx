@@ -1,6 +1,7 @@
 "use client";
 
 import { BackerDigestPreferenceToggle } from "@/components/modules/settings/BackerDigestPreferenceToggle";
+import { MobilePushPreferenceSettings } from "@/components/modules/settings/MobilePushPreferenceSettings";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { useTranslation } from "@/i18n/I18nProvider";
 
@@ -18,6 +19,7 @@ export default function NotificationSettingsPage() {
           </p>
         </header>
         <BackerDigestPreferenceToggle backerId={address ?? undefined} />
+        <MobilePushPreferenceSettings subscriberAddress={address ?? undefined} />
       </div>
     </main>
   );

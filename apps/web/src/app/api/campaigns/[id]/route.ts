@@ -1,4 +1,5 @@
 import { getCampaign, transitionCampaignStatus } from "../../../../services/campaign.service";
+import { CampaignPushNotificationService } from "@/services/campaign-push-notification.service";
 import {
   detectLanguage,
   hasOnlySupportedTranslationLocales,
@@ -16,6 +17,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store, max-age=0" };
+const mobilePushService = new CampaignPushNotificationService();
 function noStore<T>(body: T, init?: ResponseInit): Response {
   return Response.json(body, { ...init, headers: { ...NO_STORE_HEADERS, ...(init?.headers ?? {}) } });
 }
@@ -62,6 +64,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       reason?: string;
       name?: string;
       description?: string;
+      risksAndChallenges?: string;
       pledgeThankYouGreeting?: string;
       pledgeThankYouBody?: string;
       language?: string;
@@ -124,6 +127,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.location !== undefined && typeof body.location !== "string") {
       return noStore({ error: "location must be a string" }, { status: 400 });
     }
+    if (body.risksAndChallenges !== undefined && (
+      typeof body.risksAndChallenges !== "string" ||
+      body.risksAndChallenges.trim().length < 20 ||
+      body.risksAndChallenges.length > 10000
+    )) {
+      return noStore(
+        { error: "risksAndChallenges must contain at least 20 characters and no more than 10,000 characters" },
+        { status: 400 },
+      );
+    }
     if (body.pledgeThankYouGreeting !== undefined && (typeof body.pledgeThankYouGreeting !== "string" || body.pledgeThankYouGreeting.length > 240)) {
       return noStore({ error: "pledgeThankYouGreeting must be 240 characters or fewer" }, { status: 400 });
     }
@@ -177,7 +190,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
       updated = await transitionCampaignStatus(campaign, body.status, body.changedBy, body.reason);
     }
-    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined || body.speciesCount !== undefined || body.pledgeThankYouGreeting !== undefined || body.pledgeThankYouBody !== undefined || body.comingSoon !== undefined || body.comingSoonTeaser !== undefined) {
+    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined || body.speciesCount !== undefined || body.countries !== undefined || body.location !== undefined || body.pledgeThankYouGreeting !== undefined || body.pledgeThankYouBody !== undefined || body.comingSoon !== undefined || body.comingSoonTeaser !== undefined) {
       const language = body.language ? normalizeTranslationLocale(body.language)! : updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
       const translations = { ...updated.translations, ...body.translations };
       const description = body.description ?? updated.description ?? "";
@@ -203,6 +216,62 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         comingSoonTeaser: body.comingSoonTeaser ?? updated.comingSoonTeaser,
         updatedAt: Date.now(),
       });
+    }
+    if (body.risksAndChallenges !== undefined) {
+      updated = await (await import("@/services/campaign.service")).getCampaignDataSource().saveCampaign({
+        ...updated,
+        risksAndChallenges: body.risksAndChallenges.trim(),
+        updatedAt: Date.now(),
+      });
+    }
+    const updateFields = [
+      "name",
+      "description",
+      "language",
+      "translations",
+      "localizedContent",
+      "treeCount",
+      "co2Sequestration",
+      "speciesCount",
+      "pledgeThankYouGreeting",
+      "pledgeThankYouBody",
+      "comingSoon",
+      "comingSoonTeaser",
+      "countries",
+      "location",
+    ] as const;
+    if (updateFields.some((field) => body[field] !== undefined)) {
+      const pushResult = await mobilePushService.sendCampaignUpdateNotification({
+        campaignId: id,
+        campaignTitle: updated.name,
+        details: {
+          summary: `${updated.name} has posted a new campaign update.`,
+        },
+      });
+      if (pushResult.errors > 0) {
+        console.error("Some mobile campaign update notifications failed.", {
+          campaignId: id,
+          errors: pushResult.errors,
+        });
+      }
+    }
+    if (
+      campaign.status !== updated.status &&
+      (updated.status === "COMPLETED" || updated.status === "FAILED")
+    ) {
+      const pushResult = await mobilePushService.sendMilestonePushNotification({
+        campaignId: id,
+        campaignTitle: updated.name,
+        milestone: "campaign_finished",
+        details: {},
+        deepLinkUrl: `https://fundable.stellar/campaigns/${encodeURIComponent(id)}`,
+      });
+      if (pushResult.errors > 0) {
+        console.error("Some mobile campaign completion notifications failed.", {
+          campaignId: id,
+          errors: pushResult.errors,
+        });
+      }
     }
     return noStore(updated);
   } catch (error) {

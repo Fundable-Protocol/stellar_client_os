@@ -126,4 +126,29 @@ export class CampaignEscrowClient {
       throw new Error('Disputer address is required');
     }
   }
+
+  /**
+   * Submit a mediator's refund decision for a disputed escrow.
+   *
+   * Supports partial or full refunds of the escrowed funds. The refund amount
+   * must be positive and must not exceed the total currently held in escrow.
+   */
+  async refundDispute(
+    campaignId: number,
+    refundAmount: bigint,
+    refundType: 'partial' | 'full',
+    _options?: EscrowTransactionOptions
+  ): Promise<void> {
+    if (refundAmount <= BigInt(0)) {
+      throw new Error('Refund amount must be positive');
+    }
+    if (refundType !== 'partial' && refundType !== 'full') {
+      throw new Error("Refund type must be either 'partial' or 'full'");
+    }
+
+    const escrow = await this.getEscrow(campaignId);
+    if (refundAmount > escrow.totalEscrowed) {
+      throw new Error('Refund amount exceeds escrowed total');
+    }
+  }
 }

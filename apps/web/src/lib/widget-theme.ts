@@ -50,6 +50,16 @@ export const WIDGET_THEMES: Record<WidgetTheme, WidgetThemeTokens> = {
 
 export const DEFAULT_WIDGET_THEME: WidgetTheme = "light";
 
+export interface WidgetColors {
+  accentColor?: string;
+  backgroundColor?: string;
+}
+
+export function resolveWidgetColor(value: string | null | undefined, fallback: string): string {
+  const normalized = value?.startsWith("#") ? value : `#${value ?? ""}`;
+  return /^#[0-9a-f]{6}$/i.test(normalized) ? normalized : fallback;
+}
+
 export function resolveWidgetTheme(value: string | string[] | undefined): WidgetTheme {
   const raw = Array.isArray(value) ? value[0] : value;
   if (raw === "light" || raw === "dark" || raw === "forest") return raw;
@@ -65,7 +75,7 @@ export function progressPercent(campaign: CampaignRecord): number {
   return Math.max(0, Math.min(pct, 100));
 }
 
-export const WIDGET_IFRAME_MIN_HEIGHT = 360;
+export const WIDGET_IFRAME_MIN_HEIGHT = 390;
 
 /**
  * Embed URL for a campaign's impact widget — served by the route handler at
@@ -75,9 +85,13 @@ export function widgetIframeSrc(
   campaignId: string,
   baseUrl: string,
   theme: WidgetTheme = DEFAULT_WIDGET_THEME,
+  colors: WidgetColors = {},
 ): string {
   const base = baseUrl.replace(/\/+$/, "");
-  return `${base}/api/campaigns/${encodeURIComponent(campaignId)}/widget?theme=${theme}`;
+  const params = new URLSearchParams({ theme });
+  if (colors.accentColor) params.set("color", colors.accentColor);
+  if (colors.backgroundColor) params.set("background", colors.backgroundColor);
+  return `${base}/api/campaigns/${encodeURIComponent(campaignId)}/widget?${params}`;
 }
 
 /** The copy-paste <iframe> snippet campaign owners embed on their sites. */
@@ -85,7 +99,8 @@ export function buildEmbedSnippet(
   campaignId: string,
   baseUrl: string,
   theme: WidgetTheme = DEFAULT_WIDGET_THEME,
+  colors: WidgetColors = {},
 ): string {
-  const src = widgetIframeSrc(campaignId, baseUrl, theme);
+  const src = widgetIframeSrc(campaignId, baseUrl, theme, colors);
   return `<iframe src="${src}" width="100%" height="${WIDGET_IFRAME_MIN_HEIGHT}" frameborder="0" loading="lazy" title="Fundable campaign impact"></iframe>`;
 }

@@ -41,6 +41,12 @@
     "select": "Seleccionar idioma",
     "current": "Idioma actual: {language}"
   },
+  "theme": {
+    "label": "Tema de color",
+    "system": "Sistema",
+    "light": "Claro",
+    "dark": "Oscuro"
+  },
   "settings": {
     "title": "Ajustes",
     "sections": "Secciones de ajustes",

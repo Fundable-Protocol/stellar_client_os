@@ -4,6 +4,11 @@ import React, { useState } from 'react';
 import { QrCode, Edit3, Check } from 'lucide-react';
 import { CampaignQRCodeModal } from './CampaignQRCodeModal';
 
+export interface CampaignImpactCard {
+  svg: string;
+  fileName: string;
+}
+
 export interface CampaignShareButtonsProps {
   campaignId: string;
   campaignName: string;
@@ -40,6 +45,35 @@ export function buildCampaignShareLinks(props: CampaignShareButtonsProps) {
     whatsapp: `https://wa.me/?${new URLSearchParams({ text: `${message} ${url}` }).toString()}`,
     linkedin: `https://www.linkedin.com/sharing/share-offsite/?${new URLSearchParams({ url }).toString()}`,
   };
+}
+
+async function svgToPngBlob(svg: string): Promise<Blob> {
+  const svgBlob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(svgBlob);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('Failed to load impact card SVG'));
+      img.src = objectUrl;
+    });
+    const width = image.naturalWidth || 1200;
+    const height = image.naturalHeight || 630;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas 2D context unavailable');
+    ctx.drawImage(image, 0, 0, width, height);
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Failed to render impact card PNG'));
+      }, 'image/png');
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 export default function CampaignShareButtons(props: CampaignShareButtonsProps) {

@@ -204,6 +204,8 @@ export interface CampaignRecord {
   pledgeThankYouNextSteps?: string;
   name: string;
   description?: string;
+  /** Creator-authored risks, uncertainties, and mitigation plans. */
+  risksAndChallenges?: string;
   /** Detected ISO 639-1 language code of the campaign description. */
   language?: string;
   /** Machine translations of the description keyed by ISO 639-1 language code. */
@@ -896,6 +898,7 @@ export async function createCampaign(input: {
   pledgeThankYouBody?: string;
   name: string;
   description?: string;
+  risksAndChallenges?: string;
   language?: string;
   translations?: Record<string, string>;
   localizedContent?: Record<string, CampaignLocalizedContent>;
@@ -943,6 +946,7 @@ export async function createCampaign(input: {
     pledgeThankYouBody: input.pledgeThankYouBody,
     name: input.name,
     description: input.description,
+    risksAndChallenges: input.risksAndChallenges,
     language: input.language ?? detectCampaignLanguage(input.description),
     translations: input.translations ?? {},
     localizedContent: input.localizedContent ?? {},

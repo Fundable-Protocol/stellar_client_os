@@ -21,6 +21,7 @@ import {
   Coins,
   Bell,
   Camera,
+  Package,
   Megaphone,
   Award,
 } from "lucide-react";
@@ -59,6 +60,7 @@ import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
 import { CampaignWaitlist } from "@/components/modules/campaign/waitlist/CampaignWaitlist";
 import { CampaignUpdateFeed } from "@/components/modules/campaign/updates/CampaignUpdateFeed";
 import { AmbassadorDashboard } from "@/components/modules/campaign/ambassadors/AmbassadorDashboard";
+import { RewardFulfillmentPanel } from "@/components/modules/campaign/fulfillment/RewardFulfillmentPanel";
 import { CampaignLiveStreamSection } from "@/components/modules/campaign/live-stream/CampaignLiveStreamSection";
 
 const translations = {
@@ -795,7 +797,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       {/* Main Content Tabs (Overview, Sponsor Wall #724, Top Backers, Co-Creators #722) */}
       {/* Backer community spaces (#788) render inside the overview sidebar. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-        <TabsList aria-label="Campaign navigation tabs" className="grid w-full grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 md:grid-cols-4 xl:grid-cols-10">
+        <TabsList aria-label="Campaign navigation tabs" className="grid w-full grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-10">
           <TabsTrigger value="overview" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Target className="mr-1.5 h-4 w-4" /> Overview & Story
           </TabsTrigger>
@@ -807,6 +809,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           </TabsTrigger>
           <TabsTrigger value="backers" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Crown className="mr-1.5 h-4 w-4 text-amber-400" /> Top Backers
+          </TabsTrigger>
+          <TabsTrigger value="fulfillment" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <Package className="mr-1.5 h-4 w-4 text-purple-400" /> Reward Fulfillment
           </TabsTrigger>
           <TabsTrigger value="collaboration" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Users className="mr-1.5 h-4 w-4 text-purple-400" /> Co-Creators (#722)
@@ -964,6 +969,17 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             creatorAddress={campaign.creator}
             viewerAddress={viewerAddress}
             limit={TOP_BACKERS_LIMIT}
+          />
+        </TabsContent>
+
+        {/* Tab: Creator Reward Fulfillment (#1275) */}
+        <TabsContent value="fulfillment">
+          <RewardFulfillmentPanel
+            campaignId={campaign.id}
+            campaignTitle={campaign.title}
+            creatorAddress={campaign.creator}
+            viewerAddress={viewerAddress}
+            isCreator={isCreatorView}
           />
         </TabsContent>
 

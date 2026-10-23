@@ -115,7 +115,79 @@ import "tw-animate-css";
 }
 
 body {
-  background-color: black;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+html {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] [class*="bg-black"],
+html[data-theme="light"] [class*="bg-zinc-8"],
+html[data-theme="light"] [class*="bg-zinc-9"],
+html[data-theme="light"] [class*="bg-neutral-8"],
+html[data-theme="light"] [class*="bg-neutral-9"],
+html[data-theme="light"] [class*="bg-neutral-7"],
+html[data-theme="light"] [class*="bg-gray-8"],
+html[data-theme="light"] [class*="bg-gray-9"],
+html[data-theme="light"] [class*="bg-gray-7"],
+html[data-theme="light"] [class*="bg-slate-8"],
+html[data-theme="light"] [class*="bg-slate-9"],
+html[data-theme="light"] [class*="bg-slate-7"],
+html[data-theme="light"] [class*="bg-zinc-7"],
+html[data-theme="light"] [class*="bg-gray-700"],
+html[data-theme="light"] [class*="bg-slate-700"],
+html[data-theme="light"] [class*="bg-zinc-700"],
+html[data-theme="light"] [class*="bg-[#0d0019]"],
+html[data-theme="light"] [class*="bg-[#0f172a]"],
+html[data-theme="light"] [class*="bg-[#111827]"],
+html[data-theme="light"] [class*="bg-[#020617]"],
+html[data-theme="light"] [class*="bg-[#09090b]"],
+html[data-theme="light"] [class*="bg-[#151617]"],
+html[data-theme="light"] [class*="bg-[#18181b]"],
+html[data-theme="light"] [class*="bg-[#1a1a1a]"],
+html[data-theme="light"] [class*="bg-[#1e1e1e]"],
+html[data-theme="light"] [class*="bg-[#1f2937]"],
+html[data-theme="light"] [class*="bg-[#27272a]"],
+html[data-theme="light"] [class*="bg-fundable-dark"],
+html[data-theme="light"] [class*="bg-fundable-mid-dark"] {
+  background-color: var(--card) !important;
+}
+
+html[data-theme="light"] [class*="text-white"],
+html[data-theme="light"] [class*="text-zinc-1"],
+html[data-theme="light"] [class*="text-zinc-2"],
+html[data-theme="light"] [class*="text-zinc-3"],
+html[data-theme="light"] [class*="text-neutral-1"],
+html[data-theme="light"] [class*="text-neutral-2"],
+html[data-theme="light"] [class*="text-neutral-3"],
+html[data-theme="light"] [class*="text-gray-1"],
+html[data-theme="light"] [class*="text-gray-2"],
+html[data-theme="light"] [class*="text-gray-3"],
+html[data-theme="light"] [class*="text-slate-1"],
+html[data-theme="light"] [class*="text-slate-2"],
+html[data-theme="light"] [class*="text-slate-3"] {
+  color: var(--foreground) !important;
+}
+
+html[data-theme="light"] [class*="text-zinc-4"],
+html[data-theme="light"] [class*="text-neutral-4"],
+html[data-theme="light"] [class*="text-gray-4"],
+html[data-theme="light"] [class*="text-slate-4"] {
+  color: var(--muted-foreground) !important;
+}
+
+html[data-theme="light"] [class*="border-white"],
+html[data-theme="light"] [class*="border-zinc-8"],
+html[data-theme="light"] [class*="border-neutral-8"],
+html[data-theme="light"] [class*="border-gray-8"],
+html[data-theme="light"] [class*="border-slate-8"] {
+  border-color: var(--border) !important;
 }
 
 html[data-campaign-high-contrast="true"] .campaign-accessible {
