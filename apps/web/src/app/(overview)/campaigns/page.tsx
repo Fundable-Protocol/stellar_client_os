@@ -23,6 +23,7 @@ import {
   type DiscoveryRegion,
   type DiscoveryTreeSpecies,
 } from "@/lib/campaign-discovery-filters";
+import { DISCOVERY_STAGES, DISCOVERY_FUNDING_MODELS, DISCOVERY_CURRENCIES, DISCOVERY_TIME_WINDOWS } from "@/lib/campaign-discovery-filters";
 
 // ---------------------------------------------------------------------------
 // Virtual row height constants
@@ -39,7 +40,7 @@ const OVERSCAN_COUNT = 3;
 const getCampaignKey = (campaign: { id: string }): string => campaign.id;
 
 export default function CampaignsDirectoryPage() {
-const { campaigns } = useCampaigns();
+  const { campaigns } = useCampaigns();
   const { toggleWishlist, isInWishlist } = useCampaignWishlist();
   const [treeSpecies, setTreeSpecies] = useState<DiscoveryTreeSpecies | "All">("All");
   const [region, setRegion] = useState<DiscoveryRegion | "All">("All");
@@ -97,17 +98,12 @@ const { campaigns } = useCampaigns();
         <div className="flex flex-wrap items-center gap-2">
           <CampaignAccessibilityControls />
           <Link href="/campaigns/create">
-            <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover-from-purple-700 hover-to-blue-700 shadow-lg shadow-purple-900/30">
+            <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover:from-purple-700 hover:to-blue-700 shadow-lg shadow-purple-900/30">
               <Plus className="mr-2 h-4 w-4" /> Create Campaign Wizard (#720)
             </Button>
           </Link>
         </div>
-<div className="flex flex-wrap items-center gap-2">
-        <Link href="/campaigns/create">
-          <Button className="bg-gradient-to-r from-purple-600 to-blue-600 font-semibold text-white hover:from-purple-700 hover:to-blue-700 shadow-lg shadow-purple-900/30">
-            <Plus className="mr-2 h-4 w-4" /> Create Campaign Wizard (#720)
-          </Button>
-        </Link>
+
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/campaigns/compare">
             <Button variant="outline" className="border-purple-800 bg-purple-950/40 text-purple-300 hover:bg-purple-900/60 font-semibold text-xs">
@@ -152,7 +148,6 @@ const { campaigns } = useCampaigns();
           </Link>
         </div>
       </div>
-      </div>
 
       {/* Staff Picks Section curated by editorial team */}
       <StaffPicksSection />
@@ -162,7 +157,7 @@ const { campaigns } = useCampaigns();
 
       <CampaignSearchPanel />
 
-{/* Filter panel */}
+      {/* Filter panel */}
       <section aria-label="Filter campaigns" className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
         <div className="mb-3">
           <h2 className="text-sm font-semibold text-zinc-100">Find campaigns by impact</h2>
@@ -236,151 +231,11 @@ const { campaigns } = useCampaigns();
               }}
               className="rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-purple-500"
             >
-              {availableTags.map((tag) => (
-                <option key={tag} value={tag}>{tag}</option>
-              ))}
+              {availableTags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
             </select>
           </label>
-          {selectedTags.length > 0 && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {selectedTags.map((tag) => (
-                <Badge key={tag} className="bg-purple-950/60 text-purple-300 border-purple-800 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => toggleTag(tag)}
-                    aria-label={`Remove tag filter ${tag}`}
-                    className="mr-1 text-purple-300 hover:text-purple-100"
-                  >
-                    ×
-                  </button>
-                  {tag}
-                </Badge>
-              ))}
-            </div>
-          )}
         </div>
       </section>
-
-      {/* Campaign list — virtualised for 10k+ items */}
-      {filteredCampaigns.length > 0 ? (
-        /*
-         * Outer container: fixed-height scrollable window.
-         * We cap the visible height at 80 vh so the virtualiser has a finite
-         * scroll viewport.  For smaller lists the container shrinks to fit.
-         */
-        <VirtualizedCampaignGrid
-          items={filteredCampaigns}
-          getItemKey={getCampaignKey}
-          minColumnWidth={340}
-          maxColumns={2}
-          initialColumns={2}
-          gap={24}
-          estimateRowHeight={CARD_ESTIMATED_HEIGHT_PX}
-          overscan={OVERSCAN_COUNT}
-          maxHeight="80vh"
-          ariaLabel="Campaign list"
-          renderItem={(c) => {
-            const progress = Math.round(
-              (parseFloat(String(c.raisedAmount).replace(/,/g, "")) /
-                parseFloat(String(c.goalAmount).replace(/,/g, ""))) *
-                100,
-            ) || 0;
-            const wished = isInWishlist(c.id);
-
-            return (
-              <div className="group flex flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-xl transition-all duration-300 hover:border-purple-500/50 hover:shadow-2xl relative">
-                          <div className="absolute top-4 right-4 z-10">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => toggleWishlist(c.id)}
-                              aria-label={wished ? `Remove ${c.title} from wishlist` : `Add ${c.title} to wishlist`}
-                              aria-pressed={wished}
-                              className={`rounded-full h-8 w-8 hover:bg-rose-500/20 ${wished ? "text-rose-500 bg-rose-500/10" : "text-zinc-500 hover:text-rose-400"}`}
-                            >
-                              <Heart className={`h-4 w-4 ${wished ? "fill-rose-500" : ""}`} />
-                            </Button>
-                          </div>
-
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between pr-10">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <Badge className="bg-purple-950/60 text-purple-300 border-purple-800 text-[11px]">
-                                  {c.category}
-                                </Badge>
-                                {c.isStaffPick && <StaffPickBadge reason={c.staffPickReason} size="sm" />}
-                                <LiveStreamBadge status={c.streamStatus} />
-                              </div>
-                              <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 text-[10px] whitespace-nowrap ml-2">
-                                <ShieldCheck className="mr-1 h-3 w-3 inline" /> {c.status}
-                              </Badge>
-                            </div>
-
-                            <h3 className="text-xl font-bold text-zinc-100 group-hover:text-purple-300 transition-colors">
-                              {c.title}
-                            </h3>
-                            <CharityBadge badge={c.charityBadge} />
-                            <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{c.description}</p>
-                          </div>
-
-                          <div className="mt-6 space-y-4 pt-4 border-t border-zinc-800">
-                            <div className="flex items-baseline justify-between text-xs">
-                              <span className="text-zinc-400">
-                                Raised: <strong className="text-zinc-100 font-bold">{c.raisedAmount} {c.token}</strong>
-                              </span>
-                              <span className="text-emerald-400 font-bold">{progress}% Goal</span>
-                            </div>
-
-                            {/* Progress bar */}
-                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-label={`${progress}% funded`}>
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-purple-500 to-emerald-400"
-                                style={{ width: `${progress}%` }}
-                              />
-                            </div>
-
-<div className="flex items-center justify-between text-xs pt-1">
-                              <div className="flex items-center gap-3 text-zinc-400 text-[11px]">
-                                <span className="flex items-center gap-1">
-                                  <Heart className="h-3.5 w-3.5 text-rose-400 fill-rose-400/20" />
-                                  {c.sponsorCount} Sponsors
-                                </span>
-                                <span className="flex items-center gap-1">
-                                  <Users className="h-3.5 w-3.5 text-purple-400" />
-                                  {c.collaboratorCount} Co-Creators
-                                </span>
-                              </div>
-
-                              <Link href={`/campaigns/${c.id}`}>
-                                <Button size="sm" variant="ghost" className="text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-950/40">
-                                  View Campaign <ChevronRight className="ml-1 h-3.5 w-3.5" />
-                                </Button>
-                              </Link>
-                            </div>
-                          </div>
-              </div>
-            );
-          }}
-        />
-      ) : (
-        <div className="rounded-xl border border-dashed border-zinc-700 px-6 py-12 text-center">
-          <Trees className="mx-auto h-8 w-8 text-zinc-500" />
-          <h2 className="mt-3 text-lg font-semibold text-zinc-100">No campaigns match these filters</h2>
-          <p className="mt-1 text-sm text-zinc-400">Try another species or region, or show all campaigns.</p>
-          <Button
-            variant="outline"
-            className="mt-4 border-zinc-700 text-zinc-200"
-            onClick={() => {
-              setTreeSpecies("All");
-              setRegion("All");
-              setSelectedCategories([]);
-              setSelectedTags([]);
-            }}
-          >
-            Clear filters
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

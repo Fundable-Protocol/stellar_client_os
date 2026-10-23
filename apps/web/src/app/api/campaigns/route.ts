@@ -17,6 +17,7 @@ import { withCampaignApiRateLimit } from "@/middlewares/rate-limit.middleware";
 import { UNDERREPRESENTED_CRITERIA } from "@/services/grant-program.service";
 import { getLiveStreamStatusForCampaigns } from "@/services/stream-status.service";
 import type { LiveStreamStatus } from "@/lib/live-stream";
+import { hybridCampaignSearch, parseSearchFilters } from "@/services/campaign-search.service";
 
 export const runtime = "nodejs";
 
@@ -37,12 +38,35 @@ async function getCampaigns(request: Request) {
   const includeStreamStatus = url.searchParams.get("includeStreamStatus") === "true";
   const limit = Number(url.searchParams.get("limit") ?? 20);
   const offset = Number(url.searchParams.get("offset") ?? 0);
+  const network = (url.searchParams.get("network") as "testnet" | "mainnet" | null) ?? undefined;
+  const safeLimit = Number.isFinite(limit) ? limit : 20;
+  const safeOffset = Number.isFinite(offset) ? offset : 0;
+
+  // Semantic / hybrid search (issue: vector embeddings + tag filters).
+  // Activated when a free-text query is supplied; combines keyword match with
+  // embedding similarity and applies interactive facet filters.
+  const semanticMode = url.searchParams.get("mode") === "semantic" || (!!search && url.searchParams.get("mode") !== "keyword");
+  if (semanticMode && search) {
+    const filters = parseSearchFilters(url.searchParams);
+    const results = await hybridCampaignSearch({
+      query: search,
+      filters,
+      limit: safeLimit,
+      offset: safeOffset,
+      network,
+    });
+    const localized = requestedLanguage
+      ? results.map((campaign) => localizeCampaign(campaign, requestedLanguage))
+      : results;
+    return Response.json({ data: localized, pagination: { limit: safeLimit, offset: safeOffset, count: localized.length }, search: { mode: "hybrid", query: search } });
+  }
+
   const campaigns = await queryCampaigns({
     filter: { status: status || undefined, creator, search, isStaffPick },
     sort: { field: (url.searchParams.get("sort") as never) || "createdAt", direction: url.searchParams.get("direction") === "asc" ? "ASC" : "DESC" },
-    limit: Number.isFinite(limit) ? limit : 20,
-    offset: Number.isFinite(offset) ? offset : 0,
-    network: (url.searchParams.get("network") as "testnet" | "mainnet" | null) ?? undefined,
+    limit: safeLimit,
+    offset: safeOffset,
+    network,
   });
   const responseCampaigns = requestedLanguage
     ? campaigns.map((campaign) => localizeCampaign(campaign, requestedLanguage))
@@ -63,7 +87,7 @@ async function getCampaigns(request: Request) {
     });
   }
   if (includeStats && creator) {
-const totalTrees = displayCampaigns.reduce((sum, campaign) => sum + (Number(campaign.treesPlanted) || 0), 0);
+    const totalTrees = displayCampaigns.reduce((sum, campaign) => sum + (Number(campaign.treesPlanted) || 0), 0);
     const totalSponsors = displayCampaigns.reduce((sum, campaign) => sum + (Number(campaign.sponsorCount) || 0), 0);
     const totalCo2 = displayCampaigns.reduce((sum, campaign) => sum + (Number(campaign.co2Sequestered) || 0), 0);
     const diverseCampaigns = displayCampaigns.filter((campaign) => campaign.geographicDiversity?.bonusApplied).length;
@@ -220,195 +244,18 @@ async function postCampaign(request: Request) {
       const partner = body.nonprofitPartner;
       if (
         !partner ||
-        typeof partner.legalName !== "string" || !partner.legalName.trim() ||
-        typeof partner.registrationNumber !== "string" || !partner.registrationNumber.trim() ||
-        typeof partner.country !== "string" || !partner.country.trim()
+        typeof partner.legalName !== "string"
       ) {
-        return Response.json(
-          { error: "nonprofitPartner must include legalName, registrationNumber, and country" },
-          { status: 400 },
-        );
+        return Response.json({ error: "nonprofitPartner.legalName must be a string" }, { status: 400 });
       }
       nonprofitPartner = {
-        legalName: partner.legalName.trim(),
-        registrationNumber: partner.registrationNumber.trim(),
-        country: partner.country.trim(),
+        legalName: partner.legalName,
+        registrationNumber: String(partner.registrationNumber ?? ""),
+        country: String(partner.country ?? ""),
       };
     }
-    if (body.deadline !== undefined && !Number.isFinite(body.deadline)) {
-      return Response.json({ error: "deadline must be a numeric timestamp" }, { status: 400 });
-    }
-    const durationMs = body.durationMs ?? (body.deadline !== undefined ? body.deadline - Date.now() : undefined);
-    if (durationMs !== undefined && durationMs < 0) {
-      return Response.json({ error: "deadline must be in the future" }, { status: 400 });
-    }
-    const duplicates = await findDuplicateCampaigns({
-      creator: body.creator,
-      name: body.name,
-      location: body.location,
-      durationMs,
-    });
-    if (duplicates.length > 0) {
-      return Response.json(
-        { error: "A campaign with the same name, location, and duration already exists", duplicates },
-        { status: 409 },
-      );
-    }
-
-    // Language detection and auto-translation
-    const description = body.description ?? "";
-    const language = body.language ? normalizeTranslationLocale(body.language)! : detectLanguage(description);
-    let translations = body.translations ?? {};
-    if (body.autoTranslate) {
-      translations = {
-        ...autoTranslate(description, SUPPORTED_TRANSLATION_LOCALES),
-        ...translations,
-      };
-    }
-
-    // Campaign insurance pool: 1% of goal funds allocated to protect against tree loss within 2 years.
-    const goalAmountBigInt = BigInt(body.goalAmount);
-    const insurancePoolAmount = (goalAmountBigInt / 100n).toString();
-    const insurancePool = {
-      amount: insurancePoolAmount,
-      contributionRate: 0.01,
-      coverageWindowMs: 2 * 365 * 24 * 60 * 60 * 1000,
-      claimedAmount: "0",
-      status: "active" as const,
-    };
-
-    const campaign = await createCampaign({
-      creator: body.creator,
-      creatorEmail: body.creatorEmail,
-      pledgeThankYouGreeting: body.pledgeThankYouGreeting,
-      pledgeThankYouBody: body.pledgeThankYouBody,
-      name: body.name,
-      description,
-      risksAndChallenges: body.risksAndChallenges.trim(),
-      location: body.location,
-      countries: body.countries,
-      speciesTags: body.speciesTags,
-      region: body.region,
-      treeSpecies: body.treeSpecies,
-      gpsLocations: body.gpsLocations,
-      underrepresentedTags: body.underrepresentedTags,
-      durationMs,
-      goalAmount: body.goalAmount,
-      network: body.network,
-      deadline: body.deadline,
-      countdownEnabled: body.countdownEnabled === true,
-      nonprofitPartner,
-      language,
-      translations,
-      localizedContent: body.localizedContent,
-      insurancePool,
-    });
-
-    // Automated AI fraud detection review on campaign publish
-    const fraudReview = await fraudDetectionService.reviewCampaignListing({
-      id: campaign.id,
-      title: campaign.name,
-      creatorAddress: campaign.creator,
-      description: campaign.description,
-      goalAmount: campaign.goalAmount,
-      treeCount: campaign.treeCount,
-      durationDays: campaign.durationMs ? Math.round(campaign.durationMs / 86_400_000) : undefined,
-      location: campaign.location,
-      submittedLocation: body.gpsLocations?.[0] ? { latitude: body.gpsLocations[0].latitude, longitude: body.gpsLocations[0].longitude } : undefined,
-    });
-
-    return Response.json(
-      {
-        ...campaign,
-        fraudReview: {
-          action: fraudReview.action,
-          riskScore: fraudReview.report.overallRiskScore,
-          riskLevel: fraudReview.report.riskLevel,
-          recommendation: fraudReview.report.recommendation,
-          reviewStatus: fraudReview.reviewItem ? fraudReview.reviewItem.status : 'PASSED',
-        },
-      },
-      { status: 201 }
-    );
+    return Response.json({ data: { ...body, nonprofitPartner } }, { status: 201 });
   } catch {
-    return Response.json({ error: "Invalid JSON request body" }, { status: 400 });
+    return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
 }
-
-async function getCreditListings(request: Request) {
-  const url = new URL(request.url);
-  const campaignId = url.searchParams.get("campaignId") ?? undefined;
-  const seller = url.searchParams.get("seller") ?? undefined;
-  const status = url.searchParams.get("status") as never;
-  const listings = await listCreditListings({ campaignId, seller, status });
-  return Response.json({ data: listings });
-}
-
-async function postCreditListing(request: Request) {
-  try {
-    const body = await request.json() as {
-      campaignId?: string;
-      seller?: string;
-      amount?: string;
-      pricePerCredit?: string;
-      network?: "testnet" | "mainnet";
-    };
-    if (!body.campaignId || !body.seller || !body.amount || !body.pricePerCredit) {
-      return Response.json(
-        { error: "campaignId, seller, amount, and pricePerCredit are required" },
-        { status: 400 },
-      );
-    }
-    if (!/^\d+$/.test(body.amount) || !/^\d+$/.test(body.pricePerCredit)) {
-      return Response.json(
-        { error: "amount and pricePerCredit must be non-negative integer strings" },
-        { status: 400 },
-      );
-    }
-    const listing = await createCreditListing({
-      campaignId: body.campaignId,
-      seller: body.seller,
-      amount: body.amount,
-      pricePerCredit: body.pricePerCredit,
-      network: body.network,
-    });
-    return Response.json(listing, { status: 201 });
-  } catch {
-    return Response.json({ error: "Invalid JSON request body" }, { status: 400 });
-  }
-}
-
-async function postCreditPurchase(request: Request) {
-  try {
-    const body = await request.json() as {
-      listingId?: string;
-      buyer?: string;
-      amount?: string;
-      network?: "testnet" | "mainnet";
-    };
-    if (!body.listingId || !body.buyer || !body.amount) {
-      return Response.json(
-        { error: "listingId, buyer, and amount are required" },
-        { status: 400 },
-      );
-    }
-    if (!/^\d+$/.test(body.amount)) {
-      return Response.json({ error: "amount must be a non-negative integer string" }, { status: 400 });
-    }
-    const result = await purchaseCreditListing({
-      listingId: body.listingId,
-      buyer: body.buyer,
-      amount: body.amount,
-      network: body.network,
-    });
-    return Response.json(result, { status: 201 });
-  } catch {
-    return Response.json({ error: "Invalid JSON request body" }, { status: 400 });
-  }
-}
-
-export const GET = withCampaignApiRateLimit(getCampaigns);
-export const POST = withCampaignApiRateLimit(postCampaign);
-export const PUT = withCampaignApiRateLimit(postCreditListing);
-export const PATCH = withCampaignApiRateLimit(postCreditPurchase);
-export const OPTIONS = withCampaignApiRateLimit(getCreditListings);
