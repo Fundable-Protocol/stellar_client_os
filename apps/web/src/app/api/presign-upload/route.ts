@@ -5,6 +5,7 @@ import {
   createPresignedPutUrl,
   loadS3Config,
   buildEvidenceKey,
+  buildCampaignUpdateKey,
   type AllowedContentType,
 } from "@/lib/s3";
 
@@ -12,13 +13,15 @@ import {
  * POST /api/presign-upload
  *
  * Generates a short-lived pre-signed AWS S3 PUT URL for milestone proof
- * photo or insurance claim evidence. The client uploads the photo directly
- * to S3; the URL expires within the configured window (default 5 minutes)
- * so credentials never reach the browser and the bucket stays private.
+ * photo, insurance claim evidence or a campaign update image. The client
+ * uploads the file directly to S3; the URL expires within the configured
+ * window (default 5 minutes) so credentials never reach the browser and the
+ * bucket stays private.
  *
  * Request body:
  *   { "campaignId": "42", "milestoneId": "1", "contentType": "image/jpeg", "purpose": "milestone" }
  *   { "campaignId": "42", "milestoneId": "1", "contentType": "image/jpeg", "purpose": "insurance-claim" }
+ *   { "campaignId": "42", "updateId": "upd_1", "contentType": "image/jpeg", "purpose": "campaign-update" }
  *
  * Response 200:
  *   { "url": "...", "key": "...", "contentType": "...", "expiresAt": 1712... }
@@ -31,18 +34,44 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const schema = z.object({
-    campaignId: z
-      .string()
-      .min(1, "campaignId is required")
-      .max(128, "campaignId is too long"),
-    milestoneId: z
-      .string()
-      .min(1, "milestoneId is required")
-      .max(128, "milestoneId is too long"),
-    contentType: z.enum(ALLOWED_CONTENT_TYPES),
-    purpose: z.enum(["milestone", "insurance-claim"]).default("milestone"),
-  });
+  const schema = z
+    .object({
+      campaignId: z
+        .string()
+        .min(1, "campaignId is required")
+        .max(128, "campaignId is too long"),
+      milestoneId: z
+        .string()
+        .min(1, "milestoneId is required")
+        .max(128, "milestoneId is too long")
+        .optional(),
+      updateId: z
+        .string()
+        .min(1, "updateId is required")
+        .max(128, "updateId is too long")
+        .optional(),
+      contentType: z.enum(ALLOWED_CONTENT_TYPES),
+      purpose: z.enum(["milestone", "insurance-claim", "campaign-update"]).default("milestone"),
+    })
+    .superRefine((value, ctx) => {
+      if (value.purpose === "campaign-update") {
+        if (!value.updateId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["updateId"],
+            message: "updateId is required for campaign-update uploads",
+          });
+        }
+        return;
+      }
+      if (!value.milestoneId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["milestoneId"],
+          message: "milestoneId is required for evidence uploads",
+        });
+      }
+    });
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
@@ -64,19 +93,33 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const key = buildEvidenceKey(
-      parsed.data.campaignId,
-      parsed.data.purpose === "insurance-claim" ? "insurance-claim" : parsed.data.milestoneId,
-      parsed.data.contentType as AllowedContentType,
-    );
+    const key =
+      parsed.data.purpose === "campaign-update"
+        ? buildCampaignUpdateKey(
+            parsed.data.campaignId,
+            parsed.data.updateId as string,
+            parsed.data.contentType as AllowedContentType,
+          )
+        : buildEvidenceKey(
+            parsed.data.campaignId,
+            parsed.data.purpose === "insurance-claim"
+              ? "insurance-claim"
+              : (parsed.data.milestoneId as string),
+            parsed.data.contentType as AllowedContentType,
+          );
     const result = createPresignedPutUrl(config, {
       key,
       contentType: parsed.data.contentType as AllowedContentType,
     });
 
+    const publicBase =
+      config.S3_PUBLIC_BASE_URL ??
+      `https://${config.AWS_S3_BUCKET}.s3.${config.AWS_REGION}.amazonaws.com`;
+
     return NextResponse.json({
       url: result.url,
       key: result.key,
+      publicUrl: `${publicBase.replace(/\/+$/, "")}/${result.key}`,
       contentType: result.contentType,
       expiresAt: result.expiresAt,
       requestId: result.requestId,

@@ -27,6 +27,8 @@ import { CampaignFaqSection } from "@/components/modules/campaign/CampaignFaqSec
 import { BackerMessageComposer } from "@/components/modules/campaign/BackerMessageComposer";
 // #1207 — Campaign boost purchase (creator only)
 import { CampaignBoostPurchase } from "@/components/modules/campaign/CampaignBoostPurchase";
+// Creator update posts — chronological feed of progress posts
+import { CampaignUpdateFeed } from "@/components/modules/campaign/updates/CampaignUpdateFeed";
 import { CampaignRisksAndChallenges } from "@/components/campaign/CampaignRisksAndChallenges";
 
 export const runtime = "nodejs";
@@ -189,6 +191,14 @@ export default async function CampaignPage({
         campaignId={campaign.id}
         creatorAddress={campaign.creatorAddress}
       />
+
+      {/* Creator updates — chronological feed of progress posts */}
+      <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <CampaignUpdateFeed
+          campaignId={campaign.id}
+          campaignTitle={campaign.name}
+        />
+      </section>
 
       {/* Horizontally Scrollable Related Campaigns Shelf */}
       <RelatedCampaignsShelf currentCampaignId={campaign.id} />

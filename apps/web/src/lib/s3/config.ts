@@ -28,6 +28,11 @@ export const s3ConfigSchema = z.object({
     .min(60, "presign lifetime must be at least 60s")
     .max(900, "presign lifetime must be at most 900s")
     .default(300),
+  /**
+   * Base URL the stored objects are served from. Defaults to the standard
+   * virtual-hosted S3 URL when the bucket is publicly readable.
+   */
+  S3_PUBLIC_BASE_URL: z.string().optional(),
 });
 
 export type S3Config = z.infer<typeof s3ConfigSchema>;

@@ -21,12 +21,14 @@ import {
   Coins,
   Bell,
   Camera,
+  Package,
+  Megaphone,
+  Award,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { CampaignARVisualizer } from "@/components/modules/campaign/ar/CampaignARVisualizer";
-import CampaignARViewer from "@/components/modules/campaigns/CampaignARViewer";
 import { CampaignSponsorWall } from "@/components/modules/campaign/sponsor-wall/CampaignSponsorWall";
 import { CampaignCollaboration } from "@/components/modules/campaign/collaboration/CampaignCollaboration";
 import { CampaignMilestones } from "@/components/modules/campaign/CampaignMilestones";
@@ -51,11 +53,14 @@ import { VerificationMediaGallery, type VerificationMediaItem } from "@/componen
 import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
 import CampaignSustainabilityScore from "@/components/modules/campaign/sustainability/CampaignSustainabilityScore";
 import { calculateSustainabilityScore } from "@/lib/sustainability-score";
-import { CampaignSustainabilityScore } from "@/components/modules/campaign/sustainability/CampaignSustainabilityScore";
 import { SustainabilityScoreBadge } from "@/components/modules/campaign/sustainability/SustainabilityScoreBadge";
 import { OneTimeDonationButton } from "@/components/modules/campaign/donation/OneTimeDonationButton";
 import { CampaignCharityBadge } from "@/components/modules/campaign/CharityBadge";
 import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
+import { CampaignWaitlist } from "@/components/modules/campaign/waitlist/CampaignWaitlist";
+import { CampaignUpdateFeed } from "@/components/modules/campaign/updates/CampaignUpdateFeed";
+import { AmbassadorDashboard } from "@/components/modules/campaign/ambassadors/AmbassadorDashboard";
+import { RewardFulfillmentPanel } from "@/components/modules/campaign/fulfillment/RewardFulfillmentPanel";
 import { CampaignLiveStreamSection } from "@/components/modules/campaign/live-stream/CampaignLiveStreamSection";
 
 const translations = {
@@ -508,51 +513,42 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
   const translation = translationLang ? translations[translationLang] : null;
 
   // Pre-launch waitlist: when a campaign is marked "coming soon", the detail
-  // page renders a teaser + email capture instead of the pledge/funding UI.
-  if (campaign.isComingSoon) {
-    return (
-      <div className="container mx-auto px-4 py-8 max-w-4xl space-y-8">
-        <Link
-          href="/campaigns"
-          aria-label="Back to Campaigns Directory"
-          className="inline-flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
-        >
-          <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back to Campaigns Directory
-        </Link>
-
-        <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-r from-zinc-900 via-purple-950/20 to-zinc-900 p-6 md:p-10 shadow-2xl space-y-4">
-          <div className="flex items-center gap-2.5">
-            <Badge className="bg-purple-600 text-white font-semibold text-xs">{campaign.category}</Badge>
-            <Badge variant="outline" className="border-amber-500 text-amber-400 text-xs font-semibold">
-              <Bell className="mr-1 h-3 w-3" /> Coming Soon
-            </Badge>
-          </div>
-          <h1 className="text-3xl font-extrabold text-zinc-50 tracking-tight">{campaign.title}</h1>
-          <p className="text-sm text-zinc-300 leading-relaxed">{campaign.shortDescription}</p>
-          <p className="text-sm text-amber-200/90 italic bg-amber-950/20 p-4 rounded-lg border border-amber-900/30">
-            &ldquo;{campaign.impactStatement}&rdquo;
-          </p>
-          <div className="flex items-center gap-4 text-xs text-zinc-400 pt-2">
-            <span>Created by: <strong className="text-zinc-200 font-mono">{campaign.creator}</strong></span>
-            <span>Launching: <strong className="text-zinc-200">{campaign.startDate}</strong></span>
-          </div>
+  // page shows a teaser + email capture above the regular campaign UI, so the
+  // rest of the page (story, funding, updates) stays reachable.
+  const comingSoonBanner = campaign.isComingSoon ? (
+    <div className="space-y-4">
+      <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-r from-zinc-900 via-purple-950/20 to-zinc-900 p-6 md:p-10 shadow-2xl space-y-4">
+        <div className="flex items-center gap-2.5">
+          <Badge className="bg-purple-600 text-white font-semibold text-xs">{campaign.category}</Badge>
+          <Badge variant="outline" className="border-amber-500 text-amber-400 text-xs font-semibold">
+            <Bell className="mr-1 h-3 w-3" /> Coming Soon
+          </Badge>
         </div>
-
-        <CampaignWaitlist
-          campaignId={campaign.id}
-          campaignTitle={campaign.title}
-          launchDate={campaign.startDate}
-          onCountChange={setWaitlistCount}
-        />
-
-        {waitlistCount > 0 && (
-          <p role="status" aria-live="polite" className="text-center text-xs text-zinc-400">
-            {waitlistCount} {waitlistCount === 1 ? "person has" : "people have"} joined the waitlist. You&apos;ll be notified at launch.
-          </p>
-        )}
+        <h2 className="text-2xl font-extrabold text-zinc-50 tracking-tight">{campaign.title}</h2>
+        <p className="text-sm text-zinc-300 leading-relaxed">{campaign.shortDescription}</p>
+        <p className="text-sm text-amber-200/90 italic bg-amber-950/20 p-4 rounded-lg border border-amber-900/30">
+          &ldquo;{campaign.impactStatement}&rdquo;
+        </p>
+        <div className="flex items-center gap-4 text-xs text-zinc-400 pt-2">
+          <span>Created by: <strong className="text-zinc-200 font-mono">{campaign.creator}</strong></span>
+          <span>Launching: <strong className="text-zinc-200">{campaign.startDate}</strong></span>
+        </div>
       </div>
-    );
-  }
+
+      <CampaignWaitlist
+        campaignId={campaign.id}
+        campaignTitle={campaign.title}
+        launchDate={campaign.startDate}
+        onCountChange={setWaitlistCount}
+      />
+
+      {waitlistCount > 0 && (
+        <p role="status" aria-live="polite" className="text-center text-xs text-zinc-400">
+          {waitlistCount} {waitlistCount === 1 ? "person has" : "people have"} joined the waitlist. You&apos;ll be notified at launch.
+        </p>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -607,6 +603,8 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           </a>
         </div>
       </div>
+
+      {comingSoonBanner}
 
       {showInsuranceModal && (
         <div
@@ -799,7 +797,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       {/* Main Content Tabs (Overview, Sponsor Wall #724, Top Backers, Co-Creators #722) */}
       {/* Backer community spaces (#788) render inside the overview sidebar. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
-        <TabsList aria-label="Campaign navigation tabs" className="grid w-full grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9">
+        <TabsList aria-label="Campaign navigation tabs" className="grid w-full grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-10">
           <TabsTrigger value="overview" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Target className="mr-1.5 h-4 w-4" /> Overview & Story
           </TabsTrigger>
@@ -832,6 +830,12 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           </TabsTrigger>
           <TabsTrigger value="milestone-release" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Coins className="mr-1.5 h-4 w-4 text-emerald-400" /> Tranche Releases
+          </TabsTrigger>
+          <TabsTrigger value="updates" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <Megaphone className="mr-1.5 h-4 w-4 text-purple-400" /> Updates
+          </TabsTrigger>
+          <TabsTrigger value="ambassadors" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <Award className="mr-1.5 h-4 w-4 text-amber-400" /> Ambassadors
           </TabsTrigger>
         </TabsList>
 
@@ -1043,6 +1047,24 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             isCreator={isCreatorView}
             viewerAddress={viewerAddress}
             campaignStatus={campaign.status}
+          />
+        </TabsContent>
+
+        {/* Tab 10: Chronological feed of creator updates */}
+        <TabsContent value="updates">
+          <CampaignUpdateFeed
+            campaignId={campaign.id}
+            campaignTitle={campaign.title}
+            viewerAddress={viewerAddress}
+          />
+        </TabsContent>
+
+        {/* Tab 11: Ambassador & influencer program */}
+        <TabsContent value="ambassadors">
+          <AmbassadorDashboard
+            campaignId={campaign.id}
+            campaignTitle={campaign.title}
+            creatorAddress={campaign.creator}
           />
         </TabsContent>
       </Tabs>

@@ -100,7 +100,11 @@ describe("Campaign detail page — top backers tab", () => {
     renderPage();
 
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
-    expect(screen.getAllByRole("tab")).toHaveLength(8);
+    // 12 tabs: the campaign sections plus the creator update feed and the
+    // ambassador program.
+    expect(screen.getAllByRole("tab")).toHaveLength(12);
+    expect(screen.getByRole("tab", { name: /updates/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /ambassadors/i })).toBeTruthy();
     // Only the active tab's content is mounted.
     expect(screen.getByText("Full Campaign Story")).toBeTruthy();
     // The duplicated insurance-claim modal is gone: exactly one trigger.

@@ -43,14 +43,14 @@ const WEIGHTS = {
 const MAX_SPECIES = 20;
 
 function clamp0100(value: number): number {
-  if (!Number.finite(value)) return 0;
+  if (!Number.isFinite(value)) return 0;
   if (value < 0) return 0;
   if (value > 100) return 100;
   return value;
 }
 
 export function normalizeTreeSpeciesDiversity(count: number): number {
-  if (!Number.finite(count) || count <= 0) return 0;
+  if (!Number.isFinite(count) || count <= 0) return 0;
   return clamp0100((count / MAX_SPECIES) * 100);
 }
 
@@ -122,3 +122,6 @@ export default function CampaignSustainabilityScore({ data, className }: Campaig
     </section>
   );
 }
+
+// Also available as a named export for pages that prefer named imports.
+export { CampaignSustainabilityScore };

@@ -55,7 +55,11 @@ describe("Campaign Detail Page — WCAG 2.1 AA Accessibility Audit", () => {
   describe("Progress Bars and Screen Reader Feedback", () => {
     it("provides an accessible progressbar with complete ARIA value properties", () => {
       renderPage();
-      const progressbar = screen.getByRole("progressbar");
+      // The page renders several progress bars (funding, species diversity,
+      // sustainability pillars); the funding bar is selected by its name.
+      const progressbar = screen.getByRole("progressbar", {
+        name: /campaign funding progress/i,
+      });
       expect(progressbar).toBeTruthy();
       expect(progressbar.getAttribute("aria-valuenow")).toBe("68");
       expect(progressbar.getAttribute("aria-valuemin")).toBe("0");
@@ -67,7 +71,11 @@ describe("Campaign Detail Page — WCAG 2.1 AA Accessibility Audit", () => {
 
     it("AnimatedProgressBar module component satisfies WCAG progressbar requirements", () => {
       render(<CampaignDetail campaignId="1" />);
-      const progressbar = screen.getByRole("progressbar");
+      // The module also renders the diversity and sustainability pillar bars,
+      // so the funding bar is selected by its accessible name.
+      const progressbar = screen.getByRole("progressbar", {
+        name: /campaign funding progress/i,
+      });
       expect(progressbar).toBeTruthy();
       expect(progressbar.getAttribute("aria-valuenow")).toBe("73");
       expect(progressbar.getAttribute("aria-valuemin")).toBe("0");
@@ -160,7 +168,11 @@ describe("Campaign Detail Page — WCAG 2.1 AA Accessibility Audit", () => {
       expect(tablist).toBeTruthy();
 
       const tabs = screen.getAllByRole("tab");
-      expect(tabs).toHaveLength(8);
+      // 12 tabs: the campaign sections plus the creator update feed and the
+      // ambassador program.
+      expect(tabs).toHaveLength(12);
+      expect(screen.getByRole("tab", { name: /updates/i })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: /ambassadors/i })).toBeTruthy();
       tabs.forEach((tab) => {
         expect(tab.textContent?.trim().length).toBeGreaterThan(0);
       });

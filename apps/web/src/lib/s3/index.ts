@@ -8,4 +8,4 @@ export {
   type PresignUploadRequest,
   type PresignUploadResult,
 } from "./presigner";
-export { buildEvidenceKey, extensionForContentType } from "./keys";
+export { buildEvidenceKey, buildCampaignUpdateKey, extensionForContentType } from "./keys";

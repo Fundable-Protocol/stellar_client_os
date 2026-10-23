@@ -36,6 +36,33 @@ const EXTENSIONS: Record<AllowedContentType, string> = {
   "application/pdf": "pdf",
 };
 
+/**
+ * Build an object key for an image attached to a campaign update post.
+ *
+ * Same guarantees as {@link buildEvidenceKey}: the key is derived from
+ * server-side input plus a generated UUID, so user-supplied file names never
+ * reach the key and cannot traverse directories.
+ *
+ * @param campaignId campaign the update belongs to
+ * @param updateId update the image belongs to
+ * @param contentType validated MIME type used to derive the file extension
+ */
+export function buildCampaignUpdateKey(
+  campaignId: string,
+  updateId: string,
+  contentType: AllowedContentType,
+): string {
+  const ext = extensionForContentType(contentType);
+  const normalizedCampaign = String(campaignId).replace(/[^a-zA-Z0-9_-]/g, "");
+  const normalizedUpdate = String(updateId).replace(/[^a-zA-Z0-9_-]/g, "");
+  const key = `updates/${normalizedCampaign}/${normalizedUpdate}/${randomUUID()}.${ext}`;
+
+  if (key.length > MAX_KEY_LENGTH) {
+    throw new Error(`Generated update key exceeds max length (${MAX_KEY_LENGTH})`);
+  }
+  return key;
+}
+
 export function extensionForContentType(contentType: AllowedContentType): string {
   return EXTENSIONS[contentType];
 }

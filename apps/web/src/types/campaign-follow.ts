@@ -1,7 +1,3 @@
-export interface CampaignFollowPreferences {
-  milestoneUpdates: boolean;
-  verificationUpdates: boolean;
-  completionUpdates: boolean;
 /**
  * Types for Campaign Follow — Issue #942 (v1)
  *
@@ -10,6 +6,13 @@ export interface CampaignFollowPreferences {
  * Deliberately separate from sponsorship/backing: a follow is a
  * zero-cost signal of interest with its own notification preferences.
  */
+
+/** Which campaign events a follower wants to hear about. */
+export interface CampaignFollowPreferences {
+  milestoneUpdates: boolean;
+  verificationUpdates: boolean;
+  completionUpdates: boolean;
+}
 
 /** How a follower wants to be notified about campaign progress. */
 export type FollowChannel = "EMAIL" | "IN_APP" | "WEBHOOK";
@@ -76,11 +79,17 @@ export interface FollowNotificationPrefs {
 export interface CampaignFollow {
   id: string;
   campaignId: string;
-  email: string;
+  /** Email address — set for email-based follows. */
+  email?: string;
   walletAddress?: string;
-  preferences: CampaignFollowPreferences;
+  /** Stellar address of the follower — set for wallet-based follows. */
+  followerAddress?: string;
+  /** Which campaign events an email-based follower opted into. */
+  preferences?: CampaignFollowPreferences;
+  /** Channel/frequency preferences of a wallet-based follower. */
+  prefs?: FollowNotificationPrefs;
   createdAt: number;
-  updatedAt: number;
+  updatedAt?: number;
 }
 
 export interface CreateCampaignFollowInput {

@@ -144,7 +144,7 @@ export async function GET(
   const campaignSponsors = sponsorsStore.filter((s) => s.campaignId === id || id === "demo" || id === "camp-101");
   const totalInsured = campaignSponsors.reduce((sum, s) => {
     const amountNum = Number(s.amount);
-    if (!Number.finite(amountNum)) return sum;
+    if (!Number.isFinite(amountNum)) return sum;
     const underwriter = selectUnderwriter(s.token, amountNum);
     return sum + amountNum * underwriter.coverageRatio;
   }, 0);
