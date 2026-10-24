@@ -115,6 +115,12 @@ export function CampaignDonationPanel({
 
     setSubmitting(true);
     try {
+      let referralCode: string | undefined;
+      try {
+        referralCode = window.sessionStorage.getItem(`fundable:referral:${campaignId}`) ?? undefined;
+      } catch {
+        // Referral attribution is optional when browser storage is unavailable.
+      }
       const response = await fetch(`/api/campaigns/${campaignId}/donations`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -126,6 +132,7 @@ export function CampaignDonationPanel({
           token,
           message: message.trim() || undefined,
           anonymous,
+          referralCode,
         }),
       });
 
