@@ -55,6 +55,7 @@ import { CampaignSustainabilityScore } from "@/components/modules/campaign/susta
 import { SustainabilityScoreBadge } from "@/components/modules/campaign/sustainability/SustainabilityScoreBadge";
 import { OneTimeDonationButton } from "@/components/modules/campaign/donation/OneTimeDonationButton";
 import { CampaignCharityBadge } from "@/components/modules/campaign/CharityBadge";
+import { CampaignCreatorVerificationBadge } from "@/components/creator/CreatorVerificationBadge";
 import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
 import { CampaignLiveStreamSection } from "@/components/modules/campaign/live-stream/CampaignLiveStreamSection";
 
@@ -533,7 +534,10 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             &ldquo;{campaign.impactStatement}&rdquo;
           </p>
           <div className="flex items-center gap-4 text-xs text-zinc-400 pt-2">
-            <span>Created by: <strong className="text-zinc-200 font-mono">{campaign.creator}</strong></span>
+            <span className="inline-flex items-center gap-2">
+              Created by: <strong className="text-zinc-200 font-mono">{campaign.creator}</strong>
+              <CampaignCreatorVerificationBadge creator={campaign.creator} />
+            </span>
             <span>Launching: <strong className="text-zinc-200">{campaign.startDate}</strong></span>
           </div>
         </div>
@@ -686,6 +690,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                 <StaffPickBadge reason={campaign.staffPickReason} size="sm" />
               )}
               <CampaignCharityBadge campaignId={campaign.id} />
+              <CampaignCreatorVerificationBadge creator={campaign.creator} />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -721,6 +726,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             <div className="flex items-center gap-4 text-xs text-zinc-400 pt-2">
               <span>Created by: <strong className="text-zinc-200 font-mono">{campaign.creator}</strong></span>
               <span>Ends: <strong className="text-zinc-200">{campaign.endDate}</strong></span>
+              {isCreatorView && (
+                <Link
+                  href={`/creators/${encodeURIComponent(campaign.creator)}/verification`}
+                  className="text-emerald-400 underline-offset-2 hover:underline"
+                >
+                  Get the Verified Creator badge
+                </Link>
+              )}
             </div>
           </div>
 
