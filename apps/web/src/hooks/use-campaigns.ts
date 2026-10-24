@@ -74,7 +74,7 @@ export function useCampaigns() {
 
       try {
         while (true) {
-          const res = await fetch(`/api/campaigns?limit=${PAGE_SIZE}&offset=${offset}`);
+          const res = await fetch(`/api/campaigns?limit=${PAGE_SIZE}&offset=${offset}&includeStreamStatus=true`);
           if (!res.ok) break;
 
           const { data, pagination } = await res.json();
@@ -83,7 +83,9 @@ export function useCampaigns() {
           const formatted = (data as any[]).map((c) => ({
             id: c.id,
             title: c.name,
-            category: "General", // Placeholder if not in API
+            category: c.category ?? "General",
+            tags: c.tags ?? [],
+            milestones: c.milestones ?? [],
             raisedAmount: c.raisedAmount || "0",
             goalAmount: c.goalAmount,
             token: "XLM",
@@ -98,6 +100,9 @@ export function useCampaigns() {
             isStaffPick: Boolean(c.isStaffPick),
             staffPickReason: c.staffPickReason,
             charityBadge: c.charityBadge,
+            // Provider-backed live status for the card indicator (#1225).
+            liveStream: c.liveStream ?? undefined,
+            streamStatus: c.streamStatus ?? undefined,
             endDate: c.endDate || c.deadline ? new Date(c.deadline || c.endDate).toISOString() : undefined,
           }));
 

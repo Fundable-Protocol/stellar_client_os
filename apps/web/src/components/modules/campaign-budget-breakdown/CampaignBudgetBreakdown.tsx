@@ -18,7 +18,7 @@ import {
   PieChart,
   Pie,
   Cell,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   Legend,
   ResponsiveContainer,
   BarChart,
@@ -48,7 +48,7 @@ import {
   Info,
   ArrowRight,
   Calculator,
-  Percentage,
+  Percent,
   Eye,
   EyeOff,
 } from 'lucide-react';
@@ -319,7 +319,7 @@ export function CampaignBudgetBreakdown({
               Overview
             </TabsTrigger>
             <TabsTrigger value="details">
-              <Percentage className="w-4 h-4 mr-2" />
+              <Percent className="w-4 h-4 mr-2" />
               Details
             </TabsTrigger>
             <TabsTrigger value="comparison">
@@ -504,7 +504,7 @@ export function CampaignBudgetBreakdown({
                     <CartesianGrid strokeDasharray="3 3" opacity={0.3} vertical={false} />
                     <XAxis type="number" tickFormatter={v => `${v}%`} />
                     <YAxis dataKey="name" type="category" width={150} />
-                    <Tooltip formatter={(value: number) => [formatPercentage(value), 'Allocation']} />
+                    <RechartsTooltip formatter={(value: number) => [formatPercentage(value), 'Allocation']} />
                     <Legend />
                     <Bar dataKey="value" fill="#8884d8">
                       {pieData.map((entry, index) => (

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getCampaignTrendingService } from "@/services/campaign-trending.service";
+import {
+  CampaignTrendingService,
+} from "@/services/campaign-trending.service";
+import { campaignSocialSharesService } from "@/services/campaign-social-shares.service";
 
 /**
  * GET /api/campaigns/trending — Rank campaigns by trending score (issue #728).
@@ -50,7 +53,11 @@ export async function GET(request: NextRequest) {
     }
 
     const { network, limit, offset, includeNonActive } = parsed.data;
-    const service = getCampaignTrendingService();
+    // Build the service with the live social-share counts so the trending
+    // score factors in funding velocity AND social shares (#1198).
+    const service = new CampaignTrendingService({
+      socialSharesProvider: () => campaignSocialSharesService.getShareCounts(),
+    });
     const result = await service.getTrendingCampaigns({
       network,
       limit,

@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCreatorStats } from "@/services/creator-stats.service";
 import { CreatorProfileHeader } from "@/components/creator/CreatorProfileHeader";
@@ -54,6 +55,22 @@ async function CreatorProfileContent({ address }: { address: string }) {
             <span className="text-sm text-gray-600">
               {overallRating.reviewCount} review{overallRating.reviewCount === 1 ? "" : "s"} across {overallRating.campaignCount} campaign{overallRating.campaignCount === 1 ? "" : "s"}
             </span>
+          </div>
+
+          {/* Links to Blog and Analytics Dashboard */}
+          <div className="mt-8 flex flex-wrap items-center gap-3">
+            <Link
+              href={`/creators/${address}/blog`}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 transition-colors"
+            >
+              View Creator Blog & Updates →
+            </Link>
+            <Link
+              href={`/creators/${address}/analytics`}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-purple-700 border border-purple-600 hover:bg-purple-50 transition-colors"
+            >
+              View Campaign Analytics →
+            </Link>
           </div>
 
           {/* All Campaigns List */}

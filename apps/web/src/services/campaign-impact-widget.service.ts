@@ -1,4 +1,9 @@
 import type { CampaignRecord } from "./campaign.service";
+import {
+  evaluateImpactMetric,
+  type ImpactMetricDefinition,
+  type ImpactMetricResult,
+} from "./campaign-impact-metric.service";
 
 export interface CampaignImpactWidgetData {
   campaignId: string;
@@ -11,6 +16,7 @@ export interface CampaignImpactWidgetData {
   co2OffsetTons: number;
   sponsorCount: number;
   embedPath: string;
+  impactMetric: ImpactMetricResult | null;
 }
 
 function safeInteger(value: string | number | undefined): number {
@@ -18,7 +24,10 @@ function safeInteger(value: string | number | undefined): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
-export function buildCampaignImpactWidgetData(campaign: CampaignRecord): CampaignImpactWidgetData {
+export function buildCampaignImpactWidgetData(
+  campaign: CampaignRecord,
+  metric?: ImpactMetricDefinition,
+): CampaignImpactWidgetData {
   const goal = safeInteger(campaign.goalAmount);
   const raised = safeInteger(campaign.raisedAmount);
   return {
@@ -32,5 +41,6 @@ export function buildCampaignImpactWidgetData(campaign: CampaignRecord): Campaig
     co2OffsetTons: Number((safeInteger(campaign.treeCount) * 0.022).toFixed(2)),
     sponsorCount: safeInteger(campaign.sponsorCount),
     embedPath: `/campaigns/${encodeURIComponent(campaign.id)}/widget`,
+    impactMetric: metric ? evaluateImpactMetric(metric, raised) : null,
   };
 }

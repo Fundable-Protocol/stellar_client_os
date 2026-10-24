@@ -5,27 +5,35 @@ import {
   recordBackerContribution,
   recordFunnelStep,
   recordTrafficSource,
-} from "../../../../../../services/campaign-analytics-dashboard.service";
-import { getCampaignAnalytics } from "../../../../../../services/campaign-analytics.service";
-import { fundInsurancePool } from "../../../../../../services/campaign-insurance.service";
+} from "../../../../../services/campaign-analytics-dashboard.service";
+import { getCampaignAnalytics } from "../../../../../services/campaign-analytics.service";
+import { fundInsurancePool } from "../../../../../services/campaign-insurance.service";
 import { isDonationToken } from "@/types/campaign-insurance";
 import {
   buyCarbonCredits,
   listCarbonCreditOffers,
   sellCarbonCredits,
-} from "../../../../../../services/carbon-credit-market.service";
+} from "../../../../../services/carbon-credit-market.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const TrafficSourceSchema = z.object({
-  source: z.enum(["direct", "search", "social", "referral", "newsletter"]),
+  source: z.enum(["direct", "social", "email", "search", "referral", "newsletter"]),
   viewerId: z.string().optional(),
 });
 
 const FunnelSchema = z.object({
-  stage: z.enum(["view", "click_sponsor", "contribute", "confirm"]),
+  stage: z.enum([
+    "view",
+    "visitors",
+    "click_sponsor",
+    "contribute",
+    "pledge_initiated",
+    "confirm",
+    "pledge_completed",
+  ]),
   viewerId: z.string().min(1),
 });
 
@@ -36,6 +44,7 @@ const ContributionSchema = z.object({
   region: z.string().optional(),
   at: z.number().optional(),
   token: z.string().optional(),
+  source: z.enum(["direct", "social", "email", "search", "referral", "newsletter"]).optional(),
 });
 
 const CarbonSellSchema = z.object({
@@ -50,6 +59,12 @@ const CarbonPurchaseSchema = z.object({
   buyerId: z.string().min(1),
   listingId: z.string().min(1),
   amount: z.number().positive(),
+});
+
+const WaitlistSignupSchema = z.object({
+  event: z.literal("waitlist_signup"),
+  email: z.string().email(),
+  notifyOnLaunch: z.boolean().optional(),
 });
 
 const SustainabilityInputsSchema = z.object({
@@ -120,11 +135,12 @@ export async function GET(
  * POST /api/campaigns/:id/analytics/dashboard
  *
  * Records a traffic-source visit, a funnel step, a backer contribution,
- * or a secondary-market carbon credit trade for the campaign dashboard.
- * Body shape:
+ * a waitlist signup, or a secondary-market carbon credit trade for the
+ * campaign dashboard. Body shape:
  *   { event: "traffic", source, viewerId? }
  *   { event: "funnel", stage, viewerId }
  *   { event: "contribution", amount, backerId, region? }
+ *   { event: "waitlist_signup", email, notifyOnLaunch? }
  *   { event: "sell_carbon_credits", sellerId, amount, pricePerTon }
  *   { event: "buy_carbon_credits", buyerId, listingId, amount }
  *
@@ -161,6 +177,12 @@ export async function POST(
         return noStore({ error: "Unsupported token" }, { status: 400 });
       }
       await fundInsurancePool(id, parsed.data.amount, token);
+    } else if (body.event === "waitlist_signup") {
+      const parsed = WaitlistSignupSchema.safeParse(body);
+      if (!parsed.success) {
+        return noStore({ error: "Invalid waitlist signup payload", details: parsed.error.flatten() }, { status: 400 });
+      }
+      await recordWaitlistSignup(id, parsed.data.email, parsed.data.notifyOnLaunch ?? true);
     } else if (body.event === "sell_carbon_credits") {
       const parsed = CarbonSellSchema.safeParse(body);
       if (!parsed.success) {
@@ -174,7 +196,7 @@ export async function POST(
       }
       await buyCarbonCredits(id, parsed.data);
     } else {
-      return noStore({ error: "event must be traffic, funnel, contribution, sell_carbon_credits, or buy_carbon_credits" }, { status: 400 });
+      return noStore({ error: "event must be traffic, funnel, contribution, waitlist_signup, sell_carbon_credits, or buy_carbon_credits" }, { status: 400 });
     }
     const dashboard = await getCampaignAnalyticsDashboard(id);
     return noStore({ data: dashboard }, { status: 201 });

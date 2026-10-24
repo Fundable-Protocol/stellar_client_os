@@ -7,6 +7,11 @@ export interface WebhookSubscription {
   events: string[]; // e.g., ["stream.status_updated", "milestone.funds_released"] or ["*"]
   secret: string; // Used for HMAC-SHA256 signature
   createdAt: string;
+  /** Set for creator-owned endpoints; they only receive events dispatched for that creator. */
+  creatorId?: string;
+  /** Paused subscriptions are kept but receive no deliveries. Defaults to true. */
+  enabled?: boolean;
+  updatedAt?: string;
 }
 
 export interface WebhookPayload {
@@ -27,4 +32,16 @@ export interface WebhookDeliveryAttempt {
   success: boolean;
   errorMessage: string | null;
   attempt: number; // Retries count (1 for first try, 2, etc.)
+  /** Total attempts allowed for this delivery. */
+  maxAttempts?: number;
+  /** When the next retry is scheduled; null when no retry follows this attempt. */
+  nextRetryAt?: string | null;
+  creatorId?: string;
+}
+
+export type WebhookDeliveryStatus = "delivered" | "retrying" | "failed";
+
+export function getDeliveryStatus(attempt: WebhookDeliveryAttempt): WebhookDeliveryStatus {
+  if (attempt.success) return "delivered";
+  return attempt.nextRetryAt ? "retrying" : "failed";
 }

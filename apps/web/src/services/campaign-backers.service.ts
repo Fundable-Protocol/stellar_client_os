@@ -62,6 +62,24 @@ class CampaignBackersService {
   private preferences = new Map<string, BackerPrivacyPreference>();
   private featured = new Map<string, FeaturedBacker[]>();
   private creators = new Map<string, string>();
+  private listeners = new Map<string, Set<() => void>>();
+
+  /** Subscribe to in-process changes for one campaign's leaderboard data. */
+  subscribe(campaignId: string, listener: () => void): () => void {
+    const id = campaignId.trim();
+    if (!id) return () => undefined;
+    const listeners = this.listeners.get(id) ?? new Set<() => void>();
+    listeners.add(listener);
+    this.listeners.set(id, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.listeners.delete(id);
+    };
+  }
+
+  private notify(campaignId: string): void {
+    for (const listener of this.listeners.get(campaignId.trim()) ?? []) listener();
+  }
 
   private prefKey(campaignId: string, backerAddress: string) {
     return `${campaignId}:${backerAddress.trim().toLowerCase()}`;
@@ -72,7 +90,9 @@ class CampaignBackersService {
   /** Register the campaign creator — required before backers can be featured. */
   registerCampaignCreator(campaignId: string, creatorAddress: string): void {
     if (!campaignId?.trim() || !creatorAddress?.trim()) return;
-    this.creators.set(campaignId.trim(), creatorAddress.trim());
+    const id = campaignId.trim();
+    this.creators.set(id, creatorAddress.trim());
+    this.notify(id);
   }
 
   getCampaignCreator(campaignId: string): string | undefined {
@@ -138,6 +158,7 @@ class CampaignBackersService {
       this.preferences.set(key, defaultBackerPrivacy(campaignId, backerAddress, contribution.contributedAt));
     }
 
+    this.notify(campaignId);
     return contribution;
   }
 
@@ -179,6 +200,7 @@ class CampaignBackersService {
       removedFromFeatured = this.removeFeatured(campaignId, backerAddress);
     }
 
+    this.notify(campaignId);
     return { preference, removedFromFeatured };
   }
 
@@ -236,6 +258,7 @@ class CampaignBackersService {
         note: input.note?.trim() ? input.note.trim() : existing.note,
       };
       this.replaceFeatured(campaignId, updated);
+      this.notify(campaignId);
       return { ok: true, value: updated };
     }
 
@@ -256,6 +279,7 @@ class CampaignBackersService {
     };
     list.push(featured);
     this.featured.set(campaignId, list);
+    this.notify(campaignId);
     return { ok: true, value: featured };
   }
 
@@ -275,7 +299,9 @@ class CampaignBackersService {
       return { ok: false, error: "Only the campaign creator can feature backers" };
     }
 
-    return { ok: true, value: { removed: this.removeFeatured(campaignId, backerAddress) } };
+    const removed = this.removeFeatured(campaignId, backerAddress);
+    if (removed) this.notify(campaignId);
+    return { ok: true, value: { removed } };
   }
 
   /** Creator-facing toggle used by the leaderboard UI. */
@@ -424,10 +450,12 @@ class CampaignBackersService {
 
   /** Test helper — wipes every in-memory collection. */
   reset(): void {
+    const campaignIds = new Set([...this.contributions.keys(), ...this.featured.keys(), ...this.listeners.keys()]);
     this.contributions.clear();
     this.preferences.clear();
     this.featured.clear();
     this.creators.clear();
+    for (const campaignId of campaignIds) this.notify(campaignId);
   }
 }
 

@@ -29,6 +29,48 @@ pub enum ArbiterError {
     NotEnoughArbiters = 9,
     /// The dispute ID counter has reached `u64::MAX`; no more disputes can be created.
     ContractFull = 10,
+    /// The dispute has not yet been resolved, so no refund decision can be recorded.
+    DisputeNotResolved = 11,
+    /// The refund amount is invalid (must be non-negative).
+    InvalidRefundAmount = 12,
+}
+
+/// The reason a backer filed a dispute.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DisputeReason {
+    /// The reward was never delivered.
+    UndeliveredReward,
+    /// The campaign is suspected of fraud.
+    Fraud,
+    /// Any other concern.
+    Other,
+}
+
+/// The kind of refund issued by a mediator.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RefundType {
+    /// A partial refund of the disputed amount.
+    Partial,
+    /// A full refund of the disputed amount.
+    Full,
+}
+
+/// Emitted when a mediator records a refund decision on a resolved dispute.
+#[contractevent(topics = ["refund_decision_recorded"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefundDecisionRecorded {
+    /// The dispute the decision applies to.
+    pub dispute_id: u64,
+    /// The mediator who issued the decision.
+    pub mediator: Address,
+    /// The refund amount decided by the mediator.
+    pub refund_amount: i128,
+    /// Whether the refund is partial or full.
+    pub refund_type: RefundType,
+    /// Ledger timestamp of the decision.
+    pub timestamp: u64,
 }
 
 /// The possible vote choices for an arbiter on a disputed milestone.
@@ -95,6 +137,10 @@ pub struct Dispute {
     pub created_at: u64,
     pub voting_deadline: u64,
     pub resolved_at: Option<u64>,
+    /// Refund amount decided by a mediator, if any.
+    pub refund_amount: Option<i128>,
+    /// Refund type decided by a mediator, if any.
+    pub refund_type: Option<RefundType>,
 }
 
 /// Storage keys for the contract.
@@ -211,6 +257,8 @@ impl DisputeArbiterContract {
             created_at: now,
             voting_deadline: now.saturating_add(voting_period),
             resolved_at: None,
+            refund_amount: None,
+            refund_type: None,
         };
 
         env.storage()
@@ -371,6 +419,61 @@ impl DisputeArbiterContract {
         bump_ttl(&env, &DataKey::Dispute(dispute_id));
 
         Ok(DisputeState::TimedOut)
+    }
+
+    /// Record a mediator's refund decision on a resolved dispute.
+    ///
+    /// # Arguments
+    /// * `dispute_id` - The ID of the resolved dispute.
+    /// * `mediator` - The platform mediator issuing the decision.
+    /// * `refund_amount` - The refund amount (must be non-negative).
+    /// * `refund_type` - Whether the refund is partial or full.
+    ///
+    /// # Returns
+    /// Ok if the decision was recorded.
+    pub fn record_refund_decision(
+        env: Env,
+        dispute_id: u64,
+        mediator: Address,
+        refund_amount: i128,
+        refund_type: RefundType,
+    ) -> Result<(), ArbiterError> {
+        mediator.require_auth();
+
+        let mut dispute: Dispute = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Dispute(dispute_id))
+            .ok_or(ArbiterError::DisputeNotFound)?;
+        bump_ttl(&env, &DataKey::Dispute(dispute_id));
+
+        // Only resolved disputes may receive a refund decision.
+        if dispute.state == DisputeState::Voting {
+            return Err(ArbiterError::DisputeNotResolved);
+        }
+
+        if refund_amount < 0 {
+            return Err(ArbiterError::InvalidRefundAmount);
+        }
+
+        dispute.refund_amount = Some(refund_amount);
+        dispute.refund_type = Some(refund_type.clone());
+
+        env.storage()
+            .persistent()
+            .set(&DataKey::Dispute(dispute_id), &dispute);
+        bump_ttl(&env, &DataKey::Dispute(dispute_id));
+
+        RefundDecisionRecorded {
+            dispute_id,
+            mediator,
+            refund_amount,
+            refund_type,
+            timestamp: env.ledger().timestamp(),
+        }
+        .publish(&env);
+
+        Ok(())
     }
 
     /// Get the details of a dispute by its ID.
@@ -701,6 +804,63 @@ mod test {
         let dispute = client.get_dispute(&dispute_id);
         assert_eq!(dispute.state, DisputeState::EvidenceRequested);
         assert_eq!(dispute.votes_for_evidence, 3);
+    }
+
+    #[test]
+    fn test_record_refund_decision() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin) = setup(&env);
+        let client_addr = Address::generate(&env);
+        let freelancer = Address::generate(&env);
+
+        let mut arbiters = Vec::new(&env);
+        for _ in 0..5 {
+            arbiters.push_back(Address::generate(&env));
+        }
+
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
+
+        // Resolve the dispute with 3 reject votes.
+        let reason = String::from_str(&env, "Milestone not delivered");
+        for i in 0..3 {
+            client.cast_vote(
+                &dispute_id,
+                &arbiters.get(i).unwrap(),
+                &VoteChoice::Reject,
+                &reason,
+            );
+        }
+
+        let mediator = Address::generate(&env);
+        client.record_refund_decision(&dispute_id, &mediator, &500, &RefundType::Partial);
+
+        let dispute = client.get_dispute(&dispute_id);
+        assert_eq!(dispute.refund_amount, Some(500));
+        assert_eq!(dispute.refund_type, Some(RefundType::Partial));
+    }
+
+    #[test]
+    fn test_record_refund_decision_requires_resolved() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let (client, _admin) = setup(&env);
+        let client_addr = Address::generate(&env);
+        let freelancer = Address::generate(&env);
+
+        let mut arbiters = Vec::new(&env);
+        for _ in 0..5 {
+            arbiters.push_back(Address::generate(&env));
+        }
+
+        let dispute_id = client.create_dispute(&1, &1, &client_addr, &freelancer, &arbiters);
+
+        let mediator = Address::generate(&env);
+        let result =
+            client.try_record_refund_decision(&dispute_id, &mediator, &500, &RefundType::Full);
+        assert!(result.is_err());
     }
 
     #[test]

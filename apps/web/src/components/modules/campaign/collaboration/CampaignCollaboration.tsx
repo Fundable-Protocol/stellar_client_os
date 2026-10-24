@@ -30,6 +30,16 @@ const ROLE_BADGES: Record<CoCreatorRole, { label: string; badgeClass: string; ic
     badgeClass: "bg-blue-500/20 text-blue-300 border-blue-500/40",
     icon: <Shield className="mr-1 h-3 w-3 inline text-blue-400" />,
   },
+  ANALYST: {
+    label: "Analyst",
+    badgeClass: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+    icon: <Shield className="mr-1 h-3 w-3 inline text-emerald-400" />,
+  },
+  SUPPORT: {
+    label: "Support",
+    badgeClass: "bg-cyan-500/20 text-cyan-300 border-cyan-500/40",
+    icon: <Shield className="mr-1 h-3 w-3 inline text-cyan-400" />,
+  },
   VIEWER: {
     label: "Viewer",
     badgeClass: "bg-zinc-700/40 text-zinc-300 border-zinc-700",
@@ -139,6 +149,8 @@ export function CampaignCollaboration({
                     >
                       <option value="CO_CREATOR">Co-Creator</option>
                       <option value="EDITOR">Editor</option>
+                      <option value="ANALYST">Analyst</option>
+                      <option value="SUPPORT">Support</option>
                       <option value="VIEWER">Viewer</option>
                     </select>
 

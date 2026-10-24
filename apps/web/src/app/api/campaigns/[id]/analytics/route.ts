@@ -4,8 +4,10 @@ import {
   recordCampaignContribution,
   recordCampaignRefund,
   recordCampaignView,
-recordCampaignCreditSale,
+  recordCampaignCreditSale,
   recordCampaignSpeciesCount,
+  recordCampaignWaitlistJoin,
+  notifyCampaignwaitlist,
 } from "../../../../../services/campaign-analytics.service";
 
 export const runtime = "nodejs";
@@ -27,7 +29,7 @@ const GEOGRAPHIC_DIVERSITY_BONUS = 1.2;
 function countryCode(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toUpperCase();
-  if (!/^[a-A-z]{2}$/.test(normalized)) return null;
+  if (!/^[A-Z]{2}$/.test(normalized)) return null;
   return normalized;
 }
 
@@ -77,12 +79,12 @@ type SustainabilityInputs = {
 };
 
 function clamp0100(value: number): number {
-  if (!Number.finite(value)) return 0;
+  if (!Number.isFinite(value)) return 0;
   return Math.min(100, Math.max(0, value));
 }
 
 function normalize100(value: number): number {
-  if (!Number.finite(value)) return 0;
+  if (!Number.isFinite(value)) return 0;
   if (value <= 1) return clamp0100(value * 100);
   return clamp0100(value);
 }
@@ -114,7 +116,7 @@ function extractSustainabilityInputs(analytics: unknown | null | undefined): Sus
     if (typeof value === "number") return value;
     if (typeof value === "string") {
       const parsed = Number(value);
-      return Number.finite(parsed) ? parsed : undefined;
+      return Number.isFinite(parsed) ? parsed : undefined;
     }
     return undefined;
   };
@@ -137,42 +139,48 @@ function withSustainabilityScore(analytics: unknown | null | undefined) {
     environmentalIndex: score,
   };
 }
+
+function isValidEmail(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const email = value.trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const analytics = await getCampaignAnalytics((await params).id);
-return analytics
+  return analytics
     ? noStore({ data: applyGeographicDiversityIncentive(withSustainabilityScore(analytics)) })
     : noStore({ error: "Campaign not found" }, { status: 404 });
 }
 
-export async function POST(
+export async function POST (
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const campaignId = (await params).id;
   try {
     const body = await request.json() as {
-event?: "view" | "contribution" | "refund" | "credit_sale" | "species_count";
+      event?: "view" | "contribution" | "refund" | "credit_sale" | "species_count" | "waitlist_join" | "waitlist_notify";
       viewerId?: string;
       sponsor?: string;
       amount?: string;
-buyer?: string;
+      token?: string;
+      buyer?: string;
       credits?: string;
       speciesCount?: number;
+      email?: string;
     };
     if (body.event === "view") {
       await recordCampaignView(campaignId, body.viewerId);
     } else if (body.event === "contribution") {
       if (!body.amount || !body.sponsor) return noStore({ error: "amount and sponsor are required" }, { status: 400 });
       await recordCampaignContribution(campaignId, body.amount, body.sponsor);
-      const token = body.token ?? "XLM";
-      if (!isDonationToken(token)) return noStore({ error: "Unsupported token" }, { status: 400 });
-      await fundInsurancePool(campaignId, body.amount, token);
     } else if (body.event === "refund") {
       await recordCampaignRefund(campaignId);
-} else if (body.event === "credit_sale") {
+    } else if (body.event === "credit_sale") {
       if (!body.sponsor || !body.buyer || !body.credits) {
         return noStore({ error: "sponsor, buyer, and credits are required" }, { status: 400 });
       }
@@ -182,11 +190,21 @@ buyer?: string;
         return noStore({ error: "speciesCount is required" }, { status: 400 });
       }
       await recordCampaignSpeciesCount(campaignId, body.speciesCount);
+    } else if (body.event === "waitlist_join") {
+      if (!isValidEmail(body.email)) {
+        return noStore({ error: "A valid email is required" }, { status: 400 });
+      }
+      await recordCampaignWaitlistJoin(campaignId, body.email.trim().toLowerCase());
+    } else if (body.event === "waitlist_notify") {
+      await notifyCampaignwaitlist(campaignId);
     } else {
-return noStore({ error: "event must be view, contribution, refund, credit_sale, or species_count" }, { status: 400 });
+      return noStore(
+        { error: "event must be view, contribution, refund, credit_sale, species_count, waitlist_join, or waitlist_notify" },
+        { status: 400 },
+      );
     }
     const analytics = await getCampaignAnalytics(campaignId);
-return noStore({ data: applyGeographicDiversityIncentive(withSustainabilityScore(analytics)) }, { status: 201 });
+    return noStore({ data: applyGeographicDiversityIncentive(withSustainabilityScore(analytics)) }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid analytics event";
     return noStore({ error: message }, { status: message === "Campaign not found" ? 404 : 400 });
