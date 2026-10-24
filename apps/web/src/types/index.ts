@@ -29,6 +29,7 @@ export interface Campaign {
   id: number;
   creator: string; // Address
   species: string;
+  risksAndChallenges?: string;
   goal_amount: bigint;
   raised_amount: bigint;
   start_time: number;

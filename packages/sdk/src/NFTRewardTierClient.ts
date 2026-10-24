@@ -27,6 +27,12 @@ export interface NFTRewardTierConfig {
     trait_type: string;
     value: string | number;
   }>;
+  /** Early bird pricing configuration (issue #1218) */
+  earlyBirdPricing?: {
+    discountPercent: number; // Percentage discount (e.g., 20 for 20% off)
+    earlyBirdLimit: number; // First N backers
+    claimedCount?: number; // Number of early bird slots claimed
+  };
 }
 
 export interface NFTRewardMetadata {

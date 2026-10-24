@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { CampaignData, CampaignFilterOptions, CampaignStatus, TreeType, Region } from "@/types/campaign";
 import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
+import { VirtualizedCampaignGrid } from "@/components/modules/campaign/VirtualizedCampaignGrid";
 
 // Sample initial campaign records for demonstration & discovery
 export const INITIAL_CAMPAIGNS: CampaignData[] = [
@@ -170,6 +171,10 @@ const STATUS_LIST: (CampaignStatus | "All")[] = [
   "Failed",
   "Claimed",
 ];
+
+// Stable key extractor: keeps the virtualiser's measurement cache intact
+// across re-renders (a new function identity would invalidate it).
+const getCampaignKey = (campaign: CampaignData): string => campaign.id;
 
 export const CampaignSearch: React.FC = () => {
   const [filters, setFilters] = useState<CampaignFilterOptions>({
@@ -488,8 +493,16 @@ export const CampaignSearch: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCampaigns.map((campaign) => {
+        <VirtualizedCampaignGrid
+          items={filteredCampaigns}
+          getItemKey={getCampaignKey}
+          minColumnWidth={320}
+          maxColumns={3}
+          initialColumns={3}
+          estimateRowHeight={380}
+          overscan={4}
+          ariaLabel="Campaign results"
+          renderItem={(campaign) => {
             const raised = Number(campaign.totalRaised);
             const target = Number(campaign.targetAmount);
             const percent = Math.min(100, Math.round((raised / target) * 100));
@@ -563,8 +576,8 @@ export const CampaignSearch: React.FC = () => {
                 </div>
               </div>
             );
-          })}
-        </div>
+          }}
+        />
       )}
     </div>
   );

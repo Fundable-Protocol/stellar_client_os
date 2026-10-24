@@ -7,6 +7,7 @@ interface AnimatedProgressBarProps {
   totalRaised: number;
   targetAmount: number;
   minTarget: number;
+  stretchTarget?: number;
   currencySymbol?: string;
   className?: string;
 }
@@ -15,22 +16,31 @@ export const AnimatedProgressBar: React.FC<AnimatedProgressBarProps> = ({
   totalRaised,
   targetAmount,
   minTarget,
+  stretchTarget,
   currencySymbol = "XLM",
   className = "",
 }) => {
   const [animatedWidth, setAnimatedWidth] = useState(0);
 
+  // Calculate percentages based on stretch target if available, otherwise use target
+  const maxAmount = stretchTarget && stretchTarget > targetAmount ? stretchTarget : targetAmount;
+  
   const percentage = Math.min(
     100,
-    Math.round((totalRaised / Math.max(1, targetAmount)) * 100)
+    Math.round((totalRaised / Math.max(1, maxAmount)) * 100)
   );
   const minTargetPercent = Math.min(
     100,
-    Math.round((minTarget / Math.max(1, targetAmount)) * 100)
+    Math.round((minTarget / Math.max(1, maxAmount)) * 100)
+  );
+  const goalPercent = Math.min(
+    100,
+    Math.round((targetAmount / Math.max(1, maxAmount)) * 100)
   );
 
   const isMinTargetReached = totalRaised >= minTarget;
-  const isHardCapReached = totalRaised >= targetAmount;
+  const isGoalReached = totalRaised >= targetAmount;
+  const isStretchReached = stretchTarget ? totalRaised >= stretchTarget : false;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -39,12 +49,19 @@ export const AnimatedProgressBar: React.FC<AnimatedProgressBarProps> = ({
     return () => clearTimeout(timer);
   }, [percentage]);
 
-  const milestones = [
-    { label: "25%", value: 25 },
-    { label: `Min (${minTargetPercent}%)`, value: minTargetPercent },
-    { label: "75%", value: 75 },
-    { label: "Goal (100%)", value: 100 },
-  ];
+  // Build milestones based on whether we have stretch goals
+  const milestones = stretchTarget && stretchTarget > targetAmount
+    ? [
+        { label: `Min (${minTargetPercent}%)`, value: minTargetPercent },
+        { label: `Goal (${goalPercent}%)`, value: goalPercent },
+        { label: "Stretch (100%)", value: 100 },
+      ]
+    : [
+        { label: "25%", value: 25 },
+        { label: `Min (${minTargetPercent}%)`, value: minTargetPercent },
+        { label: "75%", value: 75 },
+        { label: "Goal (100%)", value: 100 },
+      ];
 
   return (
     <div
@@ -60,8 +77,10 @@ export const AnimatedProgressBar: React.FC<AnimatedProgressBarProps> = ({
               Campaign Funding Progress
             </h4>
             <p className="text-xs text-zinc-400">
-              {isHardCapReached
-                ? "Hard cap reached! Fully funded!"
+              {isStretchReached
+                ? "🎉 Stretch goal unlocked! Amazing!"
+                : isGoalReached
+                ? "Goal reached! Fully funded!"
                 : isMinTargetReached
                 ? "Minimum goal met! Campaign will succeed."
                 : "Fundraising in progress..."}
@@ -89,11 +108,38 @@ export const AnimatedProgressBar: React.FC<AnimatedProgressBarProps> = ({
           aria-valuetext={`${percentage}% funded, ${totalRaised.toLocaleString()} of ${targetAmount.toLocaleString()} ${currencySymbol}`}
           className="h-4 w-full rounded-full bg-zinc-800/90 p-0.5 overflow-hidden border border-zinc-700/40 relative"
         >
-          {/* Animated Fill Bar */}
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-1000 ease-out shadow-lg shadow-emerald-500/30"
-            style={{ width: `${animatedWidth}%` }}
-          />
+          {/* Segmented Progress Bar for Tiers */}
+          {stretchTarget && stretchTarget > targetAmount ? (
+            <>
+              {/* Minimum Tier Segment */}
+              <div
+                className="h-full rounded-l-full bg-yellow-400 transition-all duration-1000 ease-out absolute left-0"
+                style={{ width: `${Math.min(animatedWidth, minTargetPercent)}%` }}
+              />
+              {/* Goal Tier Segment */}
+              <div
+                className="h-full bg-emerald-500 transition-all duration-1000 ease-out absolute left-0"
+                style={{ 
+                  width: `${Math.min(animatedWidth, goalPercent)}%`,
+                  clipPath: `inset(0 0 0 ${minTargetPercent}%)`
+                }}
+              />
+              {/* Stretch Tier Segment */}
+              <div
+                className="h-full rounded-r-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-1000 ease-out shadow-lg shadow-purple-500/30 absolute left-0"
+                style={{ 
+                  width: `${animatedWidth}%`,
+                  clipPath: `inset(0 0 0 ${goalPercent}%)`
+                }}
+              />
+            </>
+          ) : (
+            /* Standard Fill Bar */
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-1000 ease-out shadow-lg shadow-emerald-500/30"
+              style={{ width: `${animatedWidth}%` }}
+            />
+          )}
         </div>
 
         {/* Milestone Tick Markers */}
@@ -122,7 +168,7 @@ export const AnimatedProgressBar: React.FC<AnimatedProgressBarProps> = ({
       </div>
 
       {/* Raised & Target Metrics Breakdown */}
-      <div className="grid grid-cols-3 gap-3 pt-3 border-t border-zinc-800 text-center">
+      <div className={`grid ${stretchTarget && stretchTarget > targetAmount ? 'grid-cols-4' : 'grid-cols-3'} gap-3 pt-3 border-t border-zinc-800 text-center`}>
         <div className="p-2.5 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
           <span className="text-xs text-zinc-400 block">Total Raised</span>
           <span className="text-sm sm:text-base font-bold text-zinc-100 font-mono">
@@ -130,25 +176,37 @@ export const AnimatedProgressBar: React.FC<AnimatedProgressBarProps> = ({
           </span>
         </div>
 
-        <div className="p-2.5 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
-          <span className="text-xs text-zinc-400 block">Min Threshold</span>
-          <span className="text-sm sm:text-base font-bold text-zinc-300 font-mono flex items-center justify-center gap-1">
+        <div className="p-2.5 rounded-xl bg-zinc-950/60 border border-yellow-400/30">
+          <span className="text-xs text-zinc-400 block">Minimum</span>
+          <span className="text-sm sm:text-base font-bold text-yellow-400 font-mono flex items-center justify-center gap-1">
             {minTarget.toLocaleString()} {currencySymbol}
             {isMinTargetReached && (
-              <CheckCircle2 className="size-3.5 text-emerald-400 inline" />
+              <CheckCircle2 className="size-3.5 text-yellow-400 inline" />
             )}
           </span>
         </div>
 
-        <div className="p-2.5 rounded-xl bg-zinc-950/60 border border-zinc-800/80">
-          <span className="text-xs text-zinc-400 block">Hard Cap Target</span>
+        <div className="p-2.5 rounded-xl bg-zinc-950/60 border border-emerald-500/30">
+          <span className="text-xs text-zinc-400 block">Goal</span>
           <span className="text-sm sm:text-base font-bold text-emerald-400 font-mono flex items-center justify-center gap-1">
             {targetAmount.toLocaleString()} {currencySymbol}
-            {isHardCapReached && (
-              <Trophy className="size-3.5 text-amber-400 inline" />
+            {isGoalReached && (
+              <Trophy className="size-3.5 text-emerald-400 inline" />
             )}
           </span>
         </div>
+
+        {stretchTarget && stretchTarget > targetAmount && (
+          <div className="p-2.5 rounded-xl bg-zinc-950/60 border border-purple-500/30">
+            <span className="text-xs text-zinc-400 block">Stretch</span>
+            <span className="text-sm sm:text-base font-bold text-purple-400 font-mono flex items-center justify-center gap-1">
+              {stretchTarget.toLocaleString()} {currencySymbol}
+              {isStretchReached && (
+                <Trophy className="size-3.5 text-purple-400 inline" />
+              )}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

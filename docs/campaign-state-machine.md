@@ -92,53 +92,7 @@ The Fundable platform defines six distinct states that a campaign can be in thro
 
 ## State Transition Diagram
 
-```
-┌─────────┐
-│  Draft  │
-└────┬────┘
-     │ publish
-     ▼
-┌─────────┐                                    ┌───────────┐
-│ Active  │──── deadline passed & funded ─────▶│ Completed │
-└────┬────┘    (auto with claim_funds)         └───────────┘
-     │
-     │ deadline passed & underfunded
-     │ OR creator abandons
-     ▼
-┌───────────┐
-│ Abandoned │
-└───────────┘
-
-
-[Detailed transition path for successful campaigns]
-
-┌─────────┐
-│  Draft  │
-└────┬────┘
-     │ publish
-     ▼
-┌──────────┐
-│  Active  │
-└────┬─────┘
-     │ contributions + claim_funds
-     ▼
-┌───────────────────┐
-│TreesBeingPlanted  │
-└────┬──────────────┘
-     │ submit verification
-     ▼
-┌──────────────────┐
-│UnderVerification │
-└────┬─────────────┘
-     │
-     ├─ verification passed ──▶ ┌───────────┐
-     │                          │ Completed │
-     │                          └───────────┘
-     │
-     └─ trees died ──▶ ┌───────────┐
-                       │ Abandoned │
-                       └───────────┘
-```
+The complete Mermaid diagram and transition summary live in [Campaign lifecycle states](campaign-states.md). Keep that diagram as the canonical overview so the normal lifecycle and the rework path after verification are shown together.
 
 ## State Transitions
 
@@ -168,6 +122,7 @@ The Fundable platform defines six distinct states that a campaign can be in thro
 | To State | Trigger | Conditions | Actor |
 |----------|---------|------------|-------|
 | Completed | `verify_trees()` | Trees verified as planted and alive | Admin |
+| TreesBeingPlanted | `request_rework()` | More planting work or evidence is required | Admin |
 | Abandoned | `mark_trees_died()` | Trees verified as dead/not planted | Admin |
 
 ### From Completed

@@ -11,12 +11,14 @@ export interface PersonalizedRecommendationOptions {
   limit?: number;
   includeNonActive?: boolean;
   followedCreators?: readonly string[];
+  viewedCampaignIds?: readonly string[];
   species?: readonly string[];
   geographicInterests?: readonly string[];
   environmentalCauses?: readonly string[];
 }
 export interface PersonalizedRecommendationComponents {
   backingHistory: number;
+  browsingHistory: number;
   followedCreator: number;
   collaboratorInterest: number;
   speciesPreference: number;
@@ -75,8 +77,9 @@ function locationScore(preferences: Set<string>, location: string | undefined): 
 }
 
 /**
- * Scores candidates using backing affinity (50%), follows (30%), and co-backer
- * overlap (20%). Returned components and reasons make every rank inspectable.
+ * Scores candidates using backing history, viewed campaigns, followed creators,
+ * co-backer overlap, and stated content preferences. Returned components and
+ * reasons make every rank inspectable.
  */
 export class PersonalizedCampaignRecommendationService {
   constructor(private readonly dataSource?: CampaignDataSource) {}
@@ -90,6 +93,8 @@ export class PersonalizedCampaignRecommendationService {
     const network = options.network ?? "testnet";
     const campaigns = await this.getCampaigns(network);
     const followedCreators = new Set((options.followedCreators ?? []).map(normalizeAddress).filter(Boolean));
+    const viewedIds = new Set(options.viewedCampaignIds ?? []);
+    const viewed = campaigns.filter((campaign) => viewedIds.has(campaign.id));
     const preferredSpecies = normalizedTokens(options.species);
     const preferredLocations = normalizedTokens(options.geographicInterests);
     const preferredCauses = normalizedTokens(options.environmentalCauses);
@@ -97,15 +102,19 @@ export class PersonalizedCampaignRecommendationService {
     const backedIds = new Set(backed.map((campaign) => campaign.id));
     const coBackers = new Set<string>();
     for (const campaign of backed) for (const backer of contributionBackers(campaign)) if (backer !== normalizedAddress) coBackers.add(backer);
-    const coldStart = backed.length === 0 && followedCreators.size === 0;
+    const coldStart = backed.length === 0 && viewed.length === 0 && followedCreators.size === 0 &&
+      preferredSpecies.size === 0 && preferredLocations.size === 0 && preferredCauses.size === 0;
     const ranked = campaigns
-      .filter((campaign) => !backedIds.has(campaign.id) && (options.includeNonActive || campaign.status === ACTIVE_STATUS))
+      .filter((campaign) => !backedIds.has(campaign.id) && !viewedIds.has(campaign.id) && (options.includeNonActive || campaign.status === ACTIVE_STATUS))
       .map((campaign) => {
         const candidateBackers = contributionBackers(campaign);
         const sharedBackers = [...candidateBackers].filter((backer) => coBackers.has(backer)).length;
         const historicalSimilarity = backed.length === 0
           ? 0
           : backed.reduce((total, historical) => total + calculateCampaignSimilarity(historical, campaign).score / 100, 0) / backed.length;
+        const browsingSimilarity = viewed.length === 0
+          ? 0
+          : viewed.reduce((total, historical) => total + calculateCampaignSimilarity(historical, campaign).score / 100, 0) / viewed.length;
         const speciesPreference = preferredSpecies.size > 0
           ? overlapScore(preferredSpecies, campaign.species)
           : backed.reduce((total, historical) => total + overlapScore(normalizedTokens(historical.species), campaign.species), 0) / Math.max(backed.length, 1);
@@ -117,17 +126,19 @@ export class PersonalizedCampaignRecommendationService {
           : backed.reduce((total, historical) => total + overlapScore(normalizedTokens(historical.environmentalCauses), campaign.environmentalCauses), 0) / Math.max(backed.length, 1);
         const components: PersonalizedRecommendationComponents = {
           backingHistory: historicalSimilarity,
+          browsingHistory: browsingSimilarity,
           followedCreator: followedCreators.has(normalizeAddress(campaign.creator)) ? 1 : 0,
           collaboratorInterest: candidateBackers.size === 0 ? 0 : sharedBackers / candidateBackers.size,
           speciesPreference,
           geographicInterest,
           environmentalCause,
         };
-        const collaborativeScore = components.backingHistory * 0.5 + components.followedCreator * 0.3 + components.collaboratorInterest * 0.2;
+        const collaborativeScore = components.backingHistory * 0.4 + components.browsingHistory * 0.2 + components.followedCreator * 0.25 + components.collaboratorInterest * 0.15;
         const contentScore = components.speciesPreference * 0.4 + components.geographicInterest * 0.3 + components.environmentalCause * 0.3;
         const score = Number((collaborativeScore * 0.6 + contentScore * 0.4).toFixed(2));
         const reasons = [
           ...(components.backingHistory >= 0.5 ? ["Matches your backing history"] : []),
+          ...(components.browsingHistory >= 0.5 ? ["Similar to campaigns you viewed"] : []),
           ...(components.followedCreator === 1 ? ["Created by someone you follow"] : []),
           ...(components.collaboratorInterest > 0 ? ["Backed by people with similar interests"] : []),
           ...(components.speciesPreference > 0 ? ["Matches your preferred tree species"] : []),

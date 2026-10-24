@@ -191,9 +191,70 @@ function toCo2Kg(volumeUsd: bigint): number {
   return Math.round(Number(volumeUsd) * CO2_PER_USD_KG * 10) / 10;
 }
 
+// ── Creator campaign analytics (issue #1173) ─────────────────────────────────
+
+/** A single page-view event for a campaign page. */
+export interface CampaignPageViewEvent {
+  /** Unix timestamp (seconds) when the view occurred. */
+  timestamp: number;
+  /** Traffic source label (e.g. "twitter", "direct", "newsletter"). */
+  source: string;
+  /** Optional referrer URL. */
+  referrer?: string;
+  /** Optional ISO 3166-1 alpha-2 country code of the viewer. */
+  country?: string;
+  /** Optional visitor identifier used to de-duplicate unique visitors. */
+  visitorId?: string;
+}
+
+/** A single funnel step event (e.g. "view", "pledge_started", "pledge_completed"). */
+export interface CampaignFunnelEvent {
+  /** Unix timestamp (seconds) when the step occurred. */
+  timestamp: number;
+  /** Funnel step name. */
+  step: string;
+  /** Optional visitor identifier for step-level conversion. */
+  visitorId?: string;
+}
+
+/** A single contribution (pledge) to the campaign. */
+export interface CampaignContributionEvent {
+  /** Unix timestamp (seconds) when the contribution was made. */
+  timestamp: number;
+  /** Amount in stroops (as string to avoid BigInt issues). */
+  amount: string;
+  /** Optional token contract address. */
+  asset?: string;
+  /** Optional human-readable ticker (USDC, XLM, etc.). */
+  symbol?: string;
+  /** Optional USD-equivalent value of the contribution. */
+  usdEquivalent?: string;
+  /** Optional ISO 3166-1 alpha-2 country code of the backer. */
+  country?: string;
+  /** Optional backer Stellar address. */
+  backer?: string;
+}
+
+/**
+ * Raw analytics events for a single campaign. Consumed by the creator
+ * analytics dashboard aggregation and CSV/PDF export.
+ */
+export interface CampaignAnalyticsEvents {
+  campaignId: string;
+  pageViews: CampaignPageViewEvent[];
+  funnel: CampaignFunnelEvent[];
+  contributions: CampaignContributionEvent[];
+}
+
 /** Pluggable data source interface — swap for a real DB/RPC in production. */
 export interface StreamDataSource {
   getStreams(network: string): Promise<StreamRecord[]>;
+  /**
+   * Fetch raw analytics events for a creator campaign (issue #1173).
+   * Optional so existing data sources remain compatible; the service
+   * falls back to an empty event set when not implemented.
+   */
+  getCampaignAnalyticsEvents?(campaignId: string): Promise<CampaignAnalyticsEvents>;
 }
 
 // ── Default data source (reads from env-configured Stellar RPC) ───────────────
@@ -220,6 +281,33 @@ export class DefaultStreamDataSource implements StreamDataSource {
     // const events = await rpc.getEvents({ ... });
     // return parseStreamEvents(events);
     return [];
+  }
+
+  /**
+   * Fetch raw analytics events for a creator campaign (issue #1173).
+   *
+   * In production this reads from the off-chain analytics tables
+   * (`campaign_page_views`, `campaign_funnel_events`, `contributions`).
+   * In test environments it returns an empty event set so the dashboard
+   * aggregation is deterministic without network/DB access.
+   */
+  async getCampaignAnalyticsEvents(campaignId: string): Promise<CampaignAnalyticsEvents> {
+    if (process.env.NODE_ENV === "test") {
+      return { campaignId, pageViews: [], funnel: [], contributions: [] };
+    }
+
+    // Real implementation sketch:
+    // const rows = await db.query(
+    //   `SELECT * FROM campaign_page_views WHERE campaign_id = $1`, [campaignId]
+    // );
+    // const funnel = await db.query(
+    //   `SELECT * FROM campaign_funnel_events WHERE campaign_id = $1`, [campaignId]
+    // );
+    // const contributions = await db.query(
+    //   `SELECT * FROM contributions WHERE campaign_id = $1`, [campaignId]
+    // );
+    // return { campaignId, pageViews: rows, funnel, contributions };
+    return { campaignId, pageViews: [], funnel: [], contributions: [] };
   }
 }
 

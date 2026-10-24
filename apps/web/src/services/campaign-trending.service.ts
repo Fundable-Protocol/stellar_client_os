@@ -67,6 +67,8 @@ export interface CampaignRecord {
   uniqueContributors?: number;
   /** Total number of contribution events (derived from `contributions` when omitted). */
   contributionCount?: number;
+  /** Total social-share events recorded for the campaign (#1198 virality signal). */
+  socialShares?: number;
   /** Optional content metadata used by personalized recommendations. */
   species?: readonly string[];
   /** Geographic focus or location tags for the campaign. */
@@ -74,11 +76,13 @@ export interface CampaignRecord {
   /** Environmental causes addressed by the campaign. */
   environmentalCauses?: readonly string[];
 }
-/** Tunable weights for the three trending signals. */
+/** Tunable weights for the trending signals. */
 export interface TrendingWeights {
   velocity: number;
   engagement: number;
   completion: number;
+  /** Weight for the social-share virality signal (#1198). Optional for backward compatibility. */
+  socialShares?: number;
 }
 
 /** Filtering / pagination options for ranked results. */
@@ -107,6 +111,8 @@ export interface CampaignTrendingRaw {
   contributionCount: number;
   /** Current raised progress against the success goal (0–1). */
   progressPercent: number;
+  /** Total social-share events recorded for the campaign. */
+  socialShares: number;
 }
 
 /** Normalised component sub-scores, each in [0, 1]. */
@@ -114,6 +120,7 @@ export interface CampaignTrendingComponents {
   velocity: number;
   engagement: number;
   completion: number;
+  socialShares: number;
 }
 
 /** A campaign with its computed trending score. */
@@ -140,11 +147,12 @@ export const DAY_SECONDS = 86_400;
 /** Trailing window used for the daily-velocity signal. */
 export const VELOCITY_WINDOW_SECONDS = DAY_SECONDS;
 
-/** Default signal weights — velocity / engagement / completion. */
+/** Default signal weights — velocity / engagement / completion / social shares. */
 export const DEFAULT_WEIGHTS: TrendingWeights = {
-  velocity: 0.4,
-  engagement: 0.3,
-  completion: 0.3,
+  velocity: 0.35,
+  engagement: 0.25,
+  completion: 0.25,
+  socialShares: 0.15,
 };
 
 /**
@@ -293,6 +301,15 @@ export function campaignProgress(record: CampaignRecord): number {
     toNonNegativeNumber(record.totalRaised) / successGoal(record)
   );
 }
+
+/**
+ * Raw social-share virality metric used for cross-campaign normalisation
+ * (#1198). Log-dampened so a single viral campaign cannot dominate the ranking.
+ */
+export function socialSharesMetric(record: CampaignRecord): number {
+  const shares = Math.max(0, Number(record.socialShares ?? 0));
+  return Math.log1p(shares);
+}
 // ---------------------------------------------------------------------------
 // Normalisation & scoring
 // ---------------------------------------------------------------------------
@@ -316,13 +333,16 @@ export function normalizeWeights(weights: TrendingWeights): TrendingWeights {
     velocity: Math.max(0, weights.velocity),
     engagement: Math.max(0, weights.engagement),
     completion: Math.max(0, weights.completion),
+    socialShares: Math.max(0, weights.socialShares ?? 0),
   };
-  const sum = clamped.velocity + clamped.engagement + clamped.completion;
+  const sum =
+    clamped.velocity + clamped.engagement + clamped.completion + clamped.socialShares;
   if (sum <= 0) return { ...DEFAULT_WEIGHTS };
   return {
     velocity: clamped.velocity / sum,
     engagement: clamped.engagement / sum,
     completion: clamped.completion / sum,
+    socialShares: clamped.socialShares / sum,
   };
 }
 /**
@@ -348,21 +368,27 @@ export function scoreTrendingCampaigns(
   const completionVec = campaigns.map((campaign) =>
     calculateCompletionProbability(campaign, now)
   );
+  const socialSharesVec = campaigns.map((campaign) =>
+    socialSharesMetric(campaign)
+  );
 
   const velocityScores = normalizeMinMax(velocityVec);
   const engagementScores = normalizeMinMax(engagementVec);
   const completionScores = normalizeMinMax(completionVec);
+  const socialSharesScores = normalizeMinMax(socialSharesVec);
 
   const scored = campaigns.map((campaign, index) => {
     const components: CampaignTrendingComponents = {
       velocity: velocityScores[index],
       engagement: engagementScores[index],
       completion: completionScores[index],
+      socialShares: socialSharesScores[index],
     };
     const composite =
       normalizedWeights.velocity * components.velocity +
       normalizedWeights.engagement * components.engagement +
-      normalizedWeights.completion * components.completion;
+      normalizedWeights.completion * components.completion +
+      (normalizedWeights.socialShares ?? 0) * components.socialShares;
     const { unique, count } = engagementCounts(campaign);
 
     return {
@@ -379,6 +405,7 @@ export function scoreTrendingCampaigns(
         uniqueContributors: unique,
         contributionCount: count,
         progressPercent: Number(campaignProgress(campaign).toFixed(4)),
+        socialShares: Math.max(0, Number(campaign.socialShares ?? 0)),
       },
     };
   });
@@ -487,6 +514,9 @@ export function demoCampaigns(): CampaignRecord[] {
 export interface CampaignTrendingServiceOptions {
   dataSource?: CampaignDataSource;
   weights?: Partial<TrendingWeights>;
+  /** Optional provider of `{ campaignId: shareCount }` used to inject the
+   *  social-share virality signal into each campaign before scoring (#1198). */
+  socialSharesProvider?: () => Record<string, number>;
 }
 
 export interface CampaignTrendingResponse {
@@ -512,12 +542,14 @@ export function weightsFromEnv(
     velocity: parse(env.TRENDING_VELOCITY_WEIGHT, DEFAULT_WEIGHTS.velocity),
     engagement: parse(env.TRENDING_ENGAGEMENT_WEIGHT, DEFAULT_WEIGHTS.engagement),
     completion: parse(env.TRENDING_COMPLETION_WEIGHT, DEFAULT_WEIGHTS.completion),
+    socialShares: parse(env.TRENDING_SHARES_WEIGHT, DEFAULT_WEIGHTS.socialShares ?? 0),
   });
 }
 
 export class CampaignTrendingService {
   private readonly dataSource: CampaignDataSource;
   private readonly weights: TrendingWeights;
+  private readonly socialSharesProvider?: () => Record<string, number>;
 
   constructor(options: CampaignTrendingServiceOptions = {}) {
     this.dataSource = options.dataSource ?? new DefaultCampaignDataSource();
@@ -525,6 +557,7 @@ export class CampaignTrendingService {
       ...weightsFromEnv(),
       ...options.weights,
     });
+    this.socialSharesProvider = options.socialSharesProvider;
   }
 
   /** Fetch the raw campaign list from the configured data source. */
@@ -544,9 +577,19 @@ export class CampaignTrendingService {
     const network = options.network ?? "testnet";
     const campaigns = await this.getCampaigns(network);
 
+    // Inject the social-share virality signal when a provider is configured so
+    // the trending score factors in funding velocity AND social shares (#1198).
+    const enriched = this.socialSharesProvider
+      ? campaigns.map((campaign) => ({
+          ...campaign,
+          socialShares:
+            campaign.socialShares ?? this.socialSharesProvider!()[campaign.id] ?? 0,
+        }))
+      : campaigns;
+
     const eligible = options.includeNonActive
-      ? campaigns
-      : campaigns.filter((campaign) => campaign.status === "Active");
+      ? enriched
+      : enriched.filter((campaign) => campaign.status === "Active");
 
     const ranked = scoreTrendingCampaigns(eligible, this.weights);
 

@@ -10,6 +10,34 @@
 
 export type DonationToken = "XLM" | "USDC";
 
+/**
+ * Currencies a backer may pledge in (issue #1170). Fiat currencies are
+ * converted to a settlement token at pledge time.
+ */
+export type SupportedCurrency = "USD" | "EUR" | "XLM" | "USDC";
+
+export const SUPPORTED_CURRENCIES: readonly SupportedCurrency[] = ["USD", "EUR", "XLM", "USDC"];
+
+/** Currencies that are settled on-chain without conversion. */
+export const SETTLEMENT_CURRENCIES: readonly SupportedCurrency[] = ["XLM", "USDC"];
+
+/** Where a conversion rate came from, for auditability. */
+export type ConversionRateSource = "ORACLE" | "EXCHANGE" | "FIXED";
+
+/**
+ * A point-in-time conversion quote between two currencies. `rate` is the
+ * multiplier applied to the original amount to obtain the converted amount.
+ */
+export interface ConversionQuote {
+  fromCurrency: SupportedCurrency;
+  toCurrency: SupportedCurrency;
+  /** Decimal rate, e.g. "0.11" for 1 USD -> 0.11 XLM. */
+  rate: string;
+  /** Unix epoch milliseconds when the rate was captured. */
+  quotedAt: number;
+  source: ConversionRateSource;
+}
+
 /** A donation is only ever created once the ledger entry has been written. */
 export type DonationStatus = "CONFIRMED" | "FAILED";
 
@@ -44,6 +72,16 @@ export interface CampaignDonation {
   /** Normalised decimal amount, e.g. "25.5". */
   amount: string;
   token: DonationToken;
+  /** Currency the backer pledged in. Defaults to `token` for legacy records. */
+  originalCurrency?: SupportedCurrency;
+  /** Amount in `originalCurrency` before conversion. */
+  originalAmount?: string;
+  /** Currency the donation was settled in (always a settlement currency). */
+  convertedCurrency?: SupportedCurrency;
+  /** Amount in `convertedCurrency` after conversion. */
+  convertedAmount?: string;
+  /** Rate applied to convert `originalAmount` into `convertedAmount`. */
+  conversionRate?: string;
   allocation: DonationAllocation;
   message?: string;
   anonymous: boolean;
@@ -65,6 +103,16 @@ export interface DonationReceipt {
   donorAddress: string;
   amount: string;
   token: DonationToken;
+  /** Currency the backer pledged in. Defaults to `token` for legacy receipts. */
+  originalCurrency?: SupportedCurrency;
+  /** Amount in `originalCurrency` before conversion. */
+  originalAmount?: string;
+  /** Currency the donation was settled in. */
+  convertedCurrency?: SupportedCurrency;
+  /** Amount in `convertedCurrency` after conversion. */
+  convertedAmount?: string;
+  /** Rate applied to convert `originalAmount` into `convertedAmount`. */
+  conversionRate?: string;
   allocation: DonationAllocation;
   allocationLabel: string;
   allocationDescription: string;
@@ -86,6 +134,48 @@ export function isDonationToken(value: unknown): value is DonationToken {
 
 export function isDonationStatus(value: unknown): value is DonationStatus {
   return value === "CONFIRMED" || value === "FAILED";
+}
+
+export function isSupportedCurrency(value: unknown): value is SupportedCurrency {
+  return (
+    value === "USD" || value === "EUR" || value === "XLM" || value === "USDC"
+  );
+}
+
+export function isSettlementCurrency(value: unknown): value is SupportedCurrency {
+  return value === "XLM" || value === "USDC";
+}
+
+/** True when pledging in `currency` requires a conversion to settle. */
+export function requiresConversion(currency: SupportedCurrency): boolean {
+  return !isSettlementCurrency(currency);
+}
+
+/**
+ * Format the dual-amount line shown on a receipt, e.g.
+ * "25.00 USD (≈ 227.27 XLM)". Falls back to the single amount when no
+ * conversion details are present (legacy receipts).
+ */
+export function formatDualAmount(receipt: {
+  amount: string;
+  token: DonationToken;
+  originalCurrency?: SupportedCurrency;
+  originalAmount?: string;
+  convertedCurrency?: SupportedCurrency;
+  convertedAmount?: string;
+}): string {
+  const originalCurrency = receipt.originalCurrency ?? receipt.token;
+  const originalAmount = receipt.originalAmount ?? receipt.amount;
+  const convertedCurrency = receipt.convertedCurrency;
+  const convertedAmount = receipt.convertedAmount;
+
+  if (!convertedCurrency || !convertedAmount) {
+    return `${originalAmount} ${originalCurrency}`;
+  }
+  if (originalCurrency === convertedCurrency && originalAmount === convertedAmount) {
+    return `${originalAmount} ${originalCurrency}`;
+  }
+  return `${originalAmount} ${originalCurrency} (≈ ${convertedAmount} ${convertedCurrency})`;
 }
 
 const WHOLE_AMOUNT_PATTERN = /^\d+$/;

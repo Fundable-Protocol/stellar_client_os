@@ -53,6 +53,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         goalAmount: result.campaign.goalAmount,
       },
       milestones: result.milestones,
+      badges: result.badges,
     },
     { status: 201 },
   );

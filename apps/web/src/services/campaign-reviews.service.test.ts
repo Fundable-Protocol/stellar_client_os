@@ -1,23 +1,22 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  REVIEW_OPENING_DELAY_DAYS,
   checkReviewEligibility,
   getCampaignRatingSummaries,
   getRatingSummary,
   listReviews,
+  moderateCampaignReview,
   resetCampaignReviews,
   submitCampaignReview,
 } from "./campaign-reviews.service";
 import { backersService } from "./campaign-backers.service";
 import type { CampaignRecord } from "./campaign.service";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const CAMPAIGN = "camp-rev-1";
 const BACKER = "GBACKER...AAAA";
 const OTHER = "GOTHER...BBBB";
 const NOW = 1_700_000_000_000;
 
-function closedCampaign(status: CampaignRecord["status"] = "COMPLETED", closedAt = NOW - 40 * DAY_MS): CampaignRecord {
+function campaignRecord(status: CampaignRecord["status"] = "ACTIVE"): CampaignRecord {
   return {
     id: CAMPAIGN,
     creator: "GCREATOR...AAAA",
@@ -27,15 +26,15 @@ function closedCampaign(status: CampaignRecord["status"] = "COMPLETED", closedAt
     raisedAmount: "40000",
     sponsorCount: 1,
     treeCount: 10,
-    createdAt: closedAt - 100 * DAY_MS,
-    updatedAt: closedAt,
-    statusChangedAt: closedAt,
+    createdAt: NOW - 1000,
+    updatedAt: NOW - 1000,
+    statusChangedAt: NOW - 1000,
     sponsors: [],
     statusHistory: [],
   };
 }
 
-const campaignLookup = () => closedCampaign();
+const campaignLookup = () => campaignRecord();
 
 beforeEach(() => {
   resetCampaignReviews();
@@ -44,35 +43,33 @@ beforeEach(() => {
   backersService.recordContribution({ campaignId: CAMPAIGN, backerAddress: BACKER, amount: "900", token: "XLM", displayName: "Alice" });
 });
 
-describe("review eligibility (AC1)", () => {
-  it("opens reviews only 30 days after the campaign closes", () => {
-    const justClosed = closedCampaign("COMPLETED", NOW - REVIEW_OPENING_DELAY_DAYS * DAY_MS + 1000);
-    expect(checkReviewEligibility(CAMPAIGN, BACKER, NOW, () => justClosed)).toMatchObject({
-      eligible: false,
-      reason: "review_window_pending",
-    });
-
-    const oldEnough = closedCampaign("COMPLETED", NOW - REVIEW_OPENING_DELAY_DAYS * DAY_MS - 1000);
-    expect(checkReviewEligibility(CAMPAIGN, BACKER, NOW, () => oldEnough).eligible).toBe(true);
+describe("review eligibility", () => {
+  it("lets a backer submit immediately after contributing, including during an active campaign", () => {
+    expect(checkReviewEligibility(CAMPAIGN, BACKER, NOW, campaignLookup).eligible).toBe(true);
   });
 
-  it("rejects open campaigns, non-backers, and repeat reviews", () => {
-    expect(checkReviewEligibility(CAMPAIGN, BACKER, NOW, () => closedCampaign("ACTIVE", NOW - 90 * DAY_MS)).reason).toBe(
-      "campaign_not_closed",
-    );
+  it("rejects non-backers, unknown campaigns, and repeat reviews", async () => {
     expect(checkReviewEligibility(CAMPAIGN, OTHER, NOW, campaignLookup).reason).toBe("not_a_backer");
     expect(checkReviewEligibility("ghost", BACKER, NOW, () => null).reason).toBe("campaign_not_found");
+    await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: BACKER, rating: 5, reviewText: "Great work." }, NOW, campaignLookup);
+    expect(checkReviewEligibility(CAMPAIGN, BACKER, NOW + 1, campaignLookup).reason).toBe("already_reviewed");
   });
 });
 
-describe("submitCampaignReview (AC2: stars + optional text)", () => {
-  it("stores a star rating with optional text and aggregates the average", async () => {
-    const withText = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: BACKER, rating: 4, reviewText: "Great work!" }, NOW);
+describe("submitCampaignReview", () => {
+  it("holds submissions for approval and aggregates only approved reviews", async () => {
+    const withText = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: BACKER, rating: 4, reviewText: "Great work!" }, NOW, campaignLookup);
     expect(withText.ok).toBe(true);
+    expect(getRatingSummary(CAMPAIGN)).toEqual({ averageRating: null, reviewCount: 0 });
+    expect(listReviews(CAMPAIGN)).toHaveLength(0);
+    if (!withText.ok) throw new Error("Expected review submission to succeed");
+    moderateCampaignReview(CAMPAIGN, withText.review.id, "approve");
 
     backersService.recordContribution({ campaignId: CAMPAIGN, backerAddress: OTHER, amount: "100", token: "XLM", displayName: "Bob" });
-    const starsOnly = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: OTHER, rating: 5 }, NOW + 1);
-    expect(starsOnly.ok).toBe(true);
+    const withTestimonial = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: OTHER, rating: 5, reviewText: "Meaningful impact." }, NOW + 1, campaignLookup);
+    expect(withTestimonial.ok).toBe(true);
+    if (!withTestimonial.ok) throw new Error("Expected review submission to succeed");
+    moderateCampaignReview(CAMPAIGN, withTestimonial.review.id, "approve");
 
     const summary = getRatingSummary(CAMPAIGN);
     expect(summary).toEqual({ averageRating: 4.5, reviewCount: 2 });
@@ -81,17 +78,24 @@ describe("submitCampaignReview (AC2: stars + optional text)", () => {
   });
 
   it("rejects out-of-range ratings, oversized text, and ineligible submissions", async () => {
-    const badRating = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: BACKER, rating: 6 }, NOW);
+    const badRating = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: BACKER, rating: 6 }, NOW, campaignLookup);
     expect(badRating.ok).toBe(false);
+    const missingText = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: BACKER, rating: 5 }, NOW, campaignLookup);
+    expect(missingText).toMatchObject({ ok: false, error: "reviewText is required" });
 
-    const tooLong = await submitCampaignReview(
-      { campaignId: CAMPAIGN, backerAddress: BACKER, rating: 5, reviewText: "x".repeat(1001) },
-      NOW,
-    );
+    const tooLong = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: BACKER, rating: 5, reviewText: "x".repeat(281) }, NOW, campaignLookup);
     expect(tooLong.ok).toBe(false);
 
-    const tooEarly = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: BACKER, rating: 5 }, NOW - 100 * DAY_MS);
-    expect(tooEarly).toMatchObject({ ok: false, reason: "review_window_pending" });
+    const rejected = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: OTHER, rating: 5, reviewText: "Great work." }, NOW, campaignLookup);
+    expect(rejected).toMatchObject({ ok: false, reason: "not_a_backer" });
     expect(listReviews(CAMPAIGN)).toHaveLength(0);
+  });
+
+  it("only lets approved testimonials be featured", async () => {
+    const result = await submitCampaignReview({ campaignId: CAMPAIGN, backerAddress: BACKER, rating: 5, reviewText: "Great work." }, NOW, campaignLookup);
+    if (!result.ok) throw new Error("Expected review submission to succeed");
+    expect(moderateCampaignReview(CAMPAIGN, result.review.id, "feature")).toBeNull();
+    moderateCampaignReview(CAMPAIGN, result.review.id, "approve");
+    expect(moderateCampaignReview(CAMPAIGN, result.review.id, "feature")?.featured).toBe(true);
   });
 });

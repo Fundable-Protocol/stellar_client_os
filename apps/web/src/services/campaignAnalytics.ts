@@ -55,6 +55,54 @@ export interface CampaignComparisonConfig {
 }
 
 /**
+ * Issue #1173: Creator analytics dashboard
+ *
+ * Selectable range for the daily analytics series.
+ */
+export type AnalyticsRange = '7d' | '30d' | '90d' | '1y' | 'all';
+
+/**
+ * A single day of creator analytics. This is the shared data shape used by
+ * the dashboard charts and the CSV/PDF exports.
+ */
+export interface DailyAnalyticsPoint {
+  timestamp: number; // Unix timestamp (seconds), start of day
+  date: string; // ISO date string (YYYY-MM-DD)
+  pledges: number; // total pledged amount for the day
+  pledgeCount: number; // number of pledges made
+  pageViews: number; // campaign page views
+  uniqueVisitors: number; // unique visitors to the campaign page
+  backers: number; // number of backers (pledges) that day
+  conversionRate: number; // backers / uniqueVisitors, 0-1
+}
+
+/**
+ * Aggregated totals for the selected range, derived from the daily series.
+ */
+export interface AnalyticsSummary {
+  totalPledges: number;
+  totalPledgeCount: number;
+  totalPageViews: number;
+  totalUniqueVisitors: number;
+  totalBackers: number;
+  conversionRate: number; // totalBackers / totalUniqueVisitors, 0-1
+  averageDailyPledges: number;
+}
+
+/**
+ * Full analytics payload for a campaign over a selectable range.
+ */
+export interface CampaignAnalyticsSeries {
+  campaignId: string;
+  campaignName: string;
+  range: AnalyticsRange;
+  startDate: string; // ISO date string
+  endDate: string; // ISO date string
+  dataPoints: DailyAnalyticsPoint[];
+  summary: AnalyticsSummary;
+}
+
+/**
  * Mock data source for campaign historical data
  * In production, this would query a database/indexer
  */
@@ -244,6 +292,150 @@ export class CampaignAnalyticsService {
       campaigns.push({ id, name: data.campaignName, region: '', projectType: '' });
     }
     return campaigns;
+  }
+
+  /**
+   * Issue #1173: Historical daily-series provider for the creator dashboard.
+   *
+   * Returns daily pledges, page views and conversion rate over the selected
+   * range. The returned `DailyAnalyticsPoint[]` is the single data shape shared
+   * by the dashboard charts and the CSV/PDF exports.
+   */
+  async getCampaignAnalyticsSeries(
+    campaignId: string,
+    range: AnalyticsRange = '30d'
+  ): Promise<CampaignAnalyticsSeries | null> {
+    // Simulate async fetch
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    const campaign = this.mockCampaignData.get(campaignId);
+    if (!campaign) {
+      return null;
+    }
+
+    const dataPoints = this.generateDailyAnalytics(campaignId, range);
+    const summary = this.summarizeAnalytics(dataPoints);
+
+    return {
+      campaignId,
+      campaignName: campaign.campaignName,
+      range,
+      startDate: dataPoints.length > 0 ? dataPoints[0].date : '',
+      endDate: dataPoints.length > 0 ? dataPoints[dataPoints.length - 1].date : '',
+      dataPoints,
+      summary,
+    };
+  }
+
+  private getRangeInDays(range: AnalyticsRange): number {
+    switch (range) {
+      case '7d':
+        return 7;
+      case '30d':
+        return 30;
+      case '90d':
+        return 90;
+      case '1y':
+        return 365;
+      case 'all':
+        return 365;
+      default:
+        return 30;
+    }
+  }
+
+  /**
+   * Deterministic pseudo-random generator seeded by campaign id and day so the
+   * mock series is stable across calls (charts and exports stay consistent).
+   */
+  private seededRandom(seed: string): () => number {
+    let h = 2166136261;
+    for (let i = 0; i < seed.length; i++) {
+      h ^= seed.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return () => {
+      h += 0x6d2b79f5;
+      let t = h;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  private generateDailyAnalytics(campaignId: string, range: AnalyticsRange): DailyAnalyticsPoint[] {
+    const days = this.getRangeInDays(range);
+    const points: DailyAnalyticsPoint[] = [];
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let i = days - 1; i >= 0; i--) {
+      const day = new Date(today);
+      day.setDate(day.getDate() - i);
+      const date = day.toISOString().split('T')[0];
+      const timestamp = Math.floor(day.getTime() / 1000);
+
+      const rand = this.seededRandom(`${campaignId}:${date}`);
+
+      // Traffic: page views with a mild upward trend and weekly seasonality.
+      const dayOfWeek = day.getDay();
+      const weekendFactor = dayOfWeek === 0 || dayOfWeek === 6 ? 0.7 : 1;
+      const trendFactor = 1 + (days - i) / (days * 2);
+      const pageViews = Math.round((200 + rand() * 400) * weekendFactor * trendFactor);
+      const uniqueVisitors = Math.max(1, Math.round(pageViews * (0.55 + rand() * 0.2)));
+
+      // Conversion: 2%-8% of unique visitors become backers.
+      const conversionRate = 0.02 + rand() * 0.06;
+      const backers = Math.round(uniqueVisitors * conversionRate);
+      const pledgeCount = backers;
+      const averagePledge = 25 + rand() * 75;
+      const pledges = Math.round(backers * averagePledge * 100) / 100;
+
+      points.push({
+        timestamp,
+        date,
+        pledges,
+        pledgeCount,
+        pageViews,
+        uniqueVisitors,
+        backers,
+        conversionRate: uniqueVisitors > 0 ? Math.round((backers / uniqueVisitors) * 10000) / 10000 : 0,
+      });
+    }
+
+    return points;
+  }
+
+  private summarizeAnalytics(dataPoints: DailyAnalyticsPoint[]): AnalyticsSummary {
+    let totalPledges = 0;
+    let totalPledgeCount = 0;
+    let totalPageViews = 0;
+    let totalUniqueVisitors = 0;
+    let totalBackers = 0;
+
+    for (const dp of dataPoints) {
+      totalPledges += dp.pledges;
+      totalPledgeCount += dp.pledgeCount;
+      totalPageViews += dp.pageViews;
+      totalUniqueVisitors += dp.uniqueVisitors;
+      totalBackers += dp.backers;
+    }
+
+    const dayCount = dataPoints.length || 1;
+
+    return {
+      totalPledges: Math.round(totalPledges * 100) / 100,
+      totalPledgeCount,
+      totalPageViews,
+      totalUniqueVisitors,
+      totalBackers,
+      conversionRate:
+        totalUniqueVisitors > 0
+          ? Math.round((totalBackers / totalUniqueVisitors) * 10000) / 10000
+          : 0,
+      averageDailyPledges: Math.round((totalPledges / dayCount) * 100) / 100,
+    };
   }
 }
 

@@ -1,16 +1,18 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { CheckCircle2, Calendar, CreditCard, ChevronRight, AlertCircle, ShieldCheck, Sparkles } from "lucide-react";
+import { CheckCircle2, Calendar, CreditCard, ChevronRight, AlertCircle, ShieldCheck, Sparkles, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useWallet } from "@/providers/StellarWalletProvider";
+import { PersonalizedCampaignRecommendations } from "@/components/campaign/PersonalizedCampaignRecommendations";
 import {
   RewardTier,
   InstalmentPlanMonths,
   InstalmentPlanBreakdown,
   BackerInstalmentPledge,
 } from "@/types/campaign-instalments";
+import { ANONYMITY_TOOLTIP } from "@/types/backer-anonymity";
 
 export interface RewardTiersInstalmentCheckoutProps {
   campaignId: string;
@@ -37,6 +39,9 @@ export function RewardTiersInstalmentCheckout({
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
 
   const [backerEmail, setBackerEmail] = useState("");
+  // #1195 — backer anonymity at pledge time
+  const [pledgeAnonymous, setPledgeAnonymous] = useState(false);
+  const [hideAmount, setHideAmount] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [completedPledge, setCompletedPledge] = useState<BackerInstalmentPledge | null>(null);
@@ -204,6 +209,8 @@ export function RewardTiersInstalmentCheckout({
           backerAddress: address,
           backerEmail: backerEmail.trim() || undefined,
           planMonths: selectedPlanMonths,
+          anonymous: pledgeAnonymous,
+          hideAmount: pledgeAnonymous && hideAmount,
           idempotencyKey: `${campaignId}-${selectedTier.id}-${address}-${selectedPlanMonths}`,
         }),
       });
@@ -345,6 +352,7 @@ export function RewardTiersInstalmentCheckout({
                   Done
                 </Button>
               </div>
+              <PersonalizedCampaignRecommendations />
             </div>
           ) : (
             <div className="space-y-6">
@@ -447,6 +455,48 @@ export function RewardTiersInstalmentCheckout({
                   onChange={(e) => setBackerEmail(e.target.value)}
                   className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-purple-600 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                 />
+              </div>
+
+              {/* #1195 — Backer anonymity at pledge time */}
+              <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/60 space-y-3">
+                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-200 flex items-center gap-1.5">
+                  <EyeOff className="h-3.5 w-3.5" />
+                  Privacy options
+                </p>
+                <label className="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    data-testid="pledge-anonymous"
+                    checked={pledgeAnonymous}
+                    onChange={(e) => {
+                      setPledgeAnonymous(e.target.checked);
+                      if (!e.target.checked) setHideAmount(false);
+                    }}
+                    className="mt-0.5 h-4 w-4 rounded border-zinc-300 accent-purple-600"
+                  />
+                  <span>
+                    <span className="font-medium">Pledge anonymously</span>
+                    <span className="ml-1 text-xs text-zinc-500" title={ANONYMITY_TOOLTIP}>
+                      — hide my name &amp; address from the public backer list
+                    </span>
+                  </span>
+                </label>
+                {pledgeAnonymous && (
+                  <label className="flex items-start gap-2 text-sm text-zinc-600 dark:text-zinc-400 cursor-pointer pl-6">
+                    <input
+                      type="checkbox"
+                      data-testid="pledge-hide-amount"
+                      checked={hideAmount}
+                      onChange={(e) => setHideAmount(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-zinc-300 accent-purple-600"
+                    />
+                    <span>Also hide my pledge amount from the public list</span>
+                  </label>
+                )}
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-500 leading-relaxed">
+                  You will still receive your reward tier, receipt, and all campaign updates
+                  regardless of this setting.
+                </p>
               </div>
 
               {error && (

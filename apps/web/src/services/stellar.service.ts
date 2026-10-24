@@ -38,6 +38,9 @@ import type {
   StreamStatus,
   DistributionHistory,
   HistoryRecord,
+  SupportedCurrency,
+  ConversionQuote,
+  PledgePaymentPayload,
 } from './types';
 import {
   StellarError,
@@ -58,8 +61,39 @@ const DEFAULT_TIMEOUT = 30; // seconds
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_BASE_FEE = '100'; // stroops
 
+// Number of decimal places used by each supported currency.
+const CURRENCY_DECIMALS: Record<SupportedCurrency, number> = {
+  USD: 2,
+  EUR: 2,
+  XLM: 7,
+  USDC: 7,
+};
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Convert a human-readable decimal amount (e.g. "12.34") into its minor units
+ * (e.g. 1234n) for the given currency, without floating point rounding errors.
+ */
+function toMinorUnits(amount: string, currency: SupportedCurrency): bigint {
+  const decimals = CURRENCY_DECIMALS[currency];
+  const trimmed = amount.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) {
+    throw new ValidationError(`Invalid amount format: ${amount}`, 'amount');
+  }
+
+  const [wholePart, fractionPart = ''] = trimmed.split('.');
+  if (fractionPart.length > decimals) {
+    throw new ValidationError(
+      `Amount ${amount} has more than ${decimals} decimal places for ${currency}`,
+      'amount'
+    );
+  }
+
+  const paddedFraction = fractionPart.padEnd(decimals, '0');
+  return BigInt(`${wholePart}${paddedFraction}`);
 }
 
 /**
@@ -348,6 +382,97 @@ export class StellarService {
       args,
       signerKeypair
     );
+  }
+
+  /**
+   * Convert a display-currency pledge amount into the settlement asset's minor
+   * units using a supplied conversion quote.
+   *
+   * The quote must have been produced for the same currency pair and must not
+   * have expired; otherwise a ValidationError is thrown so the caller can
+   * refresh the rate before asking the backer to confirm.
+   *
+   * @param amount - Amount in the original (display) currency, e.g. "25.00"
+   * @param quote - Conversion quote describing the rate and currencies
+   * @returns Converted amount in the settlement asset's minor units
+   */
+  convertPledgeAmount(amount: string, quote: ConversionQuote): bigint {
+    if (!quote || !quote.from || !quote.to) {
+      throw new ValidationError('A valid conversion quote is required', 'quote');
+    }
+    if (!(quote.from in CURRENCY_DECIMALS) || !(quote.to in CURRENCY_DECIMALS)) {
+      throw new ValidationError(
+        `Unsupported currency pair: ${quote.from} -> ${quote.to}`,
+        'quote'
+      );
+    }
+    if (!Number.isFinite(quote.rate) || quote.rate <= 0) {
+      throw new ValidationError('Conversion rate must be positive', 'rate');
+    }
+    if (quote.expiresAt !== undefined && quote.expiresAt <= Date.now()) {
+      throw new ValidationError('Conversion quote has expired', 'quote');
+    }
+
+    const originalMinor = toMinorUnits(amount, quote.from);
+    if (originalMinor <= 0n) {
+      throw new ValidationError('Amount must be positive', 'amount');
+    }
+
+    // Convert via the quote rate, scaling between the two currencies' decimals.
+    const fromDecimals = CURRENCY_DECIMALS[quote.from];
+    const toDecimals = CURRENCY_DECIMALS[quote.to];
+    const scale = 10n ** BigInt(toDecimals - fromDecimals + 8);
+    const rateScaled = BigInt(Math.round(quote.rate * 1e8));
+
+    const converted = (originalMinor * rateScaled) / scale;
+    if (converted <= 0n) {
+      throw new ValidationError('Converted amount rounds to zero', 'amount');
+    }
+    return converted;
+  }
+
+  /**
+   * Build the pledge transaction payload for a campaign contribution.
+   *
+   * The payload records both the original (display) currency amount and the
+   * converted settlement amount plus the applied rate, so that settlement
+   * records and receipts can show both figures.
+   *
+   * @param params - Pledge details including the chosen currency and quote
+   * @returns Payload ready to be submitted to the campaign contract
+   */
+  buildPledgePaymentPayload(params: {
+    campaignId: bigint;
+    backer: string;
+    originalCurrency: SupportedCurrency;
+    originalAmount: string;
+    quote: ConversionQuote;
+  }): PledgePaymentPayload {
+    if (!this.isValidAddress(params.backer)) {
+      throw new ValidationError('Invalid backer address', 'backer');
+    }
+    if (params.campaignId <= 0n) {
+      throw new ValidationError('Campaign ID must be positive', 'campaignId');
+    }
+    if (params.quote.from !== params.originalCurrency) {
+      throw new ValidationError(
+        `Quote currency ${params.quote.from} does not match original currency ${params.originalCurrency}`,
+        'quote'
+      );
+    }
+
+    const originalMinor = toMinorUnits(params.originalAmount, params.originalCurrency);
+    const convertedAmount = this.convertPledgeAmount(params.originalAmount, params.quote);
+
+    return {
+      campaignId: params.campaignId,
+      backer: params.backer,
+      originalCurrency: params.originalCurrency,
+      originalAmount: originalMinor,
+      convertedCurrency: params.quote.to,
+      convertedAmount,
+      rate: params.quote.rate,
+    };
   }
 
   /**
