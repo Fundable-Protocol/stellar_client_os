@@ -1,23 +1,25 @@
 "use client";
 
-import React, { useMemo, useState, useRef } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { Rocket, Plus, Heart, Users, ShieldCheck, ChevronRight, Trophy, Scale, ShoppingBag, Trees, MapPin, Megaphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import SuccessStories from "@/components/modules/campaign/success-stories/SuccessStories";
 import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 import { CampaignSearchPanel } from "@/components/modules/campaign/CampaignSearchPanel";
+import { VirtualizedCampaignGrid } from "@/components/modules/campaign/VirtualizedCampaignGrid";
 import { useCampaigns } from "@/hooks/use-campaigns";
 import { CharityBadge } from "@/components/modules/campaign/CharityBadge";
 import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
+import { LiveStreamBadge } from "@/components/modules/campaign/live-stream/LiveStreamBadge";
 import { StaffPicksSection } from "@/components/modules/campaign/StaffPicksSection";
 import { useCampaignWishlist } from "@/hooks/use-campaign-wishlist";
 import {
   DISCOVERY_REGIONS,
   DISCOVERY_TREE_SPECIES,
   filterCampaignsByDiscoveryOptions,
+  getAllCampaignTags,
   type DiscoveryRegion,
   type DiscoveryTreeSpecies,
 } from "@/lib/campaign-discovery-filters";
@@ -32,42 +34,51 @@ const CARD_ESTIMATED_HEIGHT_PX = 280;
 // A value of 3 avoids blank flashes when scrolling quickly.
 const OVERSCAN_COUNT = 3;
 
+// Stable key extractor so the virtualiser's measurement cache survives
+// re-renders (a fresh function identity would invalidate it every time).
+const getCampaignKey = (campaign: { id: string }): string => campaign.id;
+
 export default function CampaignsDirectoryPage() {
 const { campaigns } = useCampaigns();
   const { toggleWishlist, isInWishlist } = useCampaignWishlist();
   const [treeSpecies, setTreeSpecies] = useState<DiscoveryTreeSpecies | "All">("All");
   const [region, setRegion] = useState<DiscoveryRegion | "All">("All");
-  const filteredCampaigns = useMemo(
-    () => filterCampaignsByDiscoveryOptions(campaigns, { treeSpecies, region }),
-    [campaigns, treeSpecies, region],
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+
+  // Distinct categories present across all campaigns, used to render the
+  // multi-category facet checkboxes.
+  const availableCategories = useMemo(
+    () => Array.from(new Set(campaigns.map((c) => c.category).filter(Boolean))).sort(),
+    [campaigns],
   );
 
-  // ---------------------------------------------------------------------------
-  // Virtual scrolling for the campaign list — handles 10k+ campaigns without
-  // performance degradation (issue #914).
-  //
-  // We virtualise a single flat list of items.  For a 2-column layout we pair
-  // adjacent campaigns: item at virtual index `i` renders campaigns at array
-  // indices `i*2` and `i*2+1`.  This keeps the virtualizer API simple while
-  // preserving the existing 2-column grid appearance on medium+ screens.
-  // ---------------------------------------------------------------------------
-  const rowCount = Math.ceil(filteredCampaigns.length / 2);
+  // Distinct tags previously used across campaigns, used to populate the
+  // searchable tag multi-select.
+  const availableTags = useMemo(() => getAllCampaignTags(campaigns), [campaigns]);
 
-  // The scrollable container is the full page body; we attach the virtualizer
-  // to a dedicated div wrapper so it does not fight with the outer layout.
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const filteredCampaigns = useMemo(
+    () =>
+      filterCampaignsByDiscoveryOptions(campaigns, {
+        treeSpecies,
+        region,
+        categories: selectedCategories,
+        tags: selectedTags,
+      }),
+    [campaigns, treeSpecies, region, selectedCategories, selectedTags],
+  );
 
-  const virtualizer = useVirtualizer({
-    count: rowCount,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => CARD_ESTIMATED_HEIGHT_PX,
-    overscan: OVERSCAN_COUNT,
-    // measureElement is automatically used by TanStack Virtual v3 to record
-    // actual rendered heights, giving smooth scroll position recovery.
-  });
+  const toggleCategory = (category: string) => {
+    setSelectedCategories((prev) =>
+      prev.includes(category) ? prev.filter((item) => item !== category) : [...prev, category],
+    );
+  };
 
-  const virtualItems = virtualizer.getVirtualItems();
-  const totalListHeight = virtualizer.getTotalSize();
+  const toggleTag = (tag: string) => {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag],
+    );
+  };
 
   return (
     <div className="campaign-accessible container mx-auto px-4 py-8 max-w-6xl space-y-8">
@@ -186,6 +197,68 @@ const { campaigns } = useCampaigns();
             Showing {filteredCampaigns.length} of {campaigns.length} campaigns
           </p>
         </div>
+
+        {/* Category facet — multi-select checkboxes */}
+        <fieldset className="mt-4 border-t border-zinc-800 pt-4">
+          <legend className="text-xs font-medium text-zinc-300">Categories</legend>
+          {availableCategories.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2">
+              {availableCategories.map((category) => (
+                <label key={category} className="flex items-center gap-2 text-xs text-zinc-300">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-zinc-700 bg-zinc-800 text-purple-500 focus:ring-purple-500"
+                    checked={selectedCategories.includes(category)}
+                    onChange={() => toggleCategory(category)}
+                    aria-label={`Filter by category ${category}`}
+                  />
+                  {category}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-zinc-500">No categories available yet.</p>
+          )}
+        </fieldset>
+
+        {/* Tag facet — multi-select with searchable options */}
+        <div className="mt-4 border-t border-zinc-800 pt-4">
+          <label className="flex w-full flex-col gap-1.5 text-xs font-medium text-zinc-300 sm:max-w-md">
+            <span>Tags</span>
+            <select
+              aria-label="Filter by tags"
+              multiple
+              size={Math.min(Math.max(availableTags.length, 3), 6)}
+              value={selectedTags}
+              onChange={(event) => {
+                const values = Array.from(event.target.selectedOptions, (option) => option.value);
+                setSelectedTags(values);
+              }}
+              className="rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              {availableTags.map((tag) => (
+                <option key={tag} value={tag}>{tag}</option>
+              ))}
+            </select>
+          </label>
+          {selectedTags.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {selectedTags.map((tag) => (
+                <Badge key={tag} className="bg-purple-950/60 text-purple-300 border-purple-800 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => toggleTag(tag)}
+                    aria-label={`Remove tag filter ${tag}`}
+                    className="mr-1 text-purple-300 hover:text-purple-100"
+                  >
+                    ×
+                  </button>
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Campaign list — virtualised for 10k+ items */}
@@ -195,53 +268,27 @@ const { campaigns } = useCampaigns();
          * We cap the visible height at 80 vh so the virtualiser has a finite
          * scroll viewport.  For smaller lists the container shrinks to fit.
          */
-        <div
-          ref={scrollContainerRef}
-          className="overflow-y-auto rounded-xl"
-          style={{ maxHeight: "80vh", minHeight: Math.min(totalListHeight, window?.innerHeight ? window.innerHeight * 0.8 : 600) }}
-          role="list"
-          aria-label="Campaign list"
-        >
-          {/* Inner spacer: sized to the total virtual list height so the
-              browser scrollbar reflects the true content length. */}
-          <div style={{ height: totalListHeight, position: "relative" }}>
-            {virtualItems.map((virtualRow) => {
-              const leftIndex = virtualRow.index * 2;
-              const rightIndex = leftIndex + 1;
-              const leftCampaign = filteredCampaigns[leftIndex];
-              const rightCampaign = filteredCampaigns[rightIndex];
+        <VirtualizedCampaignGrid
+          items={filteredCampaigns}
+          getItemKey={getCampaignKey}
+          minColumnWidth={340}
+          maxColumns={2}
+          initialColumns={2}
+          gap={24}
+          estimateRowHeight={CARD_ESTIMATED_HEIGHT_PX}
+          overscan={OVERSCAN_COUNT}
+          maxHeight="80vh"
+          ariaLabel="Campaign list"
+          renderItem={(c) => {
+            const progress = Math.round(
+              (parseFloat(String(c.raisedAmount).replace(/,/g, "")) /
+                parseFloat(String(c.goalAmount).replace(/,/g, ""))) *
+                100,
+            ) || 0;
+            const wished = isInWishlist(c.id);
 
-              return (
-                <div
-                  key={virtualRow.key}
-                  data-index={virtualRow.index}
-                  ref={virtualizer.measureElement}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                >
-                  {/* Each virtual row renders up to 2 campaign cards in a
-                      responsive 2-column grid, matching the original layout. */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-6">
-                    {[leftCampaign, rightCampaign].map((c, slot) => {
-                      if (!c) return null;
-                      const progress = Math.round(
-                        (parseFloat(String(c.raisedAmount).replace(/,/g, "")) /
-                          parseFloat(String(c.goalAmount).replace(/,/g, ""))) *
-                          100,
-                      ) || 0;
-                      const wished = isInWishlist(c.id);
-
-                      return (
-                        <div
-                          key={`${virtualRow.index}-${slot}`}
-                          role="listitem"
-                          className="group flex flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-xl transition-all duration-300 hover:border-purple-500/50 hover:shadow-2xl relative"
-                        >
+            return (
+              <div className="group flex flex-col justify-between rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-xl transition-all duration-300 hover:border-purple-500/50 hover:shadow-2xl relative">
                           <div className="absolute top-4 right-4 z-10">
                             <Button
                               variant="ghost"
@@ -262,6 +309,7 @@ const { campaigns } = useCampaigns();
                                   {c.category}
                                 </Badge>
                                 {c.isStaffPick && <StaffPickBadge reason={c.staffPickReason} size="sm" />}
+                                <LiveStreamBadge status={c.streamStatus} />
                               </div>
                               <Badge variant="outline" className="border-emerald-500/40 text-emerald-400 text-[10px] whitespace-nowrap ml-2">
                                 <ShieldCheck className="mr-1 h-3 w-3 inline" /> {c.status}
@@ -310,15 +358,10 @@ const { campaigns } = useCampaigns();
                               </Link>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+              </div>
+            );
+          }}
+        />
       ) : (
         <div className="rounded-xl border border-dashed border-zinc-700 px-6 py-12 text-center">
           <Trees className="mx-auto h-8 w-8 text-zinc-500" />
@@ -327,7 +370,12 @@ const { campaigns } = useCampaigns();
           <Button
             variant="outline"
             className="mt-4 border-zinc-700 text-zinc-200"
-            onClick={() => { setTreeSpecies("All"); setRegion("All"); }}
+            onClick={() => {
+              setTreeSpecies("All");
+              setRegion("All");
+              setSelectedCategories([]);
+              setSelectedTags([]);
+            }}
           >
             Clear filters
           </Button>

@@ -1,4 +1,10 @@
-export type CoCreatorRole = "OWNER" | "CO_CREATOR" | "EDITOR" | "VIEWER";
+export type CoCreatorRole =
+  | "OWNER"
+  | "CO_CREATOR"
+  | "EDITOR"
+  | "ANALYST"
+  | "SUPPORT"
+  | "VIEWER";
 
 export interface CampaignPermissions {
   canEditDetails: boolean;
@@ -7,7 +13,20 @@ export interface CampaignPermissions {
   canManageCollaborators: boolean;
   canWithdrawFunds: boolean;
   canDeleteCampaign: boolean;
+  /** View analytics, reports and milestone proof. ANALYST-only by default. */
+  canViewAnalytics?: boolean;
+  /** Handle supporter questions and moderation. SUPPORT-only by default. */
+  canModerateSupport?: boolean;
 }
+
+/** All roles that can be granted to an invited co-manager. */
+export const INVITABLE_ROLES: CoCreatorRole[] = [
+  "CO_CREATOR",
+  "EDITOR",
+  "ANALYST",
+  "SUPPORT",
+  "VIEWER",
+];
 
 export const ROLE_PERMISSIONS: Record<CoCreatorRole, CampaignPermissions> = {
   OWNER: {
@@ -33,6 +52,24 @@ export const ROLE_PERMISSIONS: Record<CoCreatorRole, CampaignPermissions> = {
     canManageCollaborators: false,
     canWithdrawFunds: false,
     canDeleteCampaign: false,
+  },
+  ANALYST: {
+    canEditDetails: false,
+    canEditGoals: false,
+    canEditTimeline: false,
+    canManageCollaborators: false,
+    canWithdrawFunds: false,
+    canDeleteCampaign: false,
+    canViewAnalytics: true,
+  },
+  SUPPORT: {
+    canEditDetails: false,
+    canEditGoals: false,
+    canEditTimeline: false,
+    canManageCollaborators: false,
+    canWithdrawFunds: false,
+    canDeleteCampaign: false,
+    canModerateSupport: true,
   },
   VIEWER: {
     canEditDetails: false,
@@ -63,11 +100,27 @@ export interface CoCreatorInvite {
   role: CoCreatorRole;
   invitedBy: string;
   invitedByName: string;
+  /** Email address the invitation was sent to, if it was sent via email. */
+  inviteeEmail?: string;
   createdAt: number;
   expiresAt: number;
   isUsed: boolean;
   maxUses?: number;
   usedCount?: number;
+}
+
+export type CampaignPermissionKey = keyof CampaignPermissions;
+
+/**
+ * Returns true if `role` grants the requested `permission`.
+ * Missing optional permission flags default to `false`.
+ */
+export function hasPermission(
+  role: CoCreatorRole,
+  permission: CampaignPermissionKey
+): boolean {
+  const perms = ROLE_PERMISSIONS[role];
+  return Boolean(perms[permission]);
 }
 
 export function formatTruncatedAddress(address: string): string {

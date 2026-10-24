@@ -9,8 +9,14 @@ import { DefaultStreamDataSource, getAnalyticsService } from "./analytics.servic
 import { getCampaignHealthAssessment, getCampaignRiskAssessment, getCampaignVerificationSummary, queryCampaigns } from "@/services/campaign.service";
 import type { CampaignDataSource, CampaignQueryInput } from "@/services/campaign.service";
 import { getCampaignSequelService } from "@/services/campaign-sequel.service";
-import { getCampaignAnalyticsDashboard } from "@/services/campaign-analytics-dashboard.service";
+import {
+  getCampaignAnalyticsDashboard,
+  getCampaignAnalyticsDashboardExport,
+} from "@/services/campaign-analytics-dashboard.service";
 import { getGrantProgramService } from "@/services/grant-program.service";
+import { getCampaignDisputeService } from "@/services/campaign-dispute.service";
+import { evaluateImpactMetric } from "@/services/campaign-impact-metric.service";
+import { getCampaignEscrowService } from "@/services/campaign-escrow.service";
 import type {
   RegionFilter,
   CategoryFilter,
@@ -53,6 +59,12 @@ function toCampaignPayload(campaign: import("@/services/campaign.service").Campa
 
   return {
     ...campaign,
+    category: campaign.category ?? null,
+    tags: campaign.tags ?? [],
+    milestones: (campaign.milestones ?? []).map((milestone) => ({
+      ...milestone,
+      reachedAt: milestone.reachedAt != null ? Math.floor(milestone.reachedAt / 1000) : null,
+    })),
     verification,
     verificationStatus: verification.status,
     verified: verification.isVerified,
@@ -94,7 +106,13 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
         ctx: ResolverContext,
       ) => {
         const campaigns = await queryCampaigns({
-          filter: args.filter,
+          filter: args.filter
+            ? {
+                ...args.filter,
+                categories: args.filter.categories,
+                tags: args.filter.tags,
+              }
+            : undefined,
           sort: args.sort,
           limit: args.pagination?.limit,
           offset: args.pagination?.offset,
@@ -330,11 +348,33 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
         };
       },
 
+      /**
+       * Creator-facing campaign analytics dashboard (issue #1173).
+       * Returns daily pledges, page views, conversion rate, funding velocity,
+       * traffic sources and geographic backer breakdown.
+       */
       campaignAnalytics: async (
         _: unknown,
         args: { campaignId: string; network?: Network },
       ) => {
         return getCampaignAnalyticsDashboard(args.campaignId);
+      },
+
+      /**
+       * Export the campaign analytics dashboard as CSV or PDF (issue #1173).
+       *
+       * @example
+       * query {
+       *   campaignAnalyticsExport(campaignId: "c-1", format: CSV) {
+       *     format filename contentType content
+       *   }
+       * }
+       */
+      campaignAnalyticsExport: async (
+        _: unknown,
+        args: { campaignId: string; format: "CSV" | "PDF"; network?: Network },
+      ) => {
+        return getCampaignAnalyticsDashboardExport(args.campaignId, args.format);
       },
 
       grantPrograms: async () => {
@@ -363,6 +403,28 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
           ...allocation,
           allocatedAt: Math.floor(allocation.allocatedAt / 1000),
         }));
+      },
+
+      campaignDisputes: async (
+        _: unknown,
+        args: { campaignId: string; status?: string },
+      ) => {
+        return getCampaignDisputeService().listDisputes(args.campaignId, { status: args.status });
+      },
+
+      dispute: async (
+        _: unknown,
+        args: { id: string },
+      ) => {
+        return getCampaignDisputeService().getDispute(args.id);
+      },
+    },
+    Campaign: {
+      impactMetric: async (
+        parent: { id: string; totalAmount?: string | number | bigint },
+      ) => {
+        const raisedAmount = toBigInt(String(parent.totalAmount ?? "0"));
+        return evaluateImpactMetric(parent.id, raisedAmount);
       },
     },
     Mutation: {
@@ -406,6 +468,55 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
           totalAmount: args.input.goalAmount ?? campaign.totalAmount,
           endTime: args.input.deadline ?? campaign.endTime,
         };
+      },
+
+      fileDispute: async (
+        _: unknown,
+        args: {
+          input: {
+            campaignId: string;
+            backerAddress: string;
+            reason: string;
+            details?: string;
+          };
+        },
+      ) => {
+        return getCampaignDisputeService().fileDispute(args.input);
+      },
+
+      respondToDispute: async (
+        _: unknown,
+        args: { id: string; response: string },
+      ) => {
+        return getCampaignDisputeService().respondToDispute(args.id, args.response);
+      },
+
+      resolveDispute: async (
+        _: unknown,
+        args: {
+          id: string;
+          resolution: "PARTIAL_REFUND" | "FULL_REFUND" | "REJECTED";
+          refundAmount?: string;
+          mediatorNote?: string;
+        },
+      ) => {
+        const disputeService = getCampaignDisputeService();
+        const dispute = await disputeService.resolveDispute(args.id, {
+          resolution: args.resolution,
+          refundAmount: args.refundAmount,
+          mediatorNote: args.mediatorNote,
+        });
+
+        if (args.resolution === "PARTIAL_REFUND" || args.resolution === "FULL_REFUND") {
+          await getCampaignEscrowService().refundFromDispute({
+            campaignId: dispute.campaignId,
+            disputeId: dispute.id,
+            amount: args.refundAmount,
+            resolution: args.resolution,
+          });
+        }
+
+        return dispute;
       },
     },
   };

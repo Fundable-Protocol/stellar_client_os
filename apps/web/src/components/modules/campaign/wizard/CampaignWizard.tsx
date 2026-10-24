@@ -13,6 +13,11 @@ import {
   PreviewStep,
 } from "./CampaignWizardSteps";
 import type { CampaignWizardData } from "./campaign-wizard-config";
+import {
+  checkCampaignAccessibility,
+  type AccessibilityAuditResult,
+} from "@/services/campaign-accessibility.service";
+import { CampaignAccessibilityModal } from "../accessibility/CampaignAccessibilityModal";
 
 export interface CampaignWizardProps {
   onComplete?: (data: CampaignWizardData) => Promise<void> | void;
@@ -29,21 +34,45 @@ export function CampaignWizard({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isAccessibilityModalOpen, setIsAccessibilityModalOpen] = useState(false);
+  const [auditResult, setAuditResult] = useState<AccessibilityAuditResult | null>(null);
+
+  const executePublish = async () => {
+    setIsSubmitting(true);
+    try {
+      if (onComplete) {
+        await onComplete(wizard.data);
+      }
+      setIsSuccess(true);
+    } catch (err) {
+      console.error("Failed to create campaign:", err);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCheckAccessibility = () => {
+    const audit = checkCampaignAccessibility(wizard.data);
+    setAuditResult(audit);
+    setIsAccessibilityModalOpen(true);
+    return audit;
+  };
 
   const handleNext = async () => {
     if (wizard.isLastStep) {
       if (wizard.validateCurrentStep()) {
-        setIsSubmitting(true);
-        try {
-          if (onComplete) {
-            await onComplete(wizard.data);
-          }
-          setIsSuccess(true);
-        } catch (err) {
-          console.error("Failed to create campaign:", err);
-        } finally {
-          setIsSubmitting(false);
+        // Run automated accessibility check on publish
+        const audit = checkCampaignAccessibility(wizard.data);
+        setAuditResult(audit);
+
+        if (!audit.canPublish) {
+          // Critical issues block publish!
+          setIsAccessibilityModalOpen(true);
+          return;
         }
+
+        // Passed critical checks (warnings are advisory)
+        await executePublish();
       }
       return;
     }
@@ -144,22 +173,42 @@ export function CampaignWizard({
         )}
         {wizard.currentStep.id === "impact" && <ImpactStep {...stepProps} />}
         {wizard.currentStep.id === "preview" && (
-          <PreviewStep data={wizard.data} errors={wizard.errors} />
+          <PreviewStep
+            data={wizard.data}
+            errors={wizard.errors}
+            onCheckAccessibility={handleCheckAccessibility}
+            accessibilityAudit={auditResult}
+          />
         )}
       </div>
 
       <footer className="mt-8 flex flex-col-reverse justify-between gap-3 border-t border-zinc-800/80 pt-5 sm:flex-row sm:items-center">
-        <Button
-          type="button"
-          variant="outline"
-          size="lg"
-          onClick={wizard.goBack}
-          disabled={wizard.isFirstStep || isSubmitting}
-          className="h-11 border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-        >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={wizard.goBack}
+            disabled={wizard.isFirstStep || isSubmitting}
+            className="h-11 border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Button>
+
+          {wizard.isLastStep && (
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              onClick={handleCheckAccessibility}
+              disabled={isSubmitting}
+              className="h-11 border-purple-600/50 bg-purple-600/10 text-purple-300 hover:bg-purple-600/20"
+            >
+              Check Accessibility
+            </Button>
+          )}
+        </div>
 
         <Button
           type="button"
@@ -186,6 +235,14 @@ export function CampaignWizard({
           )}
         </Button>
       </footer>
+
+      <CampaignAccessibilityModal
+        isOpen={isAccessibilityModalOpen}
+        onClose={() => setIsAccessibilityModalOpen(false)}
+        auditResult={auditResult}
+        onProceedPublish={auditResult?.canPublish ? executePublish : undefined}
+        isPublishing={isSubmitting}
+      />
     </section>
   );
 }

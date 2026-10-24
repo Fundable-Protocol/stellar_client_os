@@ -41,6 +41,27 @@ export class StellarService {
     return formatted.includes('.') ? formatted.replace(/\.?0+$/, '') : formatted
   }
 
+  /**
+   * @deprecated Use the currency helpers in {@link @/lib/currency.ts} instead.
+   * Maintained for legacy components that still import from this module.
+   *
+   * Formats a dual-amount receipt line showing the original amount, the
+   * converted amount and the conversion rate applied at pledge time.
+   */
+  static formatDualAmountReceipt(
+    originalAmount: string,
+    originalCurrency: string,
+    convertedAmount: string,
+    convertedCurrency: string,
+    rate: number,
+    decimals: number = 2
+  ): string {
+    const original = StellarService.formatTokenAmount(originalAmount, decimals)
+    const converted = StellarService.formatTokenAmount(convertedAmount, decimals)
+    const formattedRate = StellarService.formatTokenAmount(rate.toString(), 6)
+    return `${original} ${originalCurrency} → ${converted} ${convertedCurrency} (rate: 1 ${originalCurrency} = ${formattedRate} ${convertedCurrency})`
+  }
+
   static calculateStreamProgress(stream: StreamRecord): {
     progressPercentage: number
     timeRemaining: string

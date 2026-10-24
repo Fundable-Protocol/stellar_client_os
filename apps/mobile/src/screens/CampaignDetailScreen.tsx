@@ -22,6 +22,7 @@ import {
   ActivityIndicator,
   Animated,
   FlatList,
+  Linking,
   Platform,
   ScrollView,
   StatusBar,
@@ -198,12 +199,12 @@ Notifications.setNotificationHandler({
  */
 async function registerForPushNotifications(
   apiBaseUrl: string,
-  campaignId: string,
+  subscriberAddress: string,
 ): Promise<string | null> {
   try {
     const existing = await Notifications.getPermissionsAsync();
     let status = existing.status;
-    if (status !== "granted") {
+    if (status === "undetermined") {
       const requested = await Notifications.requestPermissionsAsync();
       status = requested.status;
     }
@@ -211,20 +212,23 @@ async function registerForPushNotifications(
 
     const tokenResponse = await Notifications.getExpoPushTokenAsync();
     const token = tokenResponse.data;
-
-    // Best-effort registration; failures must not break the screen.
-    try {
-      await fetch(`${apiBaseUrl}/api/campaigns/${campaignId}/push-token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, platform: Platform.OS }),
-      });
-    } catch {
-      // ignore network errors during registration
+    const response = await fetch(`${apiBaseUrl}/api/mobile/push/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        subscriberAddress,
+        campaignId: "*",
+        endpoint: token,
+        deviceType: Platform.OS === "ios" ? "mobile_ios" : "mobile_android",
+      }),
+    });
+    if (!response.ok) {
+      const result = await response.json() as { error?: string };
+      throw new Error(result.error ?? `Push registration failed with HTTP ${response.status}`);
     }
-
     return token;
-  } catch {
+  } catch (error) {
+    console.error("Unable to register mobile push notifications.", error);
     return null;
   }
 }
@@ -432,8 +436,10 @@ function SustainabilityScore({
 export interface CampaignDetailScreenProps {
   /** Campaign ID passed from the navigator. */
   campaignId: string;
+  /** Connected wallet address used to associate push notifications with the backer. */
+  subscriberAddress: string;
   /** Base URL of the API (e.g. "https://app.fundable.com"). */
-  apiBaseUrl?: string;
+  apiBaseUrl: string;
   /** WebSocket URL (e.g. "wss://app.fundable.com/ws"). */
   wsUrl?: string;
 }
@@ -450,7 +456,8 @@ export interface CampaignDetailScreenProps {
  */
 export default function CampaignDetailScreen({
   campaignId,
-  apiBaseUrl = "",
+  subscriberAddress,
+  apiBaseUrl,
   wsUrl = "",
 }: CampaignDetailScreenProps) {
   const [state, dispatch] = useReducer(reducer, { status: "loading" });
@@ -490,13 +497,25 @@ export default function CampaignDetailScreen({
   // ── Register for push notifications ────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
-    registerForPushNotifications(apiBaseUrl, campaignId).then((token) => {
+    registerForPushNotifications(apiBaseUrl, subscriberAddress).then((token) => {
       if (cancelled) return;
       // Token is registered server-side; nothing else to do here.
       void token;
     });
     return () => { cancelled = true; };
-  }, [apiBaseUrl, campaignId]);
+  }, [apiBaseUrl, subscriberAddress]);
+
+  useEffect(() => {
+    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const deepLinkUrl = response.notification.request.content.data.deepLinkUrl;
+      if (typeof deepLinkUrl === "string") {
+        Linking.openURL(deepLinkUrl).catch((error: unknown) => {
+          console.error("Unable to open the campaign notification link.", error);
+        });
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   // ── Fetch campaign data (network first, cached fallback) ───────────────────
   useEffect(() => {

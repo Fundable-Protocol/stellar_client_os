@@ -204,6 +204,9 @@ pub enum DataKey {
     AuditLog(u64, u32),
     /// Total count of audit log entries for a campaign (persistent storage).
     AuditLogCount(u64),
+    /// Multi-currency contribution record keyed by `(campaign_id, contributor)`
+    /// (persistent storage).
+    MultiCurrencyContribution(u64, Address),
 }
 
 /// Current lifecycle state of a campaign.
@@ -399,6 +402,64 @@ pub struct ContributionMadeEvent {
     pub campaign_id: u64,
     pub contributor: Address,
     pub amount: i128,
+    pub total_raised: i128,
+}
+
+/// Currencies accepted for multi-currency campaign pledges (Issue #1170).
+#[contracttype]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Currency {
+    /// United States dollar.
+    Usd = 0,
+    /// Euro.
+    Eur = 1,
+    /// Stellar lumens.
+    Xlm = 2,
+    /// USD Coin.
+    Usdc = 3,
+}
+
+/// Conversion quote applied to a multi-currency pledge.
+///
+/// `rate` is the conversion rate from the pledge currency into the campaign's
+/// funding token, expressed in 7-decimal fixed point (1_0000000 = 1:1).
+/// `quoted_at` is the Unix timestamp (seconds) at which the rate was quoted.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ConversionQuote {
+    /// Conversion rate in 7-decimal fixed point.
+    pub rate: i128,
+    /// Unix timestamp (seconds) when the rate was quoted.
+    pub quoted_at: u64,
+}
+
+/// Record of a multi-currency contribution, stored per `(campaign_id, contributor)`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiCurrencyContribution {
+    /// Currency selected by the backer at checkout.
+    pub currency: Currency,
+    /// Amount pledged in the original currency.
+    pub original_amount: i128,
+    /// Amount credited to the campaign in the funding token.
+    pub converted_amount: i128,
+    /// Conversion rate applied (7-decimal fixed point).
+    pub rate: i128,
+    /// Unix timestamp (seconds) when the rate was quoted.
+    pub quoted_at: u64,
+}
+
+/// Emitted when a backer contributes using a non-native currency.
+#[contractevent(topics = ["MultiCurrencyContribution"])]
+#[derive(Clone)]
+pub struct MultiCurrencyContributionEvent {
+    pub campaign_id: u64,
+    pub contributor: Address,
+    pub currency: Currency,
+    pub original_amount: i128,
+    pub converted_amount: i128,
+    pub rate: i128,
+    pub quoted_at: u64,
     pub total_raised: i128,
 }
 
@@ -748,6 +809,8 @@ pub enum Error {
     CampaignNotVerificationFailed = 29,
     /// Campaign ID space exhausted (u64::MAX reached).
     ContractFull = 30,
+    /// The supplied conversion quote is invalid (non-positive rate or stale).
+    InvalidConversionQuote = 31,
 }
 
 // ---------------------------------------------------------------------------
@@ -765,6 +828,10 @@ const LEDGER_BUMP: u32 = 535_680;
 /// Maximum duration for a campaign (180 days in seconds).
 const MAX_CAMPAIGN_DURATION_SECONDS: u64 = 180 * 24 * 60 * 60;
 const TWELVE_MONTHS_SECS: u64 = 31_536_000;
+/// Fixed-point scale for conversion rates (7 decimals, matching Stellar stroops).
+const RATE_SCALE: i128 = 10_000_000;
+/// Maximum age of a conversion quote (10 minutes in seconds).
+const MAX_QUOTE_AGE_SECONDS: u64 = 600;
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -1176,6 +1243,96 @@ impl CampaignFundingContract {
                 amount,
             },
         );
+    }
+
+    /// Contribute to a campaign using a backer-selected currency.
+    ///
+    /// The pledge is converted into the campaign's funding token using the
+    /// supplied [`ConversionQuote`]. The original currency and amount, the
+    /// converted amount, and the applied rate are recorded so receipts can
+    /// display both amounts.
+    ///
+    /// # Arguments
+    /// * `contributor`       — Address funding the pledge.
+    /// * `campaign_id`       — Campaign receiving the contribution.
+    /// * `currency`          — Currency selected by the backer at checkout.
+    /// * `original_amount`   — Amount pledged in `currency`.
+    /// * `quote`             — Conversion rate and quote timestamp.
+    ///
+    /// # Errors
+    /// * [`Error::InvalidAmount`]            — `original_amount <= 0`.
+    /// * [`Error::InvalidConversionQuote`]   — non-positive rate or stale quote.
+    pub fn contribute_with_quote(
+        env: Env,
+        contributor: Address,
+        campaign_id: u64,
+        currency: Currency,
+        original_amount: i128,
+        quote: ConversionQuote,
+    ) {
+        contributor.require_auth();
+        if original_amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+        if quote.rate <= 0 {
+            panic_with_error!(&env, Error::InvalidConversionQuote);
+        }
+        let now = env.ledger().timestamp();
+        if quote.quoted_at > now || now - quote.quoted_at > MAX_QUOTE_AGE_SECONDS {
+            panic_with_error!(&env, Error::InvalidConversionQuote);
+        }
+
+        let converted_amount = original_amount
+            .checked_mul(quote.rate)
+            .unwrap_or_else(|| panic_with_error!(&env, Error::ArithmeticOverflow))
+            / RATE_SCALE;
+        if converted_amount <= 0 {
+            panic_with_error!(&env, Error::InvalidAmount);
+        }
+
+        // Credit the campaign with the converted amount.
+        Self::contribute(env.clone(), contributor.clone(), campaign_id, converted_amount);
+
+        let campaign = Self::load_campaign(&env, campaign_id);
+
+        // Persist the multi-currency receipt record.
+        let record = MultiCurrencyContribution {
+            currency,
+            original_amount,
+            converted_amount,
+            rate: quote.rate,
+            quoted_at: quote.quoted_at,
+        };
+        let key = DataKey::MultiCurrencyContribution(campaign_id, contributor.clone());
+        env.storage().persistent().set(&key, &record);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, LEDGER_THRESHOLD, LEDGER_BUMP);
+
+        env.events().publish(
+            ("MultiCurrencyContribution", campaign_id),
+            MultiCurrencyContributionEvent {
+                campaign_id,
+                contributor,
+                currency,
+                original_amount,
+                converted_amount,
+                rate: quote.rate,
+                quoted_at: quote.quoted_at,
+                total_raised: campaign.total_raised,
+            },
+        );
+    }
+
+    /// Return the multi-currency receipt record for a contributor, if any.
+    pub fn get_multi_currency_contribution(
+        env: Env,
+        campaign_id: u64,
+        contributor: Address,
+    ) -> Option<MultiCurrencyContribution> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::MultiCurrencyContribution(campaign_id, contributor))
     }
 
     /// Create a named group sponsorship for an active campaign.
@@ -4475,6 +4632,63 @@ mod tests {
     // -----------------------------------------------------------------------
     // Role-based permissions tests
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_contribute_with_quote_records_conversion() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 1_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &2_000, &500);
+
+        // 1 EUR = 1.25 funding tokens (rate in 7-decimal fixed point).
+        let quote = ConversionQuote {
+            rate: 12_500_000,
+            quoted_at: 1_000,
+        };
+        client.contribute_with_quote(&contributor, &id, &Currency::Eur, &2_000, &quote);
+
+        let record = client
+            .get_multi_currency_contribution(&id, &contributor)
+            .unwrap();
+        assert_eq!(record.currency, Currency::Eur);
+        assert_eq!(record.original_amount, 2_000);
+        assert_eq!(record.converted_amount, 2_500);
+        assert_eq!(record.rate, 12_500_000);
+        assert_eq!(record.quoted_at, 1_000);
+        assert_eq!(client.get_campaign(&id).total_raised, 2_500);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #31)")]
+    fn test_contribute_with_stale_quote_fails() {
+        let env = Env::default();
+        env.mock_all_auths();
+        set_time(&env, 10_000);
+        let (_, client, _, _) = setup_contract(&env);
+
+        let token_admin = Address::generate(&env);
+        let (token_addr, _, token_admin_client) = create_token(&env, &token_admin);
+        let creator = Address::generate(&env);
+        let contributor = Address::generate(&env);
+        token_admin_client.mint(&creator, &500);
+        token_admin_client.mint(&contributor, &10_000);
+
+        let id = client.create_campaign(&creator, &token_addr, &10_000, &5_000, &20_000, &500);
+        let quote = ConversionQuote {
+            rate: 10_000_000,
+            quoted_at: 1_000,
+        };
+        client.contribute_with_quote(&contributor, &id, &Currency::Usd, &1_000, &quote);
+    }
 
     #[test]
     fn test_assign_role_as_owner() {

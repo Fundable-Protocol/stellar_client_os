@@ -6,19 +6,16 @@ import { StarRating, StarRatingInput } from "@/components/ui/star-rating";
 import type { CampaignReview, RatingSummary, ReviewEligibility } from "@/services/campaign-reviews.service";
 
 const ELIGIBILITY_MESSAGES: Record<string, string> = {
-  campaign_not_found: "Reviews are unavailable for this campaign.",
-  campaign_not_closed: "Reviews open once the campaign closes.",
-  review_window_pending: "Reviews open 30 days after the campaign closes — check back soon.",
-  not_a_backer: "Only backers who received their rewards can leave a review.",
+  campaign_not_found: "Testimonials are unavailable for this campaign.",
+  not_a_backer: "Only campaign backers can leave a testimonial.",
   already_reviewed: "Thanks! You have already reviewed this campaign.",
 };
 
 /**
  * Campaign testimonial & star review panel (issue #1250).
  *
- * Lists existing reviews, shows the aggregate rating, and — when the connected
- * backer is eligible (rewarded backer, 30 days past campaign close) — renders
- * a star picker plus optional short testimonial text (AC1, AC2).
+ * Lists creator-approved reviews and lets a campaign backer submit a rating
+ * and short testimonial for creator approval.
  */
 export function CampaignReviews({
   campaignId,
@@ -38,16 +35,22 @@ export function CampaignReviews({
 
   const load = useCallback(async () => {
     const query = viewerAddress ? `?viewer=${encodeURIComponent(viewerAddress)}` : "";
-    const response = await fetch(`/api/campaigns/${campaignId}/reviews${query}`);
-    if (!response.ok) return;
-    const body = (await response.json()) as {
-      reviews: CampaignReview[];
-      summary: RatingSummary;
-      eligibility: ReviewEligibility | null;
-    };
-    setReviews(body.reviews);
-    setSummary(body.summary);
-    setEligibility(body.eligibility);
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}/reviews${query}`);
+      const body = (await response.json()) as {
+        reviews?: CampaignReview[];
+        summary?: RatingSummary;
+        eligibility?: ReviewEligibility | null;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error ?? "Could not load campaign testimonials.");
+      setReviews(body.reviews ?? []);
+      setSummary(body.summary ?? { averageRating: null, reviewCount: 0 });
+      setEligibility(body.eligibility ?? null);
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not load campaign testimonials.");
+    }
   }, [campaignId, viewerAddress]);
 
   useEffect(() => {
@@ -58,6 +61,10 @@ export function CampaignReviews({
     event.preventDefault();
     if (rating < 1) {
       setError("Pick a star rating before submitting.");
+      return;
+    }
+    if (!text.trim()) {
+      setError("Add a short testimonial before submitting.");
       return;
     }
     setSubmitting(true);
@@ -95,21 +102,24 @@ export function CampaignReviews({
           {summary.averageRating === null ? "No reviews yet" : `${summary.averageRating} · ${summary.reviewCount} review${summary.reviewCount === 1 ? "" : "s"}`}
         </div>
       </header>
+      {error && <p role="alert" className="text-xs text-rose-400">{error}</p>}
 
       {/* Submission form when the viewer is an eligible rewarded backer */}
       {eligibility?.eligible && !submitted && (
         <form onSubmit={handleSubmit} className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4">
-          <p className="text-xs font-semibold text-zinc-400">Leave your rating</p>
+          <p className="text-xs font-semibold text-zinc-400">Leave a testimonial for the creator to review</p>
           <StarRatingInput value={rating} onChange={setRating} />
           <textarea
             value={text}
             onChange={(event) => setText(event.target.value)}
-            maxLength={1000}
+            maxLength={280}
+            required
             rows={3}
-            placeholder="Share a short testimonial about your experience (optional)…"
+            placeholder="Share a short testimonial about your experience…"
+            aria-label="Testimonial (280 characters maximum)"
             className="w-full rounded-md border border-zinc-700 bg-zinc-950 p-3 text-sm text-zinc-200 focus:outline-none focus:ring-2 focus:ring-purple-600"
           />
-          {error && <p className="text-xs text-rose-400">{error}</p>}
+          <p className="text-right text-xs text-zinc-500">{text.length}/280</p>
           <button
             type="submit"
             disabled={submitting}
@@ -122,7 +132,7 @@ export function CampaignReviews({
       {!eligibility?.eligible && eligibility && (
         <p className="text-xs text-zinc-500">{ELIGIBILITY_MESSAGES[eligibility.reason] ?? ""}</p>
       )}
-      {submitted && <p className="text-xs text-emerald-400 font-semibold">Thanks for your review!</p>}
+      {submitted && <p className="text-xs text-emerald-400 font-semibold">Thanks! Your testimonial is waiting for creator approval.</p>}
 
       {/* Review list */}
       {reviews.length > 0 ? (
@@ -131,7 +141,10 @@ export function CampaignReviews({
             <li key={review.id} className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 space-y-1">
               <div className="flex items-center justify-between">
                 <span className="font-mono text-xs text-zinc-300">{review.backerAddress}</span>
-                <StarRating value={review.rating} />
+                <span className="flex items-center gap-2">
+                  {review.featured && <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-300">Featured</span>}
+                  <StarRating value={review.rating} />
+                </span>
               </div>
               {review.reviewText && <p className="text-sm text-zinc-300 leading-relaxed">{review.reviewText}</p>}
               <p className="text-[11px] text-zinc-500">{new Date(review.createdAt).toLocaleDateString()}</p>
@@ -139,7 +152,7 @@ export function CampaignReviews({
           ))}
         </ul>
       ) : (
-        <p className="text-sm text-zinc-500">No testimonials yet. Reviews open 30 days after the campaign closes.</p>
+        <p className="text-sm text-zinc-500">No approved testimonials yet.</p>
       )}
     </section>
   );

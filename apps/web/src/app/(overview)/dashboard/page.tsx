@@ -1,5 +1,6 @@
 import StatsOverview from "@/components/modules/dashboard/StatsOverview";
 import CreatorStatsDashboard from "@/components/modules/dashboard/CreatorStatsDashboard";
+import CampaignDataExport from "@/components/modules/dashboard/CampaignDataExport";
 import DashboardOverview from "@/components/modules/dashboard/DashboardOverview";
 import FeatureCards from "@/components/modules/dashboard/FeatureCards";
 import ImpactComparison from "@/components/modules/dashboard/ImpactComparison";
@@ -11,8 +12,11 @@ import CampaignCreatorBadge from "@/components/modules/dashboard/CampaignCreator
 import MentorshipPanel from "@/components/modules/dashboard/MentorshipPanel";
 import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
 import { StaffPicksSection } from "@/components/modules/campaign/StaffPicksSection";
+import { SpotlightSection } from "@/components/modules/campaign/SpotlightSection";
 import { BackerNotificationPreferencePanel } from "@/components/modules/dashboard/BackerNotificationPreferencePanel";
-import { BackerSubscriptionsManager } from "@/components/modules/dashboard/BackerSubscriptionsManager";
+import { BackerTestimonialsDashboard } from "@/components/modules/dashboard/BackerTestimonialsDashboard";
+import { WebhookEventLog } from "@/components/modules/dashboard/WebhookEventLog";
+import CreatorAnalyticsEntryCard from "@/components/modules/dashboard/CreatorAnalyticsEntryCard";
 
 const DashboardPage = async () => {
     return (
@@ -20,8 +24,13 @@ const DashboardPage = async () => {
             <StatsOverview />
             <BackerSubscriptionsManager />
             <BackerNotificationPreferencePanel />
+            <BackerTestimonialsDashboard />
+            <SpotlightSection />
             <StaffPicksSection />
             <CreatorStatsDashboard />
+            <CampaignDataExport />
+            <CreatorAnalyticsEntryCard />
+            <WebhookEventLog />
             <CampaignCreatorBadge />
             <MentorshipPanel />
             <ForestReportExport />
