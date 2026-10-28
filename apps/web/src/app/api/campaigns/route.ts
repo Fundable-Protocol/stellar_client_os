@@ -92,6 +92,7 @@ async function postCampaign(request: Request) {
       pledgeThankYouBody?: string;
       name?: string;
       description?: string;
+      risksAndChallenges?: string;
       location?: string;
       countries?: string[];
       speciesTags?: string[];
@@ -120,6 +121,16 @@ async function postCampaign(request: Request) {
     };
     if (!body.creator || !body.name || !body.goalAmount) {
       return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
+    }
+    if (
+      typeof body.risksAndChallenges !== "string" ||
+      body.risksAndChallenges.trim().length < 20 ||
+      body.risksAndChallenges.length > 10000
+    ) {
+      return Response.json(
+        { error: "risksAndChallenges must contain at least 20 characters and no more than 10,000 characters" },
+        { status: 400 },
+      );
     }
     if (body.pledgeThankYouGreeting !== undefined && (typeof body.pledgeThankYouGreeting !== "string" || body.pledgeThankYouGreeting.length > 240)) {
       return Response.json({ error: "pledgeThankYouGreeting must be 240 characters or fewer" }, { status: 400 });
@@ -273,6 +284,7 @@ async function postCampaign(request: Request) {
       pledgeThankYouBody: body.pledgeThankYouBody,
       name: body.name,
       description,
+      risksAndChallenges: body.risksAndChallenges.trim(),
       location: body.location,
       countries: body.countries,
       speciesTags: body.speciesTags,

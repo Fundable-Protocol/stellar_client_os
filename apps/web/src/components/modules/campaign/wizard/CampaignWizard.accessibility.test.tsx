@@ -9,6 +9,7 @@ const BASE_VALID_DATA: Partial<CampaignWizardData> = {
   category: "environmental",
   shortDescription: "Planting native hardwood species in deforested corridors.",
   fullStory: "Our team collaborates with local arborists to plant resilient native hardwood species across degraded land.",
+  risksAndChallenges: "Seasonal flooding may delay planting; local partners will maintain a flexible schedule and identify backup sites.",
   imageUrl: "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09",
   imageAlt: "Aerial view of rainforest canopy and winding river",
   goalAmount: "25000",

@@ -41,6 +41,12 @@
     "select": "Select language",
     "current": "Current language: {language}"
   },
+  "theme": {
+    "label": "Color theme",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
   "settings": {
     "title": "Settings",
     "sections": "Settings sections",

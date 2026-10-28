@@ -41,6 +41,12 @@
     "select": "اختر اللغة",
     "current": "اللغة الحالية: {language}"
   },
+  "theme": {
+    "label": "نمط الألوان",
+    "system": "النظام",
+    "light": "فاتح",
+    "dark": "داكن"
+  },
   "settings": {
     "title": "الإعدادات",
     "sections": "أقسام الإعدادات",

@@ -9,6 +9,10 @@ import {
   getCampaignMilestones,
   sendCampaignMilestoneNotifications,
 } from "@/services/campaign-notifications.service";
+import { CampaignPushNotificationService } from "@/services/campaign-push-notification.service";
+import type { CampaignMilestoneType } from "@/types/campaign-notification";
+
+const mobilePushService = new CampaignPushNotificationService();
 
 export const runtime = "nodejs";
 
@@ -112,6 +116,23 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       campaignId: id,
       milestone,
     });
+    if (
+      ["trees_planted", "verification_complete", "campaign_finished", "impact_achieved"].includes(milestone)
+    ) {
+      const pushResult = await mobilePushService.sendMilestonePushNotification({
+        campaignId: id,
+        campaignTitle: campaign.name,
+        milestone: milestone as CampaignMilestoneType,
+        details: {},
+        deepLinkUrl: `https://fundable.stellar/campaigns/${encodeURIComponent(id)}`,
+      });
+      if (pushResult.errors > 0) {
+        console.error("Some mobile campaign push notifications failed.", {
+          campaignId: id,
+          errors: pushResult.errors,
+        });
+      }
+    }
     return Response.json(result, { status: 200 });
   } catch (error) {
     if (error instanceof PreferencesValidationError) {

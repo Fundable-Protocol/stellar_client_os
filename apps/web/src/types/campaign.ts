@@ -78,6 +78,72 @@ export interface CampaignCoordinates {
   longitude: number;
 }
 
+/**
+ * Creator-defined impact metric for socially-focused campaigns.
+ * The formula is expressed in terms of `amount_raised` and `cost_per_unit`,
+ * e.g. "amount_raised / cost_per_unit".
+ */
+export interface ImpactMetricDefinition {
+  name: string;
+  unit: string;
+  formula: string;
+  costPerUnit: number;
+}
+
+export type DisputeStatus =
+  | "open"
+  | "creator_responded"
+  | "under_review"
+  | "resolved"
+  | "rejected";
+
+export type DisputeReason = "undelivered_reward" | "fraud" | "other";
+
+export interface DisputeEvidence {
+  id: string;
+  url: string;
+  description?: string;
+  uploadedAt: number;
+}
+
+export interface CampaignDispute {
+  id: string;
+  campaignId: string;
+  backerAddress: string;
+  reason: DisputeReason;
+  description: string;
+  evidence: DisputeEvidence[];
+  filedAt: number;
+  /** filedAt + 7 days */
+  creatorResponseDeadline: number;
+  creatorResponse?: string;
+  mediatorDecision?: string;
+  refundAmount?: string;
+  refundType?: "partial" | "full";
+  resolvedAt?: number;
+  status: DisputeStatus;
+}
+
+export interface FileDisputeInput {
+  campaignId: string;
+  backerAddress: string;
+  reason: DisputeReason;
+  description: string;
+  evidence?: DisputeEvidence[];
+}
+
+export interface RespondToDisputeInput {
+  disputeId: string;
+  creatorResponse: string;
+}
+
+export interface ResolveDisputeInput {
+  disputeId: string;
+  mediatorDecision: string;
+  refundType: "partial" | "full";
+  refundAmount: string;
+}
+
 export interface CampaignData {
   id: string;
   title: string;
@@ -101,6 +167,7 @@ export interface CampaignData {
   uniqueContributors?: number;
   contributionCount?: number;
   sustainabilityScore?: CampaignSustainabilityScore;
+  impactMetric?: ImpactMetricDefinition;
   isStaffPick?: boolean;
   staffPickReason?: string;
   category?: CampaignCategory;

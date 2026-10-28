@@ -4,13 +4,23 @@ import React from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { CampaignWizard } from "@/components/modules/campaign/wizard/CampaignWizard";
+import type { CampaignWizardData } from "@/components/modules/campaign/wizard/campaign-wizard-config";
+import { useWallet } from "@/providers/StellarWalletProvider";
 
 export default function CreateCampaignPage() {
-  const handleComplete = async (data: any) => {
+  const { address } = useWallet();
+
+  const handleComplete = async (data: CampaignWizardData) => {
+    if (!address) {
+      throw new Error("Connect a wallet before creating a campaign.");
+    }
     // Persist the campaign, including category, tags, and milestones,
     // through the campaign creation API.
     const payload = {
       ...data,
+      creator: address,
+      name: data.title,
+      description: data.fullStory,
       category: data?.category ?? null,
       tags: Array.isArray(data?.tags) ? data.tags.slice(0, 10) : [],
       milestones: Array.isArray(data?.milestones) ? data.milestones : [],
@@ -36,7 +46,7 @@ export default function CreateCampaignPage() {
     }
   };
 
-  const handleSaveDraft = async (data: any) => {
+  const handleSaveDraft = async (data: CampaignWizardData) => {
     const payload = {
       ...data,
       category: data?.category ?? null,

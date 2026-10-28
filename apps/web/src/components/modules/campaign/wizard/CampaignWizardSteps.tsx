@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Calendar, Target, Sparkles, Layers, Image as ImageIcon, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, Calendar, Target, Sparkles, Layers, Image as ImageIcon, ShieldCheck, Bold, Italic, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,6 +38,36 @@ function parseCountryList(raw: string): string[] {
 
 // Step 1: Details Component
 export function DetailsStep({ data, errors, updateField }: StepProps) {
+  const risksEditorRef = React.useRef<HTMLTextAreaElement>(null);
+
+  const formatRisks = (prefix: string, suffix = prefix) => {
+    const editor = risksEditorRef.current;
+    if (!editor) return;
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const selected = data.risksAndChallenges.slice(start, end) || "text";
+    const replacement = `${prefix}${selected}${suffix}`;
+    const next = `${data.risksAndChallenges.slice(0, start)}${replacement}${data.risksAndChallenges.slice(end)}`;
+    updateField("risksAndChallenges", next);
+    requestAnimationFrame(() => {
+      editor.focus();
+      editor.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+    });
+  };
+
+  const addRisksListMarker = () => {
+    const editor = risksEditorRef.current;
+    if (!editor) return;
+    const start = editor.selectionStart;
+    const lineStart = data.risksAndChallenges.lastIndexOf("\n", start - 1) + 1;
+    const next = `${data.risksAndChallenges.slice(0, lineStart)}- ${data.risksAndChallenges.slice(lineStart)}`;
+    updateField("risksAndChallenges", next);
+    requestAnimationFrame(() => {
+      editor.focus();
+      editor.setSelectionRange(start + 2, start + 2);
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="border-b border-zinc-800 pb-4">
@@ -109,6 +139,38 @@ export function DetailsStep({ data, errors, updateField }: StepProps) {
             className="mt-1.5 w-full rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500 focus:outline-none"
           />
           {errors.fullStory && <p className="mt-1 text-xs text-rose-400">{errors.fullStory}</p>}
+        </div>
+
+        <div className="space-y-2 rounded-lg border border-amber-800/50 bg-amber-950/10 p-4">
+          <div>
+            <Label htmlFor="risksAndChallenges" className="text-zinc-200">
+              Risks and Challenges <span className="text-rose-400">*</span>
+            </Label>
+            <p className="mt-1 text-xs text-zinc-400">
+              Explain the main uncertainties and how you plan to address them. Use the formatting tools to structure your response.
+            </p>
+          </div>
+          <div className="flex gap-1" role="toolbar" aria-label="Risks and challenges formatting">
+            <Button type="button" variant="outline" size="icon-sm" aria-label="Bold selected text" onClick={() => formatRisks("**")}><Bold aria-hidden="true" /></Button>
+            <Button type="button" variant="outline" size="icon-sm" aria-label="Italicize selected text" onClick={() => formatRisks("*")}><Italic aria-hidden="true" /></Button>
+            <Button type="button" variant="outline" size="icon-sm" aria-label="Add bulleted list marker" onClick={addRisksListMarker}><List aria-hidden="true" /></Button>
+          </div>
+          <textarea
+            ref={risksEditorRef}
+            id="risksAndChallenges"
+            rows={6}
+            maxLength={10000}
+            value={data.risksAndChallenges}
+            onChange={(event) => updateField("risksAndChallenges", event.target.value)}
+            aria-invalid={Boolean(errors.risksAndChallenges)}
+            aria-describedby="risksAndChallenges-help"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-amber-500 focus:outline-none"
+            placeholder={"**Potential risk:** Seasonal weather may delay planting.\n- We will maintain a flexible planting schedule.\n- Local partners will identify backup sites."}
+          />
+          <p id="risksAndChallenges-help" className="text-xs text-zinc-500">
+            {data.risksAndChallenges.length}/10,000 characters. Bold, italic, and bullet list Markdown are supported.
+          </p>
+          {errors.risksAndChallenges && <p role="alert" className="text-xs text-rose-400">{errors.risksAndChallenges}</p>}
         </div>
 
         <div>
@@ -682,6 +744,9 @@ export function PreviewStep({
           <Badge className="bg-purple-900/50 text-purple-300 border-purple-700">{data.category}</Badge>
           <p className="text-xs text-zinc-300">{data.shortDescription}</p>
           <p className="text-xs text-zinc-400 line-clamp-3">{data.fullStory}</p>
+          <div className={`rounded-md border px-3 py-2 text-xs ${data.risksAndChallenges.trim() ? "border-emerald-800/60 bg-emerald-950/20 text-emerald-300" : "border-amber-700/60 bg-amber-950/20 text-amber-300"}`}>
+            Risks and Challenges: {data.risksAndChallenges.trim() ? "Complete" : "Incomplete"}
+          </div>
         </div>
 
         {/* Financial Goals */}

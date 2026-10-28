@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { FUNDING_POLL_INTERVAL_MS } from "@/lib/funding-counter";
+import {
+  computeImpactValue,
+  tweenImpactValue,
+  type ImpactMetricDefinition,
+} from "@/lib/impact-metrics";
 
 export type FundingFeedStatus = "idle" | "live" | "polling" | "not-found";
 
@@ -171,4 +176,82 @@ export function useFundingCounter(
   }, [campaignId, pollIntervalMs]);
 
   return { snapshot, status, lastUpdated };
+}
+
+export interface UseImpactCounterResult {
+  /** Latest impact number derived from the live raised amount. */
+  impactValue: number;
+  /** Animated value to render; eases toward impactValue. */
+  displayValue: number;
+  unit: string;
+  metricName: string;
+  status: FundingFeedStatus;
+  lastUpdated: number | null;
+}
+
+/** Duration of the counter tween in milliseconds. */
+const IMPACT_TWEEN_MS = 800;
+
+/**
+ * Live impact counter for a campaign (issue #1229).
+ *
+ * Wraps {@link useFundingCounter} to read the real-time raised amount, then
+ * evaluates the creator-defined impact formula (amount raised / cost per unit)
+ * on every snapshot change. The displayed value animates from the previous
+ * impact number to the new one over ~800ms via requestAnimationFrame so the
+ * counter visibly ticks up as pledges arrive.
+ */
+export function useImpactCounter(
+  campaignId: string | undefined,
+  metricDefinition: ImpactMetricDefinition | null | undefined,
+): UseImpactCounterResult {
+  const { snapshot, status, lastUpdated } = useFundingCounter(campaignId);
+
+  const impactValue = computeImpactValue(snapshot?.raisedAmount ?? "0", metricDefinition);
+
+  const [displayValue, setDisplayValue] = useState(impactValue);
+  const displayRef = useRef(impactValue);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const from = displayRef.current;
+    const to = impactValue;
+    if (from === to) return undefined;
+
+    if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+      displayRef.current = to;
+      setDisplayValue(to);
+      return undefined;
+    }
+
+    const start = performance.now();
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - start) / IMPACT_TWEEN_MS);
+      const next = tweenImpactValue(from, to, progress);
+      displayRef.current = next;
+      setDisplayValue(next);
+      if (progress < 1) {
+        frameRef.current = window.requestAnimationFrame(tick);
+      } else {
+        frameRef.current = null;
+      }
+    };
+    frameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    };
+  }, [impactValue]);
+
+  return {
+    impactValue,
+    displayValue,
+    unit: metricDefinition?.unit ?? "",
+    metricName: metricDefinition?.name ?? "",
+    status,
+    lastUpdated,
+  };
 }

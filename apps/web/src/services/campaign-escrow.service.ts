@@ -45,6 +45,62 @@ export class CampaignEscrowService {
   }
 
   /**
+   * Apply a mediator-issued refund to an escrow (Issue #1231).
+   *
+   * Invoked by the dispute mediator after resolution. A full refund marks the
+   * escrow as `Refunded`; a partial refund reduces `totalEscrowed` by the
+   * refunded amount while leaving the remaining funds in escrow.
+   *
+   * @param escrow The escrow to refund.
+   * @param refundAmount Amount to refund (must be > 0 and <= remaining escrow).
+   * @param refundType Either `'full'` or `'partial'`.
+   * @returns An updated copy of the escrow details.
+   */
+  static refundFromDispute(
+    escrow: CampaignEscrowDetails,
+    refundAmount: bigint,
+    refundType: 'full' | 'partial',
+  ): CampaignEscrowDetails {
+    const refundableStatuses: EscrowStatus[] = [EscrowStatus.Disputed, EscrowStatus.Held, EscrowStatus.Verified];
+    if (!refundableStatuses.includes(escrow.status)) {
+      throw new Error(`Escrow for campaign ${escrow.campaignId} cannot be refunded from status ${escrow.status}.`);
+    }
+
+    if (refundType !== 'full' && refundType !== 'partial') {
+      throw new Error(`Invalid refund type: ${refundType}. Expected 'full' or 'partial'.`);
+    }
+
+    if (refundAmount <= 0n) {
+      throw new Error('Refund amount must be greater than zero.');
+    }
+
+    const remaining = escrow.totalEscrowed - escrow.releasedAmount;
+    if (refundAmount > remaining) {
+      throw new Error(
+        `Refund amount ${refundAmount} exceeds remaining escrow balance ${remaining} for campaign ${escrow.campaignId}.`,
+      );
+    }
+
+    if (refundType === 'full') {
+      if (refundAmount !== remaining) {
+        throw new Error(
+          `Full refund must equal the remaining escrow balance ${remaining} for campaign ${escrow.campaignId}.`,
+        );
+      }
+      return {
+        ...escrow,
+        status: EscrowStatus.Refunded,
+        totalEscrowed: escrow.releasedAmount,
+      };
+    }
+
+    return {
+      ...escrow,
+      totalEscrowed: escrow.totalEscrowed - refundAmount,
+    };
+  }
+
+  /**
    * Format escrow status badge and human-readable explanation.
    */
   static getEscrowSummary(escrow: CampaignEscrowDetails): { label: string; description: string; canRelease: boolean } {

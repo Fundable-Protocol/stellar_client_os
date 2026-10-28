@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import type {
   CampaignPushSubscription,
   CampaignMilestoneType,
+  CampaignPushEventType,
   MilestoneNotificationPayload,
   DeliveredPushNotification,
   DeviceType,
@@ -73,11 +74,17 @@ export class CampaignPushNotificationService {
     subscriberAddress: string;
     campaignId?: string;
     endpoint: string;
-    keys: PushSubscriptionKeys;
+    keys?: PushSubscriptionKeys;
     deviceType?: DeviceType;
     enabledMilestones?: CampaignMilestoneType[];
   }): Promise<CampaignPushSubscription> {
-    if (!input.subscriberAddress || !input.endpoint || !input.keys?.auth || !input.keys?.p256dh) {
+    const nativePush = input.endpoint.startsWith("ExponentPushToken[") ||
+      input.endpoint.startsWith("ExpoPushToken[");
+    if (
+      !input.subscriberAddress ||
+      !input.endpoint ||
+      (!nativePush && (!input.keys?.auth || !input.keys?.p256dh))
+    ) {
       throw new Error('Invalid push subscription: subscriberAddress, endpoint, and keys are required');
     }
 
@@ -90,6 +97,7 @@ export class CampaignPushNotificationService {
       'verification_complete',
       'campaign_finished',
       'impact_achieved',
+      'campaign_update',
     ];
 
     if (existingIndex >= 0) {
@@ -100,6 +108,7 @@ export class CampaignPushNotificationService {
         campaignId: input.campaignId ?? existing.campaignId,
         deviceType: input.deviceType ?? existing.deviceType,
         enabledMilestones: input.enabledMilestones ?? existing.enabledMilestones,
+        enabledEvents: input.enabledMilestones ?? existing.enabledEvents ?? existing.enabledMilestones,
         updatedAt: now,
       };
       subscriptions[existingIndex] = updated;
@@ -115,6 +124,7 @@ export class CampaignPushNotificationService {
       keys: input.keys,
       deviceType: input.deviceType ?? 'unknown',
       enabledMilestones: input.enabledMilestones ?? defaultMilestones,
+      enabledEvents: input.enabledMilestones ?? defaultMilestones,
       createdAt: now,
       updatedAt: now,
     };
@@ -139,7 +149,7 @@ export class CampaignPushNotificationService {
   async updatePreferences(
     subscriberAddress: string,
     campaignId: string,
-    enabledMilestones: CampaignMilestoneType[]
+    enabledMilestones: CampaignPushEventType[]
   ): Promise<CampaignPushSubscription[]> {
     const subscriptions = await this.getSubscriptions();
     const updatedList: CampaignPushSubscription[] = [];
@@ -151,6 +161,7 @@ export class CampaignPushNotificationService {
         (campaignId === '*' || sub.campaignId === '*' || sub.campaignId === campaignId)
       ) {
         sub.enabledMilestones = enabledMilestones;
+        sub.enabledEvents = enabledMilestones;
         sub.updatedAt = new Date().toISOString();
         updatedList.push(sub);
       }
@@ -183,8 +194,8 @@ export class CampaignPushNotificationService {
       }
       case 'campaign_finished': {
         return {
-          title: `🎉 Milestone: Campaign Finished!`,
-          body: `${name} has completed all milestones and successfully finished!`,
+          title: `Campaign Ended: ${name}`,
+          body: `${name} has ended.`,
         };
       }
       case 'impact_achieved': {
@@ -192,6 +203,12 @@ export class CampaignPushNotificationService {
         return {
           title: `🌍 Milestone: Impact Achieved!`,
           body: `${name} has achieved its targeted impact: ${impact}.`,
+        };
+      }
+      case 'campaign_update': {
+        return {
+          title: `Campaign Update: ${name}`,
+          body: String(payload.details.summary ?? `There is a new update for ${name}.`),
         };
       }
     }
@@ -206,7 +223,7 @@ export class CampaignPushNotificationService {
     // Filter subscribers who sponsor this campaign (or all campaigns '*') and enabled this milestone
     const matchingSubs = subscriptions.filter((sub) => {
       const campaignMatches = sub.campaignId === '*' || sub.campaignId === payload.campaignId;
-      const milestoneMatches = sub.enabledMilestones.includes(targetMilestone);
+      const milestoneMatches = (sub.enabledEvents ?? sub.enabledMilestones).includes(targetMilestone);
       return campaignMatches && milestoneMatches;
     });
 
@@ -239,6 +256,41 @@ export class CampaignPushNotificationService {
           success = false;
           errorMsg = err instanceof Error ? err.message : 'Push transmission failed';
         }
+      } else if (
+        sub.endpoint.startsWith("ExponentPushToken[") ||
+        sub.endpoint.startsWith("ExpoPushToken[")
+      ) {
+        try {
+          const response = await fetch("https://exp.host/--/api/v2/push/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({
+              to: sub.endpoint,
+              sound: "default",
+              title,
+              body,
+              data: {
+                ...pushData,
+                deepLinkUrl: payload.deepLinkUrl ??
+                  `https://fundable.stellar/campaigns/${encodeURIComponent(payload.campaignId)}`,
+              },
+            }),
+          });
+          const result = await response.json() as {
+            data?: { status?: string; message?: string };
+            errors?: Array<{ message?: string }>;
+          };
+          success = response.ok && result.data?.status !== "error";
+          if (!success) {
+            errorMsg = result.data?.message ?? result.errors?.[0]?.message ?? `Expo push service returned HTTP ${response.status}`;
+          }
+        } catch (err: unknown) {
+          success = false;
+          errorMsg = err instanceof Error ? err.message : "Expo push transmission failed";
+        }
+      } else {
+        success = false;
+        errorMsg = "No push sender is configured for this subscription endpoint";
       }
 
       if (success) {
@@ -272,5 +324,19 @@ export class CampaignPushNotificationService {
       errors,
       delivered: newDeliveries,
     };
+  }
+
+  async sendCampaignUpdateNotification(payload: {
+    campaignId: string;
+    campaignTitle: string;
+    details?: Record<string, unknown>;
+  }): Promise<{ sentCount: number; errors: number; delivered: DeliveredPushNotification[] }> {
+    return this.sendMilestonePushNotification({
+      campaignId: payload.campaignId,
+      campaignTitle: payload.campaignTitle,
+      milestone: "campaign_update",
+      details: payload.details ?? {},
+      deepLinkUrl: `https://fundable.stellar/campaigns/${encodeURIComponent(payload.campaignId)}`,
+    });
   }
 }
