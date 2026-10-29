@@ -81,6 +81,43 @@ export interface SponsorRecord {
   sponsoredAt: number;
 }
 
+export interface CampaignPartner {
+  name: string;
+  logoUrl: string;
+  url: string;
+}
+
+export function isValidCampaignPartners(value: unknown): value is CampaignPartner[] {
+  if (!Array.isArray(value) || value.length > 20) return false;
+
+  return value.every((partner) => {
+    if (
+      !partner ||
+      typeof partner !== "object" ||
+      typeof partner.name !== "string" ||
+      partner.name.trim().length === 0 ||
+      partner.name.length > 100 ||
+      typeof partner.logoUrl !== "string" ||
+      partner.logoUrl.length > 2048 ||
+      typeof partner.url !== "string" ||
+      partner.url.length > 2048
+    ) {
+      return false;
+    }
+
+    return [partner.logoUrl, partner.url].every((value) => {
+      try {
+        const parsed = new URL(value);
+        return (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+          !parsed.username &&
+          !parsed.password;
+      } catch {
+        return false;
+      }
+    });
+  });
+}
+
 export type CharityBadgeType = "TAX_EXEMPT" | "CHARITY_VERIFIED";
 
 /** Trust badge awarded to a campaign by a platform admin after reviewing charity documents. */
@@ -259,6 +296,7 @@ export interface CampaignRecord {
   statusChangedAt: number;
   network?: "testnet" | "mainnet";
   sponsors: SponsorRecord[];
+  partners?: CampaignPartner[];
   /** Partner details are eligible for certificates only after independent verification. */
   nonprofitPartner?: CampaignNonprofitPartner;
   /** Tax-Exempt / Charity Verified badge shown to backers; set only by a platform admin. */
@@ -909,6 +947,7 @@ export async function createCampaign(input: {
   raisedAmount?: string;
   sponsorCount?: number;
   sponsors?: SponsorRecord[];
+  partners?: CampaignPartner[];
   network?: "testnet" | "mainnet";
   nonprofitPartner?: Omit<CampaignNonprofitPartner, "verificationStatus" | "verifiedAt" | "verifiedBy">;
 }, dataSource = getCampaignDataSource(), now = Date.now()): Promise<CampaignRecord> {
@@ -959,6 +998,7 @@ export async function createCampaign(input: {
     statusChangedAt: now,
     network: input.network,
     sponsors: input.sponsors ?? [],
+    partners: input.partners ?? [],
     nonprofitPartner: input.nonprofitPartner
       ? { ...input.nonprofitPartner, verificationStatus: "PENDING" }
       : undefined,
