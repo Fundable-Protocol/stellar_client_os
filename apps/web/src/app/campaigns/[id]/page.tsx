@@ -127,6 +127,12 @@ export default async function CampaignPage({
         />
       </section>
 
+      <CampaignRefundPanel
+        campaignId={campaign.id}
+        creatorAddress={campaign.creator}
+        closeAt={campaign.durationMs === undefined ? undefined : campaign.createdAt + campaign.durationMs}
+      />
+
       {/* Reward Tiers & Monthly Instalment Plans */}
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <RewardTiersInstalmentCheckout
