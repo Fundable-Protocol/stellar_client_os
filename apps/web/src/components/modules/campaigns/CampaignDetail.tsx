@@ -23,6 +23,7 @@ import AnimatedProgressBar from "./AnimatedProgressBar";
 import { CampaignData, CampaignStatus } from "@/types/campaign";
 import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
+import { CampaignRefundBanner } from "./CampaignRefundBanner";
 
 interface CampaignDetailProps {
   campaignId: string;
@@ -271,6 +272,14 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           <span>{actionMessage}</span>
         </div>
       )}
+
+      <CampaignRefundBanner
+        campaignId={campaign.id}
+        status={campaign.status}
+        totalRaised={campaign.totalRaised}
+        minTarget={campaign.minTarget}
+        deadline={campaign.deadline}
+      />
 
       {/* Campaign Header & Title Section */}
       <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-6 sm:p-8 backdrop-blur-md space-y-4">
