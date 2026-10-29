@@ -20,6 +20,8 @@ import {
   maskDonorAddress,
   validateDonationAmount,
 } from "@/types/campaign-donation";
+import { ContributionFrequency } from "@/types/recurring-contributions";
+import { Repeat, Calendar } from "lucide-react";
 
 export interface CampaignDonationPanelProps {
   campaignId: string;
@@ -33,16 +35,10 @@ interface DonationResponse {
 }
 
 /**
- * One-time charitable donation form (issue #1001).
+ * Charitable donation form with recurring monthly support option.
  *
  * Donors pick any whole-token amount and give it straight to the campaign —
- * none of it is tied to a specific tree. Funds are released to the creator's
- * discretion for project costs, and every donation returns a receipt.
- *
- * As of the campaign insurance pool feature (v1), 1% of every donation is
- * allocated to the campaign insurance pool. The pool protects sponsors against
- * tree loss: when trees die within two years of planting, a percentage is
- * automatically refunded to sponsors from the pool.
+ * either as a one-time contribution or an ongoing monthly subscription.
  */
 export function CampaignDonationPanel({
   campaignId,
@@ -52,6 +48,7 @@ export function CampaignDonationPanel({
   const { t } = useTranslation();
   const { address, isConnected, openModal } = useWallet();
 
+  const [frequency, setFrequency] = useState<ContributionFrequency>("ONE_TIME");
   const [amount, setAmount] = useState("");
   const [donorName, setDonorName] = useState("");
   const [donorEmail, setDonorEmail] = useState("");
@@ -89,6 +86,7 @@ export function CampaignDonationPanel({
   const [earnedBadges, setEarnedBadges] = useState<NonNullable<DonationResponse["badges"]>>([]);
 
   const reset = () => {
+    setFrequency("ONE_TIME");
     setAmount("");
     setDonorName("");
     setDonorEmail("");
@@ -132,6 +130,8 @@ export function CampaignDonationPanel({
           donorEmail: donorEmail.trim() || undefined,
           amount,
           token,
+          frequency,
+          isRecurring: frequency === "MONTHLY",
           message: message.trim() || undefined,
           anonymous,
           referralCode,
@@ -195,9 +195,15 @@ export function CampaignDonationPanel({
           <div className="flex justify-between gap-4 p-3 text-sm">
             <dt className="text-zinc-400">{t("pledge.amount")}</dt>
             <dd className="text-zinc-100">
-              {receipt.amount} {receipt.token}
+              {receipt.amount} {receipt.token} {receipt.frequency === "MONTHLY" || receipt.isRecurring ? "(Monthly)" : ""}
             </dd>
           </div>
+          {(receipt.frequency === "MONTHLY" || receipt.isRecurring) && (
+            <div className="flex justify-between gap-4 p-3 text-sm">
+              <dt className="text-zinc-400">Contribution Cadence</dt>
+              <dd className="text-emerald-400 font-medium">Recurring Monthly Subscription</dd>
+            </div>
+          )}
           <div className="flex justify-between gap-4 p-3 text-sm">
             <dt className="text-zinc-400">{t("pledge.allocatedTo")}</dt>
             <dd className="text-zinc-100">{receipt.allocationLabel}</dd>
@@ -245,6 +251,55 @@ export function CampaignDonationPanel({
         <span data-testid="donation-insurance-notice">
           {t("pledge.insuranceNotice")}
         </span>
+      </div>
+
+      {/* Contribution Frequency Toggle (#Acceptance Criteria 1) */}
+      <div className="mt-6">
+        <label className="block text-sm font-medium text-zinc-300 mb-2">
+          Contribution Type
+        </label>
+        <div
+          role="radiogroup"
+          aria-label="Contribution Type"
+          data-testid="frequency-toggle-group"
+          className="grid grid-cols-2 gap-3"
+        >
+          <button
+            type="button"
+            data-testid="toggle-frequency-one-time"
+            aria-checked={frequency === "ONE_TIME"}
+            role="radio"
+            onClick={() => setFrequency("ONE_TIME")}
+            className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-sm font-medium transition ${
+              frequency === "ONE_TIME"
+                ? "border-emerald-500 bg-emerald-500/10 text-white shadow-sm ring-1 ring-emerald-500"
+                : "border-white/10 bg-black/20 text-zinc-400 hover:border-white/20 hover:text-zinc-200"
+            }`}
+          >
+            <span>One-Time</span>
+          </button>
+          <button
+            type="button"
+            data-testid="toggle-frequency-monthly"
+            aria-checked={frequency === "MONTHLY"}
+            role="radio"
+            onClick={() => setFrequency("MONTHLY")}
+            className={`flex items-center justify-center gap-2 rounded-xl border p-3 text-sm font-medium transition ${
+              frequency === "MONTHLY"
+                ? "border-emerald-500 bg-emerald-500/10 text-white shadow-sm ring-1 ring-emerald-500"
+                : "border-white/10 bg-black/20 text-zinc-400 hover:border-white/20 hover:text-zinc-200"
+            }`}
+          >
+            <Repeat className="w-4 h-4 text-emerald-400" />
+            <span>Recurring Monthly</span>
+          </button>
+        </div>
+        {frequency === "MONTHLY" && (
+          <p className="mt-2 text-xs text-emerald-300/90 flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
+            Support this creator automatically every month. Cancel or pause anytime in your backer dashboard.
+          </p>
+        )}
       </div>
 
       <div className="mt-6">

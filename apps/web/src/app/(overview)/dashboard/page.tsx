@@ -23,6 +23,7 @@ const DashboardPage = async () => {
     return (
         <main className="h-full overflow-y-auto space-y-4 md:space-y-12 py-10">
             <StatsOverview />
+            <BackerSubscriptionsManager />
             <BackerNotificationPreferencePanel />
             <BackerTestimonialsDashboard />
             <BackerReferralDashboard />

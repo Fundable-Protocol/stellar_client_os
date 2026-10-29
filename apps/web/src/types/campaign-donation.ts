@@ -85,6 +85,9 @@ export interface CampaignDonation {
   allocation: DonationAllocation;
   message?: string;
   anonymous: boolean;
+  frequency?: "ONE_TIME" | "MONTHLY";
+  isRecurring?: boolean;
+  subscriptionId?: string;
   status: DonationStatus;
   txHash?: string;
   /** Optional caller-supplied key used to make retries idempotent. */

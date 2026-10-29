@@ -132,6 +132,8 @@ export interface CreateDonationInput {
   rewardTier?: string;
   message?: string;
   anonymous?: boolean;
+  frequency?: "ONE_TIME" | "MONTHLY";
+  isRecurring?: boolean;
   txHash?: string;
   /** Caller-supplied key that makes retries safe: a repeat call returns the original donation. */
   idempotencyKey?: string;
@@ -349,6 +351,9 @@ export class CampaignDonationService {
       allocation: DONATION_ALLOCATION,
       message: input.message?.trim() || undefined,
       anonymous: Boolean(input.anonymous),
+      frequency: isRecurring ? "MONTHLY" : "ONE_TIME",
+      isRecurring,
+      subscriptionId,
       status: "CONFIRMED",
       txHash: input.txHash?.trim() || undefined,
       idempotencyKey: idempotencyKey || undefined,
@@ -371,6 +376,9 @@ export class CampaignDonationService {
       donorAddress,
       amount,
       token,
+      frequency: donation.frequency,
+      isRecurring: donation.isRecurring,
+      subscriptionId: donation.subscriptionId,
       allocation: DONATION_ALLOCATION,
       allocationLabel: DONATION_ALLOCATION_LABEL,
       allocationDescription: DONATION_ALLOCATION_DESCRIPTION,
