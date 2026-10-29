@@ -28,6 +28,7 @@ import { BackerMessageComposer } from "@/components/modules/campaign/BackerMessa
 // #1207 — Campaign boost purchase (creator only)
 import { CampaignBoostPurchase } from "@/components/modules/campaign/CampaignBoostPurchase";
 import { CampaignRisksAndChallenges } from "@/components/campaign/CampaignRisksAndChallenges";
+import { OfflineCampaignCache } from "@/components/pwa/OfflineCampaignCache";
 
 export const runtime = "nodejs";
 
@@ -47,6 +48,17 @@ export default async function CampaignPage({
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-6 py-10">
+      <OfflineCampaignCache campaign={{
+        id: campaign.id,
+        name: campaign.name,
+        description: campaign.description ?? "",
+        location: campaign.location ?? "",
+        goalAmount: campaign.goalAmount,
+        raisedAmount: campaign.raisedAmount,
+        treeCount: campaign.treeCount ?? null,
+        status: campaign.status,
+        deadline: campaign.deadline ?? null,
+      }} />
       <CampaignViewTracker campaignId={campaign.id} />
       <InAppSurveyNotificationBanner campaignId={campaign.id} />
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">

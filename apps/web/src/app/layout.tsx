@@ -11,6 +11,7 @@ import { RootErrorBoundary } from "@/components/ui/root-error-boundary";
 import { SocialProvider } from "@/providers/SocialProvider";
 import { HighContrastProvider } from "@/providers/HighContrastProvider";
 import { SmartAppBanner } from "@/components/SmartAppBanner";
+import { PWAFeatures } from "@/components/pwa/PWAFeatures";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { getTextDirection } from "@/i18n/config";
 import { getRequestUiLocale } from "@/i18n/server";
@@ -35,10 +36,24 @@ const bricolageGrotesque = Bricolage_Grotesque({
   display: "swap",
 });
 
-
 export const metadata: Metadata = {
   title: "Fundable Stellar - Decentralized Payment Streams",
   description: "Create seamless payment streams and token distributions on the Stellar blockchain",
+  applicationName: "Fundable Stellar",
+  manifest: "/manifest.json",
+  icons: {
+    icon: [
+      { url: "/icons/fundable-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/fundable-512.png", sizes: "512x512", type: "image/png" },
+      { url: "/icons/fundable-192.svg", sizes: "any", type: "image/svg+xml" },
+    ],
+    apple: [{ url: "/icons/fundable-192.png", sizes: "192x192", type: "image/png" }],
+  },
+  appleWebApp: {
+    capable: true,
+    title: "Fundable",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export default async function RootLayout({
@@ -51,6 +66,9 @@ export default async function RootLayout({
   return (
     <html lang={locale} dir={getTextDirection(locale)} suppressHydrationWarning>
       <head>
+        <meta name="theme-color" content="#8256ff" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <link rel="apple-touch-startup-image" href="/splash/fundable-startup.png" />
         <script
           dangerouslySetInnerHTML={{
             __html: `try{const t=localStorage.getItem("fundable-theme");const d=t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.dataset.theme=d?"dark":"light"}catch(e){console.error("Unable to initialize the saved theme preference.",e)}`,
@@ -69,11 +87,10 @@ export default async function RootLayout({
                     <RootErrorBoundary>
                       <ReferralAttributionTracker />
                       <Navbar />
-                      <AppProvider>
-                        {children}
-                      </AppProvider>
+                      <AppProvider>{children}</AppProvider>
                       <WalletModal />
                       <SmartAppBanner />
+                      <PWAFeatures />
                     </RootErrorBoundary>
                   </SocialProvider>
                 </StellarWalletProvider>
