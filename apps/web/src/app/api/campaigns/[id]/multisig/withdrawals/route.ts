@@ -15,10 +15,30 @@ export async function GET(_request: Request, { params }: Ctx) {
 /** POST /api/campaigns/:id/multisig/withdrawals — creator opens (and signs) a request. */
 export async function POST(request: Request, { params }: Ctx) {
   try {
+    const id = (await params).id;
     const body = await readJsonBody(request);
+    const callerAddress = str(body.callerAddress);
+
+    // Enforce 2FA for creators who have it enabled before any fund movement.
+    const twoFactor = await svc.getTwoFactorStatus(callerAddress);
+    if (twoFactor.enabled) {
+      const code = str(body.twoFactorCode);
+      const backupCode = str(body.backupCode);
+      const verified = backupCode
+        ? await svc.verifyBackupCode(callerAddress, backupCode)
+        : await svc.verifyTotp(callerAddress, code);
+
+      if (!verified) {
+        return Response.json(
+          { error: "Two-factor authentication required or invalid", code: "TWO_FACTOR_REQUIRED" },
+          { status: 403 },
+        );
+      }
+    }
+
     const created = await svc.requestWithdrawal({
-      campaignId: (await params).id,
-      callerAddress: str(body.callerAddress),
+      campaignId: id,
+      callerAddress,
       amount: str(body.amount),
       destination: str(body.destination),
       transactionXdr: str(body.transactionXdr),

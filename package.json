@@ -4,8 +4,8 @@
   "private": true,
   "description": "Fundable Protocol - Stellar blockchain client and smart contracts",
   "scripts": {
-    "dev": "pnpm --filter @fundable/web dev",
-    "build": "pnpm --filter @fundable/web build",
+    "dev": "node api.js && pnpm --filter @fundable/web dev",
+    "build": "node api.js && pnpm --filter @fundable/web build",
     "build:contracts": "cd contracts && cargo build --release",
     "generate:sdk": "pnpm --filter @fundable/sdk generate",
     "test:contracts": "cd contracts && cargo test",
