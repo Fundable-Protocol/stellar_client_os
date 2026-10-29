@@ -15,6 +15,7 @@ import { I18nProvider } from "@/i18n/I18nProvider";
 import { getTextDirection } from "@/i18n/config";
 import { getRequestUiLocale } from "@/i18n/server";
 import { ThemeProvider } from "@/providers/ThemeProvider";
+import { ReferralAttributionTracker } from "@/components/campaign/ReferralAttributionTracker";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -66,6 +67,7 @@ export default async function RootLayout({
                 <StellarWalletProvider>
                   <SocialProvider>
                     <RootErrorBoundary>
+                      <ReferralAttributionTracker />
                       <Navbar />
                       <AppProvider>
                         {children}

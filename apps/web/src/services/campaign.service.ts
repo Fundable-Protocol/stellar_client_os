@@ -202,6 +202,12 @@ export interface CampaignRecord {
   pledgeThankYouImageUrl?: string;
   pledgeThankYouVideoUrl?: string;
   pledgeThankYouNextSteps?: string;
+  /** Optional creator-defined reward offered to the top campaign referrers. */
+  referralReward?: {
+    description: string;
+    recipientCount: number;
+    updatedAt: number;
+  };
   name: string;
   description?: string;
   /** Creator-authored risks, uncertainties, and mitigation plans. */
