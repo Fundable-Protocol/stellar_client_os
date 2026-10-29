@@ -4,6 +4,7 @@ import {
   CampaignTrendingService,
 } from "@/services/campaign-trending.service";
 import { campaignSocialSharesService } from "@/services/campaign-social-shares.service";
+import { campaignFraudRiskService } from "@/services/campaign-fraud-risk.service";
 
 /**
  * GET /api/campaigns/trending — Rank campaigns by trending score (issue #728).
@@ -64,6 +65,19 @@ export async function GET(request: NextRequest) {
       offset,
       includeNonActive,
     });
+
+    // Withhold campaigns flagged by the wash-pledging / Sybil detector (pending review)
+    // from the trending leaderboard.
+    const flaggedIds = await campaignFraudRiskService.getFlaggedCampaignIds(network);
+    if (flaggedIds.size > 0) {
+      const data = result.data.filter((entry) => !flaggedIds.has(String(entry.id)));
+      const removed = result.data.length - data.length;
+      result.data = data.map((entry, index) => ({ ...entry, rank: offset + index + 1 }));
+      result.meta = {
+        ...result.meta,
+        total: Math.max(0, result.meta.total - removed),
+      };
+    }
 
     return NextResponse.json(result);
   } catch (err: unknown) {
