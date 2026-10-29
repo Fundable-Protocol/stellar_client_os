@@ -1,5 +1,6 @@
 import { getCampaignDataSource } from "@/services/campaign.service";
 import { InMemoryCampaignSearchProvider, popularCampaigns } from "@/services/campaign-search.service";
+import { resolveCreatorVerification } from "@/services/creator-identity-verification.service";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,11 @@ export async function GET(request: Request) {
   const minGoalAmount = url.searchParams.get("minGoalAmount") ?? undefined;
   const maxGoalAmount = url.searchParams.get("maxGoalAmount") ?? undefined;
   const maxDaysRemainingRaw = url.searchParams.get("maxDaysRemaining");
+  const verifiedRaw = url.searchParams.get("verified");
+  if (verifiedRaw !== null && verifiedRaw !== "true" && verifiedRaw !== "false") {
+    return Response.json({ error: "verified must be true or false" }, { status: 400 });
+  }
+  const verifiedOnly = verifiedRaw === "true";
 
   if (minGoalAmount !== undefined && !AMOUNT_PATTERN.test(minGoalAmount)) {
     return Response.json({ error: "minGoalAmount must be a non-negative integer string" }, { status: 400 });
@@ -36,13 +42,15 @@ export async function GET(request: Request) {
   const hasFilters = Boolean(location || category || species || creator)
     || minGoalAmount !== undefined
     || maxGoalAmount !== undefined
-    || maxDaysRemaining !== undefined;
+    || maxDaysRemaining !== undefined
+    || verifiedOnly;
   if (!query && !hasFilters) {
     return Response.json({ error: "Provide a search query or at least one filter" }, { status: 400 });
   }
 
   const source = getCampaignDataSource();
-  const results = await new InMemoryCampaignSearchProvider(source).search({
+  // Verification status is resolved live so newly earned badges surface in search immediately.
+  const results = await new InMemoryCampaignSearchProvider(source, resolveCreatorVerification).search({
     query,
     location,
     category,
@@ -51,6 +59,7 @@ export async function GET(request: Request) {
     minGoalAmount,
     maxGoalAmount,
     maxDaysRemaining,
+    verifiedOnly,
     limit: Number(url.searchParams.get("limit") ?? 20),
     offset: Number(url.searchParams.get("offset") ?? 0),
   });
@@ -61,6 +70,7 @@ export async function GET(request: Request) {
     location: campaign.location,
     category: campaign.category,
     sponsorCount: campaign.sponsorCount,
+    verification: resolveCreatorVerification(campaign),
   })) : [];
   return Response.json({ data: results, count: results.length, suggestions });
 }

@@ -1,4 +1,9 @@
 import type { CampaignDataSource, CampaignRecord } from "./campaign.service";
+import {
+  getVerificationSummaryFor,
+  verificationRank,
+  type CampaignVerificationSummary,
+} from "@/lib/creator-verification";
 
 export interface CampaignSearchQuery {
   query: string;
@@ -15,6 +20,8 @@ export interface CampaignSearchQuery {
   creator?: string;
   categories?: string[];
   tags?: string[];
+  /** Only return campaigns whose creator earned the "Verified Creator" badge. */
+  verifiedOnly?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -23,7 +30,14 @@ export interface CampaignSearchResult {
   campaign: CampaignRecord;
   score: number;
   highlights: string[];
+  /** Creator identity verification status (email, phone, government ID) surfaced to searchers. */
+  verification: CampaignVerificationSummary;
 }
+
+/** Resolves the live creator verification summary for a campaign. */
+export type CampaignVerificationResolver = (campaign: CampaignRecord) => CampaignVerificationSummary;
+
+const persistedVerification: CampaignVerificationResolver = (campaign) => getVerificationSummaryFor(campaign);
 
 export interface CampaignSearchProvider {
   search(query: CampaignSearchQuery): Promise<CampaignSearchResult[]>;
@@ -136,7 +150,10 @@ export function popularCampaigns(campaigns: CampaignRecord[], limit = 5): Campai
  * an Elasticsearch provider without changing the API or UI.
  */
 export class InMemoryCampaignSearchProvider implements CampaignSearchProvider {
-  constructor(private readonly source: CampaignDataSource) {}
+  constructor(
+    private readonly source: CampaignDataSource,
+    private readonly resolveVerification: CampaignVerificationResolver = persistedVerification,
+  ) {}
 
   async search(query: CampaignSearchQuery): Promise<CampaignSearchResult[]> {
     const requested = tokens(query.query);
@@ -146,11 +163,31 @@ export class InMemoryCampaignSearchProvider implements CampaignSearchProvider {
     const creator = query.creator?.trim().toLowerCase();
     const categories = (query.categories ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean);
     const tags = (query.tags ?? []).map((value) => value.trim().toLowerCase()).filter(Boolean);
+    const minGoal = parseAmount(query.minGoalAmount);
+    const maxGoal = parseAmount(query.maxGoalAmount);
+    const maxDaysRemaining =
+      query.maxDaysRemaining !== undefined && Number.isFinite(query.maxDaysRemaining) ? query.maxDaysRemaining : undefined;
     const campaigns = await this.source.getCampaigns();
     const now = Date.now();
+    const verificationById = new Map<string, CampaignVerificationSummary>();
+    const verificationOf = (campaign: CampaignRecord): CampaignVerificationSummary => {
+      let summary = verificationById.get(campaign.id);
+      if (!summary) {
+        summary = this.resolveVerification(campaign);
+        verificationById.set(campaign.id, summary);
+      }
+      return summary;
+    };
 
     return campaigns
       .filter((campaign) => {
+        if (minGoal !== null && goalAmountOf(campaign) < minGoal) return false;
+        if (maxGoal !== null && goalAmountOf(campaign) > maxGoal) return false;
+        if (maxDaysRemaining !== undefined) {
+          const remaining = campaignDaysRemaining(campaign, now);
+          if (remaining === undefined || remaining < 0 || remaining > maxDaysRemaining) return false;
+        }
+        if (query.verifiedOnly && !verificationOf(campaign).isVerified) return false;
         if (location && !(campaign.location ?? "").toLowerCase().includes(location)) return false;
         if (category && !matchesCategory(campaign, category)) return false;
         if (species && !speciesValues(campaign).some((item) => item.toLowerCase().includes(species))) return false;
@@ -179,9 +216,16 @@ export class InMemoryCampaignSearchProvider implements CampaignSearchProvider {
         const highlights = Array.from(new Set(highlightCandidates)).filter((value) =>
           requested.some((term) => value.toLowerCase().includes(term)),
         );
-        return { campaign, score, highlights };
+        const verification = verificationOf(campaign);
+        return { campaign: { ...campaign, creatorVerification: verification }, score, highlights, verification };
       })
-      .sort((a, b) => b.score - a.score || b.campaign.updatedAt - a.campaign.updatedAt)
+      // Equal relevance: verified creators first, then partially verified, then most recently updated.
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          verificationRank(b.verification) - verificationRank(a.verification) ||
+          b.campaign.updatedAt - a.campaign.updatedAt,
+      )
       .slice(Math.max(query.offset ?? 0, 0), Math.max(query.offset ?? 0, 0) + Math.min(Math.max(query.limit ?? 20, 1), 100));
   }
 }
@@ -203,6 +247,7 @@ export class ElasticsearchCampaignSearchProvider implements CampaignSearchProvid
             filter: [
               ...(query.categories && query.categories.length > 0 ? [{ terms: { category: query.categories } }] : []),
               ...(query.tags && query.tags.length > 0 ? [{ terms: { tags: query.tags } }] : []),
+              ...(query.verifiedOnly ? [{ term: { "creatorVerification.isVerified": true } }] : []),
             ],
           },
         },
@@ -212,6 +257,11 @@ export class ElasticsearchCampaignSearchProvider implements CampaignSearchProvid
     });
     if (!response.ok) throw new Error(`Campaign search unavailable (${response.status})`);
     const payload = await response.json() as { hits?: { hits?: Array<{ _score?: number; _source: CampaignRecord }> } };
-    return (payload.hits?.hits ?? []).map((hit) => ({ campaign: hit._source, score: hit._score ?? 0, highlights: [] }));
+    return (payload.hits?.hits ?? []).map((hit) => ({
+      campaign: hit._source,
+      score: hit._score ?? 0,
+      highlights: [],
+      verification: getVerificationSummaryFor(hit._source),
+    }));
   }
 }

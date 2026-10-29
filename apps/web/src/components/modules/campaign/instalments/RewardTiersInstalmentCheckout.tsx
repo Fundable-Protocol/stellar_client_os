@@ -50,25 +50,14 @@ export function RewardTiersInstalmentCheckout({
   const [error, setError] = useState<string | null>(null);
   const [completedPledge, setCompletedPledge] = useState<BackerInstalmentPledge | null>(null);
 
-  // Helper to determine if a tier is out of stock
-  const isTierOutOfStock = (tier: RewardTier): boolean => {
-    if (tier.stockCount !== undefined) {
-      const remaining = tier.inventoryRemaining ?? Math.max(0, tier.stockCount - (tier.claimedStock ?? tier.claimed ?? 0));
-      return remaining <= 0;
-    }
-    if (tier.limit !== undefined) {
-      return (tier.claimed ?? 0) >= tier.limit;
-    }
-    return false;
-  };
-
-  // Helper to get remaining stock number
-  const getRemainingStock = (tier: RewardTier): number | undefined => {
-    if (tier.stockCount !== undefined) {
-      return tier.inventoryRemaining ?? Math.max(0, tier.stockCount - (tier.claimedStock ?? tier.claimed ?? 0));
-    }
-    return undefined;
-  };
+  useEffect(() => {
+    if (!selectedTier) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedTier(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedTier]);
 
   // Fetch campaign tiers if not provided
   useEffect(() => {
@@ -163,6 +152,66 @@ export function RewardTiersInstalmentCheckout({
     loadTiers();
   }, [campaignId, initialTiers]);
 
+  useEffect(() => {
+    const recoveryToken = new URLSearchParams(window.location.search).get("pledgeRecovery");
+    if (!recoveryToken) return;
+
+    setIsRecovering(true);
+    fetch(`/api/pledge-recovery/${encodeURIComponent(recoveryToken)}`)
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "This pledge recovery link is no longer available.");
+        if (body.details.campaignId !== campaignId) throw new Error("This pledge recovery link belongs to a different campaign.");
+        setRecoveryTierId(body.details.tierId);
+        setSelectedPlanMonths(body.details.planMonths);
+        setBackerEmail(body.details.backerEmail);
+        setRecoveryRemindersEnabled(true);
+        setIsRecoverySession(true);
+      })
+      .catch((err: unknown) => {
+        setRecoveryError(err instanceof Error ? err.message : "Unable to restore your pledge.");
+      });
+  }, [campaignId]);
+
+  useEffect(() => {
+    if (isRecovering || isRecoverySession || completedPledge || !selectedTier || !address || !isConnected || !backerEmail.trim()) return;
+    const email = backerEmail.trim();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/pledge-recovery", {
+          method: recoveryRemindersEnabled ? "POST" : "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            campaignId,
+            tierId: selectedTier.id,
+            backerAddress: address,
+            backerEmail: email,
+            planMonths: selectedPlanMonths,
+          }),
+        });
+        if (!response.ok) {
+          const body = await response.json();
+          throw new Error(body.error || "Unable to update checkout reminder settings.");
+        }
+        setRecoveryError(null);
+      } catch (err) {
+        setRecoveryError(err instanceof Error ? err.message : "Unable to update checkout reminder settings.");
+      }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [
+    address,
+    backerEmail,
+    campaignId,
+    completedPledge,
+    isConnected,
+    isRecovering,
+    isRecoverySession,
+    recoveryRemindersEnabled,
+    selectedPlanMonths,
+    selectedTier,
+  ]);
+
   // Fetch plan breakdown when selected tier or chosen months change
   const fetchBreakdown = useCallback(async (tier: RewardTier, months: InstalmentPlanMonths) => {
     try {
@@ -210,6 +259,19 @@ export function RewardTiersInstalmentCheckout({
     }
   }, [campaignId, campaignCloseDate]);
 
+  useEffect(() => {
+    if (!recoveryTierId || tiers.length === 0) return;
+    const tier = tiers.find((item) => item.id === recoveryTierId);
+    if (!tier) {
+      setRecoveryError("The reward tier from this recovery link is no longer available.");
+      return;
+    }
+    setSelectedTier(tier);
+    fetchBreakdown(tier, selectedPlanMonths);
+    setRecoveryTierId(null);
+    setIsRecovering(false);
+  }, [fetchBreakdown, recoveryTierId, selectedPlanMonths, tiers]);
+
   const handleSelectTier = (tier: RewardTier) => {
     if (isTierOutOfStock(tier)) return; // Automatic lock-out: not selectable
     setSelectedTier(tier);
@@ -243,6 +305,23 @@ export function RewardTiersInstalmentCheckout({
     setError(null);
 
     try {
+      if (recoveryRemindersEnabled && backerEmail.trim()) {
+        const recoveryResponse = await fetch("/api/pledge-recovery", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            campaignId,
+            tierId: selectedTier.id,
+            backerAddress: address,
+            backerEmail: backerEmail.trim(),
+            planMonths: selectedPlanMonths,
+          }),
+        });
+        if (!recoveryResponse.ok) {
+          const body = await recoveryResponse.json();
+          setRecoveryError(body.error || "Unable to save checkout reminder settings.");
+        }
+      }
       const res = await fetch(`/api/campaigns/${campaignId}/reward-tiers/${selectedTier.id}/instalments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -314,55 +393,39 @@ export function RewardTiersInstalmentCheckout({
       {loadingTiers ? (
         <div className="py-8 text-center text-sm text-zinc-500">Loading reward tiers...</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div
+          role="radiogroup"
+          aria-label="Available reward tiers and instalment options"
+          className="grid grid-cols-1 md:grid-cols-3 gap-4"
+        >
           {tiers.map((tier) => {
-            const outOfStock = isTierOutOfStock(tier);
-            const remaining = getRemainingStock(tier);
             const isSelected = selectedTier?.id === tier.id;
+            const handleKeyDown = (e: React.KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleSelectTier(tier);
+              }
+            };
 
             return (
               <div
                 key={tier.id}
-                aria-disabled={outOfStock}
-                data-testid={`reward-tier-card-${tier.id}`}
-                className={`rounded-xl border p-5 transition-all flex flex-col justify-between ${
-                  outOfStock
-                    ? "opacity-60 bg-zinc-100/80 border-zinc-300 dark:bg-zinc-900/40 dark:border-zinc-800 grayscale cursor-not-allowed select-none"
-                    : isSelected
+                role="radio"
+                tabIndex={0}
+                aria-checked={isSelected}
+                aria-label={`Reward tier ${tier.name}, ${tier.amount} ${tier.token}`}
+                onClick={() => handleSelectTier(tier)}
+                onKeyDown={handleKeyDown}
+                className={`rounded-xl border p-5 transition-all flex flex-col justify-between cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 ${
+                  isSelected
                     ? "border-purple-600 bg-purple-50/20 dark:border-purple-500 dark:bg-purple-950/20 shadow-md ring-1 ring-purple-500"
                     : "border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900/60 hover:border-zinc-300 dark:hover:border-zinc-700"
                 }`}
               >
                 <div className="space-y-3">
                   <div className="flex items-start justify-between gap-2">
-                    <h3 className={`font-semibold ${outOfStock ? "text-zinc-500 dark:text-zinc-400 line-through" : "text-zinc-950 dark:text-white"}`}>
-                      {tier.name}
-                    </h3>
+                    <h3 className="font-semibold text-zinc-950 dark:text-white">{tier.name}</h3>
                     <div className="flex flex-col items-end gap-1">
-                      {outOfStock ? (
-                        <Badge
-                          variant="destructive"
-                          className="bg-rose-500/90 text-white text-[11px] whitespace-nowrap flex items-center gap-1"
-                          data-testid="out-of-stock-badge"
-                        >
-                          <Ban className="h-3 w-3" />
-                          Out of Stock
-                        </Badge>
-                      ) : (
-                        tier.stockCount !== undefined && (
-                          <Badge
-                            className={`text-[11px] whitespace-nowrap flex items-center gap-1 ${
-                              (remaining ?? 0) <= 5
-                                ? "bg-amber-600 text-white"
-                                : "bg-zinc-800 text-white dark:bg-zinc-700"
-                            }`}
-                            data-testid="inventory-badge"
-                          >
-                            <Package className="h-3 w-3" />
-                            {remaining} left of {tier.stockCount}
-                          </Badge>
-                        )
-                      )}
                       {tier.nftReward?.enabled && (
                         <Badge className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] whitespace-nowrap flex items-center gap-1">
                           <Sparkles className="h-3 w-3" />
@@ -378,51 +441,13 @@ export function RewardTiersInstalmentCheckout({
                   </div>
 
                   <div className="flex items-baseline gap-1">
-                    <span className={`text-2xl font-bold ${outOfStock ? "text-zinc-500 dark:text-zinc-400" : "text-zinc-950 dark:text-white"}`}>
+                    <span className="text-2xl font-bold text-zinc-950 dark:text-white">
                       {tier.amount}
                     </span>
                     <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
                       {tier.token}
                     </span>
                   </div>
-
-                  {/* Real-time Inventory Counter (Acceptance Criterion 2) */}
-                  {tier.stockCount !== undefined && (
-                    <div className="rounded-md border border-zinc-200/80 bg-zinc-50/80 p-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
-                      <div className="flex items-center justify-between text-xs mb-1.5">
-                        <span className="font-medium text-zinc-700 dark:text-zinc-300 flex items-center gap-1">
-                          <Package className="h-3.5 w-3.5 text-zinc-500" />
-                          Physical Inventory
-                        </span>
-                        <span
-                          className={`font-bold ${
-                            outOfStock
-                              ? "text-rose-600 dark:text-rose-400"
-                              : (remaining ?? 0) <= 5
-                              ? "text-amber-600 dark:text-amber-400"
-                              : "text-emerald-600 dark:text-emerald-400"
-                          }`}
-                          data-testid="real-time-inventory-counter"
-                        >
-                          {outOfStock ? "0 / " + tier.stockCount + " remaining (Sold Out)" : `${remaining} / ${tier.stockCount} remaining`}
-                        </span>
-                      </div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
-                        <div
-                          className={`h-full transition-all duration-300 ${
-                            outOfStock
-                              ? "bg-rose-500 w-full"
-                              : (remaining ?? 0) <= 5
-                              ? "bg-amber-500"
-                              : "bg-emerald-500"
-                          }`}
-                          style={{
-                            width: tier.stockCount > 0 ? `${Math.min(100, Math.round(((tier.claimedStock ?? tier.claimed ?? 0) / tier.stockCount) * 100))}%` : "100%",
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
 
                   {tier.instalmentEnabled && (
                     <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
@@ -440,7 +465,7 @@ export function RewardTiersInstalmentCheckout({
                     <ul className="space-y-1 pt-1 text-xs text-zinc-600 dark:text-zinc-400">
                       {tier.perks.map((perk, idx) => (
                         <li key={idx} className="flex items-center gap-1.5">
-                          <CheckCircle2 className={`h-3.5 w-3.5 shrink-0 ${outOfStock ? "text-zinc-400" : "text-emerald-500"}`} />
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
                           <span>{perk}</span>
                         </li>
                       ))}
@@ -450,19 +475,19 @@ export function RewardTiersInstalmentCheckout({
 
                 <div className="pt-4 mt-3 border-t border-zinc-100 dark:border-zinc-800">
                   <Button
-                    onClick={() => handleSelectTier(tier)}
-                    disabled={outOfStock}
-                    aria-disabled={outOfStock}
-                    data-testid={`select-tier-button-${tier.id}`}
-                    className={`w-full text-xs font-semibold ${
-                      outOfStock
-                        ? "bg-zinc-300 text-zinc-500 cursor-not-allowed hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-500"
-                        : isSelected
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectTier(tier);
+                    }}
+                    aria-label={isSelected ? `Selected reward tier ${tier.name}` : `Select reward tier ${tier.name}`}
+                    className={`w-full text-xs font-semibold focus-visible:ring-2 focus-visible:ring-purple-400 ${
+                      isSelected
                         ? "bg-purple-600 text-white hover:bg-purple-700"
                         : "bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700"
                     }`}
                   >
-                    {outOfStock ? "Out of Stock" : isSelected ? "Selected" : "Select Reward Tier"}
+                    {isSelected ? "Selected" : "Select Reward Tier"}
                   </Button>
                 </div>
               </div>
@@ -485,14 +510,21 @@ export function RewardTiersInstalmentCheckout({
       )}
 
       {/* Checkout Modal / Drawer for selected tier */}
-      {selectedTier && !isTierOutOfStock(selectedTier) && (
-        <div className="mt-8 rounded-xl border border-purple-200 bg-white p-6 shadow-lg dark:border-purple-900/60 dark:bg-zinc-950">
+      {selectedTier && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="selected-tier-checkout-title"
+          className="mt-8 rounded-xl border border-purple-200 bg-white p-6 shadow-lg dark:border-purple-900/60 dark:bg-zinc-950"
+        >
           {completedPledge ? (
             <div className="text-center py-6 space-y-4">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950">
                 <ShieldCheck className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <h3 className="text-xl font-bold text-zinc-950 dark:text-white">Instalment Pledge Confirmed!</h3>
+              <h3 id="selected-tier-checkout-title" className="text-xl font-bold text-zinc-950 dark:text-white">
+                Instalment Pledge Confirmed!
+              </h3>
               <p className="text-sm text-zinc-600 dark:text-zinc-300 max-w-md mx-auto">
                 You have pledged for <strong>{completedPledge.tierName}</strong> on a {completedPledge.planMonths}-month instalment plan ({completedPledge.monthlyAmount} {completedPledge.token}/month).
               </p>
@@ -519,14 +551,19 @@ export function RewardTiersInstalmentCheckout({
             <div className="space-y-6">
               <div className="flex items-center justify-between border-b border-zinc-200 pb-4 dark:border-zinc-800">
                 <div>
-                  <h3 className="text-lg font-bold text-zinc-950 dark:text-white">
+                  <h3 id="selected-tier-checkout-title" className="text-lg font-bold text-zinc-950 dark:text-white">
                     Checkout: {selectedTier.name}
                   </h3>
                   <p className="text-xs text-zinc-500">
                     Total Tier Price: <strong className="text-zinc-900 dark:text-zinc-100">{selectedTier.amount} {selectedTier.token}</strong>
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => setSelectedTier(null)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Close instalment checkout modal"
+                  onClick={() => setSelectedTier(null)}
+                >
                   ✕ Close
                 </Button>
               </div>

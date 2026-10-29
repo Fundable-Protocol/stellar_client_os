@@ -59,12 +59,24 @@
       "title": "Language & Region",
       "nav": "Language",
       "description": "Choose the language used across the Fundable interface. Your choice is saved on this device.",
-      "rtlNotice": "Arabic is displayed right-to-left."
+      "rtlNotice": "Arabic and Hebrew are displayed right-to-left."
     },
     "webhooks": {
       "title": "Webhooks",
       "nav": "Webhooks",
       "description": "Receive signed POST notifications when something happens on your campaigns."
+    },
+    "taxReports": {
+      "title": "Annual Tax Reports",
+      "nav": "Tax reports",
+      "description": "Download an annual summary of your recorded campaign contributions.",
+      "year": "Tax year",
+      "role": "Report view",
+      "creator": "Creator",
+      "backer": "Backer",
+      "downloadCSV": "Download CSV",
+      "downloadPDF": "Download PDF",
+      "ledgerNotice": "Reports include recorded dates, transaction hashes when available, token amounts, and counterparties. Transaction-time USD rates, platform fees, milestone payouts, and reward fulfillment are not available unless recorded in the transaction ledger. This report is informational and is not tax advice."
     }
   },
   "seo": {
@@ -162,5 +174,91 @@
       "saved": "Investment terms saved.",
       "notInvestment": "This campaign does not offer a financial return."
     }
+  },
+  "campaign": {
+    "progress": {
+      "title": "Campaign Funding Progress",
+      "ariaLabel": "Campaign funding progress",
+      "valuetext": "{percentage}% funded, {raised} of {goal} {currency}",
+      "goalProgress": "Goal Progress",
+      "stretchUnlocked": "Stretch goal unlocked! Amazing!",
+      "goalReached": "Goal reached! Fully funded!",
+      "minTargetReached": "Minimum goal met! Campaign will succeed.",
+      "inProgress": "Fundraising in progress…",
+      "totalRaised": "Total Raised",
+      "minimum": "Minimum",
+      "goal": "Goal",
+      "stretch": "Stretch",
+      "minMilestone": "Min ({percent}%)",
+      "goalMilestone": "Goal ({percent}%)",
+      "stretchMilestone": "Stretch (100%)",
+      "goalMilestoneFull": "Goal (100%)"
+    },
+    "stepper": {
+      "ariaLabel": "Campaign creation steps",
+      "stepOf": "Step {current} of {total}",
+      "streamAriaLabel": "Stream creation progress",
+      "stepAriaLabel": "Step {number}: {title}"
+    },
+    "milestones": {
+      "ariaLabel": "Campaign milestone progress",
+      "title": "Funding Milestones",
+      "reached": "{achieved} / {total} reached",
+      "marker": "{label} milestone {status}",
+      "reachedStatus": "reached",
+      "notReachedStatus": "not reached",
+      "next": "Next milestone:",
+      "percentOfGoal": "({percent}% of goal)",
+      "allReached": "All milestones reached — goal achieved!",
+      "raisedOfGoal": "{raised} / {goal} {token} raised ({percent}%)"
+    }
+  },
+  "pledge": {
+    "pageTitle": "Make a one-time donation",
+    "pageDescription": "Contribute to this campaign without buying specific trees. Your donation is placed at the creator's discretion to cover project costs, and you'll receive a receipt to keep.",
+    "backToCampaign": "Back to campaign",
+    "donateTo": "Donate to {campaign}",
+    "thisCampaign": "this campaign",
+    "oneTimeTrigger": "One-time Donate",
+    "oneTimeTitle": "One-time donation",
+    "closeDialog": "Close donation dialog",
+    "openFullPage": "Prefer a full page?",
+    "openDonationPage": "Open the donation page",
+    "quickAmounts": "Quick amounts",
+    "amountLabel": "Donation amount",
+    "tokenLabel": "Token",
+    "nameLabel": "Your name (optional)",
+    "emailLabel": "Email for a thank-you note (optional)",
+    "messageLabel": "Message to the creator (optional)",
+    "messagePlaceholder": "Add a note of encouragement…",
+    "anonymous": "Donate anonymously",
+    "submit": "Donate {amount}",
+    "submitNow": "Donate now",
+    "submitting": "Recording donation…",
+    "connectWallet": "Connect your wallet to donate.",
+    "recordError": "We could not record your donation. Please try again.",
+    "networkError": "Network error — please check your connection and try again.",
+    "successToast": "Thank you for your donation!",
+    "confirmed": "Donation confirmed",
+    "confirmedDescription": "Thank you — your contribution goes straight to the campaign creator.",
+    "loadingThankYou": "Loading the creator's message…",
+    "receiptReference": "Receipt reference",
+    "amount": "Amount",
+    "allocatedTo": "Allocated to",
+    "donor": "Donor",
+    "anonymousDonor": "Anonymous",
+    "insuranceNotice": "1% of every donation funds the campaign insurance pool. If trees die within two years of planting, sponsors receive an automatic refund from the pool.",
+    "badgesUnlocked": "Badge progress unlocked",
+    "makeAnother": "Make another donation",
+    "charCount": "{count}/{max}"
+  },
+  "errors": {
+    "genericTitle": "Something went wrong",
+    "genericDescription": "An unexpected error occurred while loading this section.",
+    "rootTitle": "Application Error",
+    "rootDescription": "Something unexpected happened in the app shell.",
+    "tryAgain": "Try again",
+    "backToDashboard": "Back to Dashboard",
+    "configTitle": "Configuration Error"
   }
 }

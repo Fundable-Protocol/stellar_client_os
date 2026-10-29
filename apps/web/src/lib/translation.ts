@@ -46,7 +46,7 @@ export interface CampaignLocalizedContent {
 }
 
 const SUPPORTED_LOCALE_SET: ReadonlySet<string> = new Set(SUPPORTED_TRANSLATION_LOCALES);
-const RTL_LOCALES: ReadonlySet<string> = new Set(["ar", "fa"]);
+const RTL_LOCALES: ReadonlySet<string> = new Set(["ar", "fa", "he"]);
 
 /** Normalize a BCP-47 language tag to a supported ISO 639-1 campaign locale. */
 export function normalizeTranslationLocale(value: string): TranslationLocale | null {
@@ -153,6 +153,7 @@ export function detectLanguage(text: string): string {
   if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(normalized)) return "zh";
   if (/[\uac00-\ud7af\ud55c]/.test(normalized)) return "ko";
   if (/[\u0600-\u06ff]/.test(normalized)) return "ar";
+  if (/[\u0590-\u05ff]/.test(normalized)) return "he";
   if (/[\u0e00-\u0e7f]/.test(normalized)) return "th";
   if (/[\u0900-\u097f]/.test(normalized)) return "hi";
   if (/[\u0980-\u09ff]/.test(normalized)) return "bn";

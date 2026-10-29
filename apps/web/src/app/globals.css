@@ -403,6 +403,65 @@ html[data-campaign-high-contrast="true"] :focus-visible {
   }
 }
 
+/* Guarantee WCAG 2.1 AA 4.5:1 minimum text contrast across all high-contrast elements */
+.high-contrast p,
+.high-contrast span,
+.high-contrast label,
+.high-contrast dt,
+.high-contrast dd,
+.high-contrast li {
+  color: #ffffff;
+}
+
+.high-contrast [class*="text-zinc-400"],
+.high-contrast [class*="text-zinc-500"],
+.high-contrast [class*="text-zinc-600"],
+.high-contrast [class*="text-gray-400"],
+.high-contrast [class*="text-gray-500"],
+.high-contrast [class*="text-muted-foreground"] {
+  color: #f4f4f5 !important;
+}
+
+.high-contrast [class*="text-emerald-"],
+.high-contrast [class*="text-green-"] {
+  color: #4ade80 !important;
+}
+
+.high-contrast [class*="text-amber-"],
+.high-contrast [class*="text-yellow-"] {
+  color: #fde047 !important;
+}
+
+.high-contrast [class*="text-purple-"],
+.high-contrast [class*="text-indigo-"],
+.high-contrast [class*="text-blue-"] {
+  color: #93c5fd !important;
+}
+
+.high-contrast [class*="text-rose-"],
+.high-contrast [class*="text-red-"] {
+  color: #fca5a5 !important;
+}
+
+.high-contrast input,
+.high-contrast select,
+.high-contrast textarea {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border: 2px solid #ffffff !important;
+}
+
+.high-contrast input::placeholder,
+.high-contrast textarea::placeholder {
+  color: #a1a1aa !important;
+}
+
+/* Universal visible focus outlines for normal & high-contrast modes */
+:focus-visible {
+  outline: 2px solid #a855f7;
+  outline-offset: 2px;
+}
+
 @utility container {
   padding: 1rem;
   margin-inline: auto;
@@ -507,16 +566,18 @@ distribution-scrollbar {
   color: #a1a1aa !important;
 }
 
-/* ── Right-to-left support (#1202) ─────────────────────────────────────────
- * The root layout sets <html dir="rtl"> for Arabic. Prefer logical utilities
- * (ms-/me-/ps-/pe-/start-/end-) in new code; these rules cover the common
- * physical-direction cases that remain in older components. */
+/* ── Right-to-left support (#1202, #1355) ───────────────────────────────────
+ * The root layout sets <html dir="rtl"> for Arabic and Hebrew. Prefer logical
+ * utilities (ms-/me-/ps-/pe-/start-/end-/text-start/text-end) in new code; these
+ * rules cover the common physical-direction cases that remain in older
+ * components. */
 [dir="rtl"] .rtl-flip {
   transform: scaleX(-1);
 }
 
 [dir="rtl"] body {
-  font-family: var(--font-geist-sans), "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--font-geist-sans), "Noto Sans Arabic", "Noto Sans Hebrew",
+    "Segoe UI", Tahoma, "Arial Hebrew", sans-serif;
 }
 
 /* Numbers, addresses and code stay left-to-right inside RTL text. */

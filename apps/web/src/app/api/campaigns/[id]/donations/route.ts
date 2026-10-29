@@ -36,6 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     anonymous: body.anonymous as boolean | undefined,
     txHash: body.txHash as string | undefined,
     idempotencyKey: body.idempotencyKey as string | undefined,
+    referralCode: typeof body.referralCode === "string" ? body.referralCode : undefined,
   });
 
   if (!result.ok) {

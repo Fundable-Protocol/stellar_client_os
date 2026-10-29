@@ -6,7 +6,8 @@
  */
 
 import { DefaultStreamDataSource, getAnalyticsService } from "./analytics.service";
-import { getCampaignHealthAssessment, getCampaignRiskAssessment, getCampaignVerificationSummary, queryCampaigns } from "@/services/campaign.service";
+import { getCampaignHealthAssessment, getCampaignRiskAssessment, queryCampaigns } from "@/services/campaign.service";
+import { resolveCreatorVerification } from "@/services/creator-identity-verification.service";
 import type { CampaignDataSource, CampaignQueryInput } from "@/services/campaign.service";
 import { getCampaignSequelService } from "@/services/campaign-sequel.service";
 import {
@@ -53,7 +54,7 @@ function paginate<T>(items: T[], pagination?: PaginationInput): T[] {
 }
 
 function toCampaignPayload(campaign: import("@/services/campaign.service").CampaignRecord) {
-  const verification = getCampaignVerificationSummary(campaign);
+  const verification = resolveCreatorVerification(campaign);
   const riskAssessment = getCampaignRiskAssessment(campaign);
   const healthAssessment = getCampaignHealthAssessment(campaign);
 

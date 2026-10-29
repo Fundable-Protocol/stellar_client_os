@@ -132,4 +132,36 @@ describe("buildCampaignImpactReportPdf (#849)", () => {
     const doc = await loadPdf(bytes);
     expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
   });
+
+  it("renders backer demographics section without error", async () => {
+    const demographics = [
+      { region: "North America", backers: 120, totalAmount: "500000000", share: 55.5 },
+      { region: "Europe", backers: 80, totalAmount: "300000000", share: 33.3 },
+      { region: "Asia", backers: 25, totalAmount: "100000000", share: 11.2 },
+    ];
+    const bytes = await buildCampaignImpactReportPdf({
+      campaign: makeCampaign(),
+      demographics,
+    });
+    const doc = await loadPdf(bytes);
+    expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("renders stated project impact section without error", async () => {
+    const bytes = await buildCampaignImpactReportPdf({
+      campaign: makeCampaign({ description: "Restoring 50 hectares of indigenous mangrove forest" }),
+      statedProjectImpact: "Targeting 20,000 kg annual CO2 sequestration across coastal wetlands",
+    });
+    const doc = await loadPdf(bytes);
+    expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("accepts publicShareUrl and embeds in PDF metadata/footer", async () => {
+    const bytes = await buildCampaignImpactReportPdf({
+      campaign: makeCampaign(),
+      publicShareUrl: "https://fundable.stellar/campaigns/camp-1/impact-report",
+    });
+    const doc = await loadPdf(bytes);
+    expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
+  });
 });

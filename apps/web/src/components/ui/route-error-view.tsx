@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Home } from 'lucide-react';
 import { ErrorFallback } from '@/components/ui/error-fallback';
+import { useTranslation } from '@/i18n/I18nProvider';
 import { reportRuntimeError } from '@/lib/error-reporting';
 
 type RouteErrorViewProps = {
@@ -21,6 +22,8 @@ export function RouteErrorView({
   description,
   homeHref = '/dashboard',
 }: RouteErrorViewProps) {
+  const { t } = useTranslation();
+
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
       console.error('[RouteErrorView]', error);
@@ -41,8 +44,8 @@ export function RouteErrorView({
 
         <div className="flex justify-center">
           <Button variant="ghost" onClick={() => (window.location.href = homeHref)}>
-            <Home className="mr-2 h-4 w-4" />
-            Back to Dashboard
+            <Home className="me-2 h-4 w-4" />
+            {t('errors.backToDashboard')}
           </Button>
         </div>
       </div>

@@ -19,6 +19,8 @@ import {
 import { CampaignData, CampaignFilterOptions, CampaignStatus, TreeType, Region } from "@/types/campaign";
 import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
 import { VirtualizedCampaignGrid } from "@/components/modules/campaign/VirtualizedCampaignGrid";
+import { CreatorVerificationBadge } from "@/components/creator/CreatorVerificationBadge";
+import { getVerificationSummaryFor, verificationRank } from "@/lib/creator-verification";
 
 // Sample initial campaign records for demonstration & discovery
 export const INITIAL_CAMPAIGNS: CampaignData[] = [
@@ -42,6 +44,7 @@ export const INITIAL_CAMPAIGNS: CampaignData[] = [
     region: "South America",
     isStaffPick: true,
     staffPickReason: "Outstanding community guardianship and verifiable canopy restoration.",
+    creatorVerification: { emailVerified: true, phoneVerified: true, governmentIdVerified: true },
   },
   {
     id: "2",
@@ -137,6 +140,7 @@ export const INITIAL_CAMPAIGNS: CampaignData[] = [
     deadline: Date.now() / 1000 + 86400 * 25,
     location: "Madagascar",
     region: "Africa",
+    creatorVerification: { emailVerified: true, phoneVerified: true, governmentIdVerified: false },
   },
 ];
 
@@ -184,6 +188,7 @@ export const CampaignSearch: React.FC = () => {
     region: "All",
     progressRange: "All",
     sortBy: "trending",
+    verifiedOnly: false,
   });
 
   const filteredCampaigns = useMemo(() => {
@@ -199,6 +204,11 @@ export const CampaignSearch: React.FC = () => {
         if (!matchesTitle && !matchesDesc && !matchesCreator && !matchesTree && !matchesRegion) {
           return false;
         }
+      }
+
+      // Creator identity verification filter
+      if (filters.verifiedOnly && !getVerificationSummaryFor(campaign).isVerified) {
+        return false;
       }
 
       // 2. Status filter
@@ -251,8 +261,11 @@ export const CampaignSearch: React.FC = () => {
       if (filters.sortBy === "newest") {
         return b.createdAt - a.createdAt;
       }
-      // default trending
-      return progressB - progressA;
+      // default trending; equal progress ranks verified creators first
+      return (
+        progressB - progressA ||
+        verificationRank(getVerificationSummaryFor(b)) - verificationRank(getVerificationSummaryFor(a))
+      );
     });
   }, [filters]);
 
@@ -264,6 +277,7 @@ export const CampaignSearch: React.FC = () => {
       region: "All",
       progressRange: "All",
       sortBy: "trending",
+      verifiedOnly: false,
     });
   };
 
@@ -434,6 +448,18 @@ export const CampaignSearch: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-pressed={Boolean(filters.verifiedOnly)}
+              onClick={() => setFilters((prev) => ({ ...prev, verifiedOnly: !prev.verifiedOnly }))}
+              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                filters.verifiedOnly
+                  ? "bg-emerald-500 text-zinc-950 font-bold shadow-md shadow-emerald-500/20"
+                  : "bg-zinc-800/60 text-zinc-300 hover:bg-zinc-700/60 border border-zinc-700/40"
+              }`}
+            >
+              Verified creators only
+            </button>
             <div className="flex items-center gap-1 text-xs text-zinc-400">
               <ArrowUpDown className="size-3.5" /> Sort:
             </div>
@@ -457,7 +483,8 @@ export const CampaignSearch: React.FC = () => {
               filters.status !== "All" ||
               filters.treeType !== "All" ||
               filters.region !== "All" ||
-              filters.progressRange !== "All") && (
+              filters.progressRange !== "All" ||
+              filters.verifiedOnly) && (
               <button
                 onClick={resetFilters}
                 className="px-2.5 py-1 text-xs text-rose-400 hover:text-rose-300 font-medium underline ml-2"
@@ -520,6 +547,7 @@ export const CampaignSearch: React.FC = () => {
                       {campaign.isStaffPick && (
                         <StaffPickBadge reason={campaign.staffPickReason} size="sm" />
                       )}
+                      <CreatorVerificationBadge verification={campaign.creatorVerification} />
                     </div>
                     <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-md border border-emerald-500/20">
                       {campaign.treeType === "General Fund" ? "💼 General Fund" : `🌲 ${campaign.treeType}`}
