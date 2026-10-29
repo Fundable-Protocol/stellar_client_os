@@ -61,6 +61,28 @@ export class CampaignInstalmentsService {
 
     const existingIndex = tiers.findIndex((t) => t.id === tierId);
 
+    const isPhysical = Boolean(input.isPhysical);
+    let stockCount: number | undefined = undefined;
+    if (isPhysical) {
+      if (input.stockCount === undefined || input.stockCount === null) {
+        throw new Error("Physical reward tiers require a stock count.");
+      }
+      const parsedStock = Math.floor(Number(input.stockCount));
+      if (!Number.isFinite(parsedStock) || parsedStock < 0) {
+        throw new Error("Stock count must be a non-negative integer.");
+      }
+      stockCount = parsedStock;
+    } else if (input.stockCount !== undefined && input.stockCount !== null) {
+      const parsedStock = Math.floor(Number(input.stockCount));
+      if (Number.isFinite(parsedStock) && parsedStock >= 0) {
+        stockCount = parsedStock;
+      }
+    }
+
+    const claimed = existingIndex >= 0 ? (tiers[existingIndex].claimed ?? 0) : 0;
+    const claimedStock = existingIndex >= 0 ? (tiers[existingIndex].claimedStock ?? claimed) : 0;
+    const inventoryRemaining = stockCount !== undefined ? Math.max(0, stockCount - claimedStock) : undefined;
+
     const newTier: RewardTier = {
       id: tierId,
       campaignId,
@@ -77,7 +99,11 @@ export class CampaignInstalmentsService {
       perks: input.perks || [],
       limit: input.limit,
       nftReward: input.nftReward,
-      claimed: existingIndex >= 0 ? tiers[existingIndex].claimed : 0,
+      isPhysical,
+      stockCount,
+      claimedStock,
+      inventoryRemaining,
+      claimed,
       createdAt: existingIndex >= 0 ? tiers[existingIndex].createdAt : now,
       updatedAt: now,
     };
@@ -96,7 +122,18 @@ export class CampaignInstalmentsService {
    * Get all reward tiers configured for a campaign.
    */
   public getRewardTiers(campaignId: string): RewardTier[] {
-    return this.rewardTiers.get(campaignId) || [];
+    const list = this.rewardTiers.get(campaignId) || [];
+    return list.map((tier) => {
+      if (tier.stockCount !== undefined) {
+        const claimed = tier.claimedStock ?? tier.claimed ?? 0;
+        return {
+          ...tier,
+          claimedStock: claimed,
+          inventoryRemaining: Math.max(0, tier.stockCount - claimed),
+        };
+      }
+      return tier;
+    });
   }
 
   /**
@@ -204,6 +241,14 @@ export class CampaignInstalmentsService {
       throw new Error(`Reward tier "${tier.name}" is sold out.`);
     }
 
+    // Physical inventory lock-out when stock is exhausted
+    if (tier.stockCount !== undefined) {
+      const currentClaimedStock = tier.claimedStock ?? tier.claimed ?? 0;
+      if (currentClaimedStock >= tier.stockCount) {
+        throw new Error(`Physical reward tier "${tier.name}" is out of stock.`);
+      }
+    }
+
     // Determine campaign close date
     let campaignCloseDate = input.customCampaignCloseDate;
     if (!campaignCloseDate) {
@@ -246,8 +291,12 @@ export class CampaignInstalmentsService {
       idempotencyKey,
     };
 
-    // Increment tier claimed count
+    // Increment tier claimed count and claimed stock
     tier.claimed = (tier.claimed ?? 0) + 1;
+    if (tier.stockCount !== undefined) {
+      tier.claimedStock = (tier.claimedStock ?? 0) + 1;
+      tier.inventoryRemaining = Math.max(0, tier.stockCount - tier.claimedStock);
+    }
     tier.updatedAt = now;
 
     this.pledges.set(pledgeId, pledge);

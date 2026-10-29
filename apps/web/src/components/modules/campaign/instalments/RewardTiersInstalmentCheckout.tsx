@@ -17,21 +17,25 @@ import { ANONYMITY_TOOLTIP } from "@/types/backer-anonymity";
 export interface RewardTiersInstalmentCheckoutProps {
   campaignId: string;
   creatorAddress?: string;
+  isCreator?: boolean;
   campaignCloseDate?: number;
   initialTiers?: RewardTier[];
 }
 
 export function RewardTiersInstalmentCheckout({
   campaignId,
-  creatorAddress: _creatorAddress,
+  creatorAddress,
+  isCreator: initialIsCreator,
   campaignCloseDate,
   initialTiers = [],
 }: RewardTiersInstalmentCheckoutProps) {
   const { address, isConnected, openModal } = useWallet();
+  const isCreator = initialIsCreator ?? (isConnected && address && creatorAddress && address.toLowerCase() === creatorAddress.toLowerCase());
 
   const [tiers, setTiers] = useState<RewardTier[]>(initialTiers);
   const [loadingTiers, setLoadingTiers] = useState(initialTiers.length === 0);
   const [selectedTier, setSelectedTier] = useState<RewardTier | null>(null);
+  const [creatorModalOpen, setCreatorModalOpen] = useState(false);
 
   // Checkout modal / plan state
   const [selectedPlanMonths, setSelectedPlanMonths] = useState<InstalmentPlanMonths>(3);
@@ -66,7 +70,7 @@ export function RewardTiersInstalmentCheckout({
         if (data.success && Array.isArray(data.rewardTiers) && data.rewardTiers.length > 0) {
           setTiers(data.rewardTiers);
         } else {
-          // Provide high-value default reward tiers demonstrating instalment options
+          // Provide high-value default reward tiers demonstrating physical stock & instalment options
           setTiers([
             {
               id: "tier-silver-patron",
@@ -78,6 +82,10 @@ export function RewardTiersInstalmentCheckout({
               instalmentEnabled: true,
               allowedPlanMonths: [2, 3, 6],
               perks: ["Digital Impact Certificate", "Tree ID Registry", "Monthly Field Reports"],
+              isPhysical: true,
+              stockCount: 25,
+              claimedStock: 4,
+              inventoryRemaining: 21,
               claimed: 4,
               limit: 25,
               createdAt: Date.now(),
@@ -99,7 +107,11 @@ export function RewardTiersInstalmentCheckout({
                 fileName: "gold-guardian.png",
                 symbol: "GUARDIAN",
               },
-              claimed: 2,
+              isPhysical: true,
+              stockCount: 15,
+              claimedStock: 15, // Out of stock example
+              inventoryRemaining: 0,
+              claimed: 15,
               limit: 15,
               createdAt: Date.now(),
               updatedAt: Date.now(),
@@ -120,6 +132,10 @@ export function RewardTiersInstalmentCheckout({
                 fileName: "platinum-benefactor.png",
                 symbol: "PLATINUM",
               },
+              isPhysical: true,
+              stockCount: 5,
+              claimedStock: 1,
+              inventoryRemaining: 4,
               claimed: 1,
               limit: 5,
               createdAt: Date.now(),
@@ -257,6 +273,7 @@ export function RewardTiersInstalmentCheckout({
   }, [fetchBreakdown, recoveryTierId, selectedPlanMonths, tiers]);
 
   const handleSelectTier = (tier: RewardTier) => {
+    if (isTierOutOfStock(tier)) return; // Automatic lock-out: not selectable
     setSelectedTier(tier);
     setCompletedPledge(null);
     setError(null);
@@ -279,6 +296,10 @@ export function RewardTiersInstalmentCheckout({
     }
 
     if (!selectedTier) return;
+    if (isTierOutOfStock(selectedTier)) {
+      setError("This reward tier is out of stock.");
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -320,6 +341,24 @@ export function RewardTiersInstalmentCheckout({
       }
 
       setCompletedPledge(data.pledge);
+
+      // Decrement inventory in real-time UI state
+      setTiers((prev) =>
+        prev.map((t) => {
+          if (t.id === selectedTier.id) {
+            const updatedClaimed = (t.claimed ?? 0) + 1;
+            const updatedClaimedStock = (t.claimedStock ?? t.claimed ?? 0) + 1;
+            const remaining = t.stockCount !== undefined ? Math.max(0, t.stockCount - updatedClaimedStock) : undefined;
+            return {
+              ...t,
+              claimed: updatedClaimed,
+              claimedStock: updatedClaimedStock,
+              inventoryRemaining: remaining,
+            };
+          }
+          return t;
+        })
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error confirming checkout.");
     } finally {
@@ -329,16 +368,26 @@ export function RewardTiersInstalmentCheckout({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-zinc-950 dark:text-white flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-fundable-purple-2" />
-            Reward Tiers & Instalment Plans
+            Reward Tiers & Inventory
           </h2>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Support high-value reward tiers with flexible 2, 3, or 6 monthly instalments. First payment is charged at campaign close.
+            Physical rewards with live inventory tracking and flexible monthly instalments.
           </p>
         </div>
+        {creatorAddress && (
+          <Button
+            onClick={() => setCreatorModalOpen(true)}
+            size="sm"
+            className="self-start sm:self-auto bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-1.5 text-xs font-semibold"
+          >
+            <Plus className="h-4 w-4" />
+            Add Reward Tier
+          </Button>
+        )}
       </div>
 
       {loadingTiers ? (
@@ -445,6 +494,19 @@ export function RewardTiersInstalmentCheckout({
             );
           })}
         </div>
+      )}
+
+      {/* Creator Modal for defining new reward tiers and setting stock count */}
+      {creatorAddress && (
+        <CreatorRewardTierModal
+          campaignId={campaignId}
+          creatorAddress={creatorAddress}
+          isOpen={creatorModalOpen}
+          onClose={() => setCreatorModalOpen(false)}
+          onCreated={(newTier) => {
+            setTiers((prev) => [...prev, newTier]);
+          }}
+        />
       )}
 
       {/* Checkout Modal / Drawer for selected tier */}
