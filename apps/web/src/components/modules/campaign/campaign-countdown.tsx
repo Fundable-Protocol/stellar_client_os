@@ -53,16 +53,30 @@ export function CampaignCountdown({ endDate }: CampaignCountdownProps) {
 
   if (isExpired) {
     return (
-      <Badge variant="outline" className="border-rose-500/40 text-rose-400 text-[10px]">
+      <Badge
+        role="timer"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label="Campaign countdown: Expired"
+        variant="outline"
+        className="border-rose-500/40 text-rose-400 text-[10px]"
+      >
         <Clock className="mr-1 h-3 w-3 inline" /> Expired
       </Badge>
     );
   }
 
   const isUrgent = timeLeft.days < 3; // Highlight urgency if less than 3 days
+  const timeLabel = timeLeft.days > 0
+    ? `${timeLeft.days} days ${timeLeft.hours} hours left`
+    : `${timeLeft.hours} hours ${timeLeft.minutes} minutes left`;
 
   return (
     <Badge
+      role="timer"
+      aria-live="polite"
+      aria-atomic="true"
+      aria-label={`Campaign countdown: ${timeLabel}`}
       variant="outline"
       className={`${
         isUrgent

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { backersService } from "@/services/campaign-backers.service";
+import { campaignReferralService } from "@/services/campaign-referral.service";
 import {
   BackerVisibility,
   TOP_BACKERS_LIMIT,
@@ -59,6 +60,7 @@ export async function POST(
       selectedTreeIds?: string[];
       grossAmount?: string;
       idempotencyKey?: string;
+      referralCode?: string;
     };
 
     if (!body.backerAddress?.trim()) {
@@ -87,6 +89,15 @@ export async function POST(
       selectedTreeIds: body.selectedTreeIds,
       grossAmount: body.grossAmount,
       idempotencyKey: body.idempotencyKey,
+    });
+    campaignReferralService.recordConversion({
+      code: body.referralCode,
+      campaignId: id,
+      pledgeId: contribution.id,
+      donorAddress: body.backerAddress,
+      amount: contribution.amount,
+      token: contribution.token,
+      createdAt: contribution.contributedAt,
     });
     if (body.visibility !== undefined || body.showAmount !== undefined) {
       backersService.setPrivacyPreference({

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function SettingsIndexPage() {
-  redirect("/settings/language");
+  redirect("/settings/security");
 }

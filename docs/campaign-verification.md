@@ -1,5 +1,8 @@
 # Campaign verification transparency
 
+> Looking for **creator identity verification** (email, phone, government ID and the
+> "Verified Creator" badge)? See [creator-identity-verification.md](creator-identity-verification.md).
+
 ## Immutable audit trail
 
 `GET /api/campaigns/:id/verification` returns the append-only verification log. `POST` accepts `submitted_for_review`, `verifier_comment`, `photo_uploaded`, `approved`, and `rejected` events. Each entry contains the actor, timestamp, optional comment/evidence reference, a SHA-256 `entryHash`, `previousHash`, and a `blockchainTxHash` anchor. Production indexers should provide the Soroban transaction hash and ledger sequence; development-only entries use a `pending:` anchor.

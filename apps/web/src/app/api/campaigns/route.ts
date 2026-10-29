@@ -1,4 +1,5 @@
 import { createCampaign, findDuplicateCampaigns, queryCampaigns } from "@/services/campaign.service";
+import { withCreatorVerification } from "@/services/creator-identity-verification.service";
 import { fraudDetectionService } from "@/services/fraud-detection.service";
 import {
   autoTranslate,
@@ -35,14 +36,30 @@ async function getCampaigns(request: Request) {
   const isStaffPick = url.searchParams.has("isStaffPick") ? url.searchParams.get("isStaffPick") === "true" : undefined;
   const includeStats = url.searchParams.get("includeStats") === "true";
   const includeStreamStatus = url.searchParams.get("includeStreamStatus") === "true";
+  // Optional "Verified Creator" facet (creator identity verification).
+  const verifiedParam = url.searchParams.get("verified");
+  if (verifiedParam !== null && verifiedParam !== "true" && verifiedParam !== "false") {
+    return Response.json({ error: "verified must be true or false" }, { status: 400 });
+  }
+  const verifiedOnly = verifiedParam === "true" ? true : undefined;
   const limit = Number(url.searchParams.get("limit") ?? 20);
   const offset = Number(url.searchParams.get("offset") ?? 0);
-  const campaigns = await queryCampaigns({
-    filter: { status: status || undefined, creator, search, isStaffPick },
+  const queried = await queryCampaigns({
+    filter: { status: status || undefined, creator, search, isStaffPick, verifiedOnly },
     sort: { field: (url.searchParams.get("sort") as never) || "createdAt", direction: url.searchParams.get("direction") === "asc" ? "ASC" : "DESC" },
     limit: Number.isFinite(limit) ? limit : 20,
     offset: Number.isFinite(offset) ? offset : 0,
     network: (url.searchParams.get("network") as "testnet" | "mainnet" | null) ?? undefined,
+  });
+  // Surface each creator's live identity verification badge (email, phone, government ID).
+  const campaigns = queried.map((campaign) => {
+    const enriched = withCreatorVerification(campaign);
+    return {
+      ...enriched,
+      verified: enriched.creatorVerification.isVerified,
+      verificationStatus: enriched.creatorVerification.status,
+      verificationBadges: enriched.creatorVerification.badges,
+    };
   });
   const responseCampaigns = requestedLanguage
     ? campaigns.map((campaign) => localizeCampaign(campaign, requestedLanguage))
@@ -118,6 +135,7 @@ async function postCampaign(request: Request) {
         registrationNumber?: unknown;
         country?: unknown;
       };
+      partners?: unknown;
     };
     if (!body.creator || !body.name || !body.goalAmount) {
       return Response.json({ error: "creator, name, and goalAmount are required" }, { status: 400 });
@@ -294,6 +312,7 @@ async function postCampaign(request: Request) {
       underrepresentedTags: body.underrepresentedTags,
       durationMs,
       goalAmount: body.goalAmount,
+      partners: body.partners,
       network: body.network,
       deadline: body.deadline,
       countdownEnabled: body.countdownEnabled === true,

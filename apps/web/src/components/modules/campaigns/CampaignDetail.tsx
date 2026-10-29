@@ -22,8 +22,8 @@ import LiveTreeCounter from "./LiveTreeCounter";
 import AnimatedProgressBar from "./AnimatedProgressBar";
 import { CampaignData, CampaignStatus } from "@/types/campaign";
 import { CampaignAccessibilityControls } from "@/components/modules/campaign/CampaignAccessibilityControls";
-import { CampaignData } from "@/types/campaign";
 import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignImpactCalculator";
+import { CampaignRefundBanner } from "./CampaignRefundBanner";
 
 interface CampaignDetailProps {
   campaignId: string;
@@ -231,8 +231,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
   const sustainabilityScore = computeSustainabilityScore(sustainabilityInputs);
 
   return (
-    <div className="campaign-accessible w-full space-y-6">
-    <main className="w-full space-y-6" aria-labelledby="campaign-detail-title">
+    <main className="campaign-accessible w-full space-y-6" aria-labelledby="campaign-detail-title">
       {/* Top Navigation Bar */}
       <div className="flex items-center justify-between">
         <Link
@@ -274,12 +273,21 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
         </div>
       )}
 
+      <CampaignRefundBanner
+        campaignId={campaign.id}
+        status={campaign.status}
+        totalRaised={campaign.totalRaised}
+        minTarget={campaign.minTarget}
+        deadline={campaign.deadline}
+      />
+
       {/* Campaign Header & Title Section */}
       <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-6 sm:p-8 backdrop-blur-md space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span
-              className={`px-3 py-1 rounded-full texe-xs font-bold uppercase tracking-wider ${ compaign.status === "Active"
+              className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                campaign.status === "Active"
                   ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
                   : campaign.status === "Paused"
                   ? "bg-amber-500/10 text-amber-400 border border-amber-500/30"
@@ -300,7 +308,7 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
               Diversity: {diversityScore}/100 ({diversityTier})
             </span>
             {geographicDiversityBonus && (
-              <span className="px-3 py-1 rounded-full texe-xs font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/40">
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/40">
                 🌍 1.2x Geographic Diversity Bonus
               </span>
             )}
@@ -565,8 +573,8 @@ export const CampaignDetail: React.FC<CampaignDetailProps> = ({ campaignId }) =>
           </p>
         </div>
 
-        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y2">
-          <div className="flex items-center gap-2 text-zinc-400 texe-xs">
+        <div className="rounded-2xl bg-slate-900/90 border border-zinc-800 p-5 space-y-2">
+          <div className="flex items-center gap-2 text-zinc-400 text-xs">
             <Clock className="size-4 text-emerald-400" />
             <span>Campaign Deadline</span>
           </div>

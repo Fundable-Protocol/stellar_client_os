@@ -40,18 +40,31 @@ export const CampaignCountdown: React.FC<CampaignCountdownProps> = ({ targetDate
 
   if (timeLeft.isExpired) {
     return (
-      <div className="font-bold text-gray-500 bg-gray-100 p-4 rounded-md text-center">
+      <div
+        role="timer"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label="Campaign has ended"
+        className="font-bold text-gray-500 bg-gray-100 p-4 rounded-md text-center"
+      >
         Campaign Ended
       </div>
     );
   }
 
   const isUrgent = timeLeft.days === 0 && timeLeft.hours < 24;
+  const timeAnnouncement = `${timeLeft.days} days, ${timeLeft.hours} hours, ${timeLeft.minutes} minutes remaining`;
 
   return (
-    <div className={`p-4 rounded-md text-center ${isUrgent ? 'text-red-600 font-bold bg-red-50' : 'text-gray-800 bg-blue-50'}`}>
+    <div
+      role="timer"
+      aria-live="polite"
+      aria-atomic="true"
+      aria-label={`Campaign countdown: ${timeAnnouncement}`}
+      className={`p-4 rounded-md text-center ${isUrgent ? 'text-red-600 font-bold bg-red-50' : 'text-gray-800 bg-blue-50'}`}
+    >
       <div className="text-sm uppercase tracking-wide mb-1">Time Remaining</div>
-      <div className="flex justify-center gap-4 text-2xl">
+      <div className="flex justify-center gap-4 text-2xl" aria-hidden="true">
         <div>
           <span>{timeLeft.days}</span>
           <span className="text-xs block text-gray-500">Days</span>

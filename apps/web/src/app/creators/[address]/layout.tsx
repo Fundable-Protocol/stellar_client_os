@@ -40,6 +40,12 @@ export default async function CreatorLayout({
               Portfolio
             </Link>
             <Link
+              href={`/creators/${address}/verification`}
+              className="px-4 py-4 font-medium text-gray-700 hover:text-gray-900 border-b-2 border-transparent hover:border-green-500 transition-colors"
+            >
+              Verification
+            </Link>
+            <Link
               href={`/creators/${address}/analytics`}
               className="px-4 py-4 font-medium text-gray-700 hover:text-gray-900 border-b-2 border-transparent hover:border-green-500 transition-colors"
             >

@@ -1,0 +1,2297 @@
+openapi: 3.0.3
+info:
+  title: Fundable Stellar API
+  version: 0.1.0
+  description: |
+    HTTP API exposed by the Fundable Stellar Next.js application.
+
+    The API includes contribution certificates, Soroban compilation, public
+    stream-map queries, milestone-photo verification, S3 upload presigning,
+    GraphQL analytics, and webhook subscriptions.
+
+    ### Rate Limits & Tier-Based Pricing
+
+    Fundable enforces sliding-window rate limiting to protect public infrastructure:
+    - **Free Tier:** 100 requests/day ($0/month, default unauthenticated IP-based)
+    - **Paid Tier 1:** 1,000 requests/day ($10/month, bearer token / API key authenticated)
+    - **Paid Tier 2:** 10,000 requests/day ($50/month, high-throughput dedicated quota)
+    - **Enterprise Tier:** Custom / Unlimited (Contact support for custom capacity)
+
+    Standard rate-limiting headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`)
+    are returned on all responses. Exceeded limits return `429 Too Many Requests` with a `Retry-After` header.
+
+    GraphQL analytics, webhook subscriptions, campaign metadata IPFS pinning,
+    creator stats, the NGO partnership marketplace, and verification SLA guarantees.
+
+    ## Rate Limits & Throttling
+    All endpoints enforce sliding-window rate limiting (60 req/min for Read APIs,
+    30 req/min for Creation APIs, 10 req/min for Execution APIs).
+    Rate limit headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`, `Retry-After`)
+    are included on all responses. For detailed policy, see `docs/campaign-api-rate-limits.md`.
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit/
+security:
+  - apiKeyAuth: []
+  - bearerAuth: []
+  - {}
+servers:
+  - url: https://api.fundable.network
+    description: Fundable API server
+  - url: https://{host}
+    description: Deployed application
+    variables:
+      host:
+        default: fundable.network
+        description: Application hostname
+
+tags:
+  - name: Certificates
+    description: Contribution receipt and invoice generation
+  - name: Campaigns
+    description: Campaign discovery and trending rankings
+  - name: Compilation
+    description: Soroban source compilation
+  - name: CreatorVerification
+    description: Optional creator identity verification (email, phone, government ID) and the Verified Creator badge. See docs/creator-identity-verification.md.
+  - name: GraphQL
+    description: Aggregate payment-stream queries
+  - name: Milestone photos
+    description: Photo uniqueness checks and hash-index monitoring
+  - name: Uploads
+    description: Presigned evidence uploads
+  - name: Streams map
+    description: Public geographic stream queries
+  - name: Webhooks
+    description: Subscription registration and event dispatch
+  - name: NGOs
+    description: NGO directory, onboarding and verification
+  - name: Campaign partnerships
+    description: Partner campaigns with verified NGOs
+
+paths:
+  /api/campaigns/trending:
+    get:
+      tags: [Campaigns]
+      summary: Rank active campaigns by trending score
+      operationId: getTrendingCampaigns
+      description: |
+        Returns active campaigns ranked by a tunable composite score built from
+        daily velocity, engagement rate, and completion probability. Scoring
+        weights are configurable via the `TRENDING_*_WEIGHT` environment
+        variables (defaults: velocity 0.4, engagement 0.3, completion 0.3).
+      parameters:
+        - name: network
+          in: query
+          required: false
+          description: Soroban network to rank.
+          schema:
+            type: string
+            enum: [testnet, mainnet]
+            default: testnet
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of ranked campaigns to return.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          description: Zero-based offset into the ranked list.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: includeNonActive
+          in: query
+          required: false
+          description: Include non-Active campaigns (e.g. recently completed).
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Ranked campaigns with their composite scores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrendingCampaignsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/campaigns:
+    get:
+      tags: [Campaigns]
+      summary: List campaigns with filters and sorting
+      operationId: listCampaigns
+      parameters:
+        - $ref: '#/components/parameters/CampaignStatus'
+        - name: creator
+          in: query
+          schema: { type: string }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [createdAt, updatedAt, name, status, goalAmount, raisedAmount, sponsorCount, treeCount]
+            default: createdAt
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: network
+          in: query
+          schema: { type: string, enum: [testnet, mainnet], default: testnet }
+      responses:
+        '200':
+          description: Matching campaigns
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pagination]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Campaign' }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+    post:
+      tags: [Campaigns]
+      summary: Create a campaign
+      operationId: createCampaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCampaignRequest' }
+      responses:
+        '201':
+          description: Campaign created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: A campaign with the same name, location, and duration already exists for this creator
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error, duplicates]
+                properties:
+                  error: { type: string }
+                  duplicates:
+                    type: array
+                    items: { $ref: '#/components/schemas/Campaign' }
+  /api/campaigns/{id}:
+    get:
+      tags: [Campaigns]
+      summary: Get a campaign and its status history
+      operationId: getCampaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      responses:
+        '200':
+          description: Campaign details
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Campaigns]
+      summary: Update campaign metadata, status, or impact totals
+      operationId: updateCampaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCampaignRequest' }
+      responses:
+        '200':
+          description: Updated campaign
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Campaign' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/campaigns/{id}/export:
+    get:
+      tags: [Campaigns]
+      summary: Download sponsor or impact report as CSV
+      operationId: exportCampaign
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - name: report
+          in: query
+          required: true
+          schema: { type: string, enum: [sponsors, impact] }
+      responses:
+        '200':
+          description: CSV report
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/campaigns/{id}/impact:
+    get:
+      tags: [Campaigns]
+      summary: Query historical campaign ecological impact over time
+      operationId: getCampaignImpactHistory
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - name: date
+          in: query
+          required: false
+          description: ISO date (YYYY-MM-DD) or timestamp to query historical impact for a specific date
+          schema: { type: string }
+        - name: startDate
+          in: query
+          required: false
+          schema: { type: string }
+        - name: endDate
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Historical impact metrics including tree count, CO2 sequestration, and sponsor count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      campaignId: { type: string }
+                      campaignName: { type: string }
+                      currentImpact: { type: object }
+                      impactAtDate: { type: object }
+                      timeline: { type: array, items: { type: object } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/certificates:
+    post:
+      tags: [Certificates]
+      summary: Generate a contribution receipt or invoice
+      operationId: generateCertificate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CertificateInput'
+            example:
+              donorName: Alice
+              donorAddress: GABC...2BVN7
+              recipientName: Green Planet Fund
+              transactionHash: abc123
+              network: testnet
+              lineItems:
+                - description: Stream #1
+                  token: USDC
+                  amount: '500.00'
+                  timestamp: 1700000000
+              totalAmount: 500.00 USDC
+      responses:
+        '200':
+          description: PDF certificate generated successfully
+          headers:
+            Content-Disposition:
+              $ref: '#/components/headers/ContentDisposition'
+            X-Certificate-Id:
+              description: Generated certificate UUID
+              schema:
+                type: string
+                format: uuid
+            X-Generated-At:
+              description: ISO-8601 generation timestamp
+              schema:
+                type: string
+                format: date-time
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/compile:
+    post:
+      tags: [Compilation]
+      summary: Compile Soroban Rust source to WebAssembly
+      operationId: compileSorobanSource
+      description: Compiles the submitted source in an isolated temporary Cargo project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompileRequest'
+      responses:
+        '200':
+          description: Compiled WebAssembly module
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompileResponse'
+        '400':
+          description: Source failed to compile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompilationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/extract-addresses:
+    get:
+      tags: [Compilation]
+      summary: Extract Stellar addresses from replies to an X post
+      operationId: extractAddresses
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: URL of the X/Twitter post whose replies should be searched
+          schema:
+            type: string
+            format: uri
+      responses:
+        '200':
+          description: Unique Stellar addresses found in replies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddressesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: X API rate limit reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: X API request failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: X API credentials are not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/graphql:
+    get:
+      tags: [GraphQL]
+      summary: Execute a GraphQL query over GET
+      operationId: graphqlGet
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: GraphQL document
+          schema:
+            type: string
+        - name: operationName
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: variables
+          in: query
+          required: false
+          description: JSON-encoded GraphQL variables object
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/GraphQLResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [GraphQL]
+      summary: Execute a GraphQL query over POST
+      operationId: graphqlPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GraphQLRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/GraphQLResponse'
+        '400':
+          description: Invalid GraphQL document or variables
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphQLResponse'
+        '413':
+          description: Request body exceeds the configured GraphQL limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphQLResponse'
+
+  /api/milestone-photos:
+    post:
+      tags: [Milestone photos]
+      summary: Check and index a milestone photo
+      operationId: checkMilestonePhoto
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MilestonePhotoUpload'
+      responses:
+        '200':
+          description: Photo is unique and was indexed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptedPhoto'
+        '400':
+          description: Missing fields, invalid MIME type, image dimensions, or threshold
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoError'
+        '409':
+          description: Duplicate or near-duplicate photo detected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicatePhoto'
+        '413':
+          description: Upload exceeds the 10 MB limit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags: [Milestone photos]
+      summary: Remove a photo hash from the index
+      operationId: removeMilestonePhotoHash
+      parameters:
+        - name: hash
+          in: query
+          required: true
+          description: 16-character hexadecimal perceptual hash
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{16}$'
+      responses:
+        '200':
+          description: Hash removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemovedHash'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Hash is not present in the index
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    get:
+      tags: [Milestone photos]
+      summary: Get photo-index statistics
+      operationId: getMilestonePhotoStats
+      responses:
+        '200':
+          description: Number of indexed hashes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhotoStats'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/presign-upload:
+    post:
+      tags: [Uploads]
+      summary: Create a short-lived S3 upload URL
+      operationId: presignEvidenceUpload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignUploadRequest'
+            example:
+              campaignId: '42'
+              milestoneId: '1'
+              contentType: image/jpeg
+      responses:
+        '200':
+          description: Presigned PUT URL
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignUploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          description: S3 storage is not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/streams/map:
+    get:
+      tags: [Streams map]
+      summary: Query public stream locations
+      operationId: getStreamMap
+      description: |
+        Use either bounding-box parameters (`swLat`, `swLng`, `neLat`, `neLng`)
+        or radius parameters (`lat`, `lng`, `radius`). Radius is measured in
+        kilometres and is limited to 500 km. Responses include X-Cache and
+        Cache-Control headers.
+      parameters:
+        - name: swLat
+          in: query
+          required: false
+          description: Bounding-box south-west latitude
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: swLng
+          in: query
+          required: false
+          description: Bounding-box south-west longitude
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+        - name: neLat
+          in: query
+          required: false
+          description: Bounding-box north-east latitude
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: neLng
+          in: query
+          required: false
+          description: Bounding-box north-east longitude
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+        - name: lat
+          in: query
+          required: false
+          description: Radius-search centre latitude
+          schema:
+            type: number
+            format: double
+            minimum: -90
+            maximum: 90
+        - name: lng
+          in: query
+          required: false
+          description: Radius-search centre longitude
+          schema:
+            type: number
+            format: double
+            minimum: -180
+            maximum: 180
+        - name: radius
+          in: query
+          required: false
+          description: Radius in kilometres, maximum 500
+          schema:
+            type: number
+            format: double
+            minimum: 0
+            exclusiveMinimum: true
+            maximum: 500
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, completed, cancelled, paused]
+        - name: token
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Stream locations matching the query
+          headers:
+            X-Cache:
+              description: Whether the response came from Redis
+              schema:
+                type: string
+                enum: [HIT, MISS]
+            Cache-Control:
+              description: Public cache lifetime
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StreamMapResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/webhooks/subscriptions:
+    get:
+      tags: [Webhooks]
+      summary: List active webhook subscriptions
+      operationId: listWebhookSubscriptions
+      responses:
+        '200':
+          description: Active subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WebhookSubscription'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Webhooks]
+      summary: Register a webhook subscription
+      operationId: createWebhookSubscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookSubscriptionRequest'
+            example:
+              url: https://example.com/webhooks/fundable
+              events: [stream.status_updated, milestone.funds_released]
+              secret: replace-with-a-secret
+      responses:
+        '201':
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSubscription'
+        '400':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/webhooks/subscriptions/{id}:
+    delete:
+      tags: [Webhooks]
+      summary: Delete a webhook subscription
+      operationId: deleteWebhookSubscription
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Subscription was not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/webhooks/trigger:
+    post:
+      tags: [Webhooks]
+      summary: Dispatch a webhook event
+      operationId: triggerWebhook
+      description: Intended for testing and administrative event dispatch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerWebhookRequest'
+      responses:
+        '200':
+          description: Event dispatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessMessage'
+        '400':
+          description: Request validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/mobile/push/subscribe:
+    post:
+      tags: [MobilePush]
+      summary: Register mobile push subscription
+      description: Subscribe a device to receive campaign milestone push notifications.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberAddress, endpoint, keys]
+              properties:
+                subscriberAddress:
+                  type: string
+                  description: Stellar wallet address of the subscriber
+                campaignId:
+                  type: string
+                  description: Target campaign ID or '*' for all sponsored campaigns
+                  default: '*'
+                endpoint:
+                  type: string
+                keys:
+                  type: object
+                  properties:
+                    p256dh: { type: string }
+                    auth: { type: string }
+                deviceType:
+                  type: string
+                  enum: [mobile_ios, mobile_android, mobile_web, unknown]
+                enabledMilestones:
+                  type: array
+                  items:
+                    type: string
+                    enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+      responses:
+        '201':
+          description: Subscription registered
+        '400':
+          description: Validation error
+    delete:
+      tags: [MobilePush]
+      summary: Unregister mobile push subscription
+      parameters:
+        - in: query
+          name: endpoint
+          schema: { type: string }
+          required: false
+        - in: query
+          name: id
+          schema: { type: string }
+          required: false
+      responses:
+        '200':
+          description: Subscription removed
+        '404':
+          description: Subscription not found
+    get:
+      tags: [MobilePush]
+      summary: Get subscriptions for a wallet
+      parameters:
+        - in: query
+          name: address
+          schema: { type: string }
+          required: false
+      responses:
+        '200':
+          description: List of subscriptions
+
+  /api/mobile/push/preferences:
+    put:
+      tags: [MobilePush]
+      summary: Update milestone push preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriberAddress, enabledMilestones]
+              properties:
+                subscriberAddress: { type: string }
+                campaignId: { type: string, default: '*' }
+                enabledMilestones:
+                  type: array
+                  items:
+                    type: string
+                    enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+      responses:
+        '200':
+          description: Preferences updated
+
+  /api/mobile/push/notify:
+    post:
+      tags: [MobilePush]
+      summary: Dispatch milestone push notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [campaignId, milestone]
+              properties:
+                campaignId: { type: string }
+                campaignTitle: { type: string }
+                milestone:
+                  type: string
+                  enum: [trees_planted, verification_complete, campaign_finished, impact_achieved]
+                details: { type: object }
+                deepLinkUrl: { type: string }
+      responses:
+        '200':
+          description: Milestone notifications dispatched
+
+  /api/campaigns/{id}/verification-audit:
+    get:
+      tags: [CampaignAudit]
+      summary: Retrieve immutable campaign verification audit trail
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Complete audit trail
+    post:
+      tags: [CampaignAudit]
+      summary: Log verification activity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [activityType, actor, details]
+              properties:
+                activityType:
+                  type: string
+                  enum: [submitted_for_review, verifier_comments, photo_uploaded, approved, rejected]
+                actor: { type: string }
+                details: { type: string }
+                txHash: { type: string }
+                campaignTitle: { type: string }
+      responses:
+        '201':
+          description: Activity logged to immutable trail
+
+  /api/campaigns/search:
+    get:
+      tags: [Campaigns]
+      summary: Full-text campaign search with creator verification status
+      description: Every result includes `verification` (the creator verification summary). Verified creators rank first when relevance is equal.
+      parameters:
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: category, schema: { type: string } }
+        - in: query
+          name: verified
+          description: When `true`, return only campaigns by Verified Creators (email, phone and government ID verified).
+          schema: { type: string, enum: ['true', 'false'] }
+        - { in: query, name: minGoalAmount, schema: { type: string } }
+        - { in: query, name: maxGoalAmount, schema: { type: string } }
+        - { in: query, name: maxDaysRemaining, schema: { type: number } }
+        - { in: query, name: limit, schema: { type: integer } }
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        campaign: { type: object }
+                        score: { type: number }
+                        verification: { $ref: '#/components/schemas/CreatorVerificationSummary' }
+                  count: { type: integer }
+                  suggestions: { type: array, items: { type: string } }
+        '400':
+          description: Invalid filter (e.g. `verified` is not true/false), or neither a query nor a filter was provided
+
+  /api/creators/{address}/verification:
+    get:
+      tags: [CreatorVerification]
+      summary: Creator verification status
+      description: Public summary contains outcomes only (no PII). With a valid creator session for the same address, the owner view includes masked contacts and pending/rejected states.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      responses:
+        '200':
+          description: Verification status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  owner: { type: boolean }
+                  verification:
+                    type: object
+                    properties:
+                      creator: { type: string }
+                      summary: { $ref: '#/components/schemas/CreatorVerificationSummary' }
+                      steps:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            step: { type: string, enum: [email, phone, government_id] }
+                            status: { type: string, enum: [not_started, pending, verified, rejected] }
+                            verifiedAt: { type: integer }
+        '400': { description: Invalid address }
+    delete:
+      tags: [CreatorVerification]
+      summary: Withdraw and erase all verification data (removes the badge)
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      responses:
+        '200': { description: Verification withdrawn }
+        '401': { description: Missing or invalid creator session }
+        '403': { description: Session belongs to a different address }
+
+  /api/creators/{address}/verification/session:
+    post:
+      tags: [CreatorVerification]
+      summary: Prove ownership of the creator address with a wallet signature
+      description: |
+        `{"action":"challenge"}` returns a message to sign (valid 5 minutes).
+        `{"action":"verify","nonce":"...","signature":"..."}` returns a 1-hour session token.
+        Raw ed25519 and SEP-53 (wallet signMessage) signatures are accepted, base64 or hex encoded.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [challenge, verify] }
+                nonce: { type: string }
+                signature: { type: string }
+      responses:
+        '200': { description: Challenge or session token }
+        '400': { description: Invalid request }
+        '401': { description: Invalid or expired signature }
+
+  /api/creators/{address}/verification/email:
+    post:
+      tags: [CreatorVerification]
+      summary: Send or confirm an email one-time code
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [start, confirm] }
+                email: { type: string, format: email }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200': { description: Code confirmed; step verified }
+        '202': { description: Code sent }
+        '400': { description: Invalid input or wrong code }
+        '401': { description: Missing or invalid creator session }
+        '409': { description: No pending code or step already verified }
+        '410': { description: Code expired }
+        '429': { description: Too many attempts or resend cooldown }
+
+  /api/creators/{address}/verification/phone:
+    post:
+      tags: [CreatorVerification]
+      summary: Send or confirm an SMS one-time code
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [start, confirm] }
+                phone: { type: string, description: E.164 format, example: '+2348012345678' }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200': { description: Code confirmed; step verified }
+        '202': { description: Code sent }
+        '400': { description: Invalid input or wrong code }
+        '401': { description: Missing or invalid creator session }
+        '409': { description: No pending code or step already verified }
+        '410': { description: Code expired }
+        '429': { description: Too many attempts or resend cooldown }
+
+  /api/creators/{address}/verification/government-id/upload:
+    post:
+      tags: [CreatorVerification]
+      summary: Pre-signed upload URL for a government ID document (private storage)
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentType]
+              properties:
+                contentType: { type: string, enum: [image/jpeg, image/png, image/webp, image/heic, application/pdf] }
+      responses:
+        '200': { description: Upload URL and storage key }
+        '401': { description: Missing or invalid creator session }
+        '503': { description: Storage not configured }
+
+  /api/creators/{address}/verification/government-id:
+    post:
+      tags: [CreatorVerification]
+      summary: Submit a government ID document for review
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentType, issuingCountry, documentReference]
+              properties:
+                documentType: { type: string, enum: [passport, national_id, drivers_license] }
+                issuingCountry: { type: string, pattern: '^[A-Z]{2}$' }
+                documentReference: { type: string, description: Storage key returned by the upload endpoint }
+      responses:
+        '202': { description: Submitted; awaiting review }
+        '400': { description: Invalid input }
+        '401': { description: Missing or invalid creator session }
+        '409': { description: Already verified or already awaiting review }
+    patch:
+      tags: [CreatorVerification]
+      summary: Approve or reject a pending government ID (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, reviewer]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                reviewer: { type: string }
+                reason: { type: string, description: Required when rejecting }
+      responses:
+        '200': { description: Review recorded }
+        '401': { description: Admin key required }
+        '404': { description: No pending submission }
+
+  /api/admin/creator-verifications:
+    get:
+      tags: [CreatorVerification]
+      summary: Pending government ID review queue (admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Pending submissions, oldest first }
+        '401': { description: Admin key required }
+
+  /api/ngos:
+    get:
+      tags: [NGOs]
+      summary: Search the partner-eligible NGO directory
+      description: |
+        Lists partner-eligible NGOs. By default only VERIFIED profiles are
+        returned; pass `status=ALL` (or an explicit status) to include unseen
+        or rejected profiles. Results are sorted newest first.
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Free-text search over name and description.
+          schema: { type: string }
+        - name: service
+          in: query
+          required: false
+          description: Only NGOs offering this service.
+          schema:
+            type: string
+            enum: [LAND_ACCESS, PLANTING_LABOR, VERIFICATION]
+        - name: country
+          in: query
+          required: false
+          description: Case-insensitive country filter.
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          description: Filter by verification status. Defaults to VERIFIED.
+          schema:
+            type: string
+            enum: [ALL, PENDING, VERIFIED, REJECTED]
+            default: VERIFIED
+      responses:
+        '200':
+          description: Matching NGOs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NGOListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [NGOs]
+      summary: Register a new NGO profile
+      description: |
+        Onboards an NGO into the marketplace. The profile starts in
+        `PENDING` verification status and appears in the directory only
+        after an admin approves it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterNGOSchema'
+      responses:
+        '201':
+          description: NGO registered for review. Returns the pending profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NGOProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/ngos/{id}:
+    get:
+      tags: [NGOs]
+      summary: Fetch a single NGO profile
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The NGO profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NGOProfile'
+        '404':
+          description: No NGO with the given id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      tags: [NGOs]
+      summary: Review an NGO verification application (admin only)
+      description: |
+        Updates an NGO's verification verdict. Requires
+        `Authorization: Bearer <ADMIN_API_KEY>`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NGOReviewRequest'
+      responses:
+        '200':
+          description: NGO updated with the new verdict.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/NGOProfile'
+        '400':
+          description: Invalid verdict value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing or invalid admin credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No NGO with the given id.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/campaigns/{id}/partnerships:
+    get:
+      tags: [Campaign partnerships]
+      summary: List a campaign's partnership requests
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, ACCEPTED, REJECTED, COMPLETED, CANCELED]
+      responses:
+        '200':
+          description: The campaign's partnership requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartnershipListResponse'
+        '404':
+          description: Unknown campaign.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags: [Campaign partnerships]
+      summary: Create a partnership request with a verified NGO
+      description: |
+        Proposes a partnership between the campaign and a verified NGO that
+        offers every requested service. Duplicate active requests between the
+        same campaign and NGO are rejected.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePartnershipRequest'
+      responses:
+        '201':
+          description: Partnership request created in PENDING status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PartnershipRequest'
+        '400':
+          description: Invalid body or NGO does not offer the requested services.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown campaign or NGO.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: NGO not verified, or duplicate active partnership.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/campaigns/{id}/partnerships/{requestId}:
+    get:
+      tags: [Campaign partnerships]
+      summary: Fetch one of the campaign's partnership requests
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The partnership request.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PartnershipRequest'
+        '404':
+          description: Unknown campaign, unknown request, or request belongs to another campaign.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    patch:
+      tags: [Campaign partnerships]
+      summary: Advance a partnership request's status
+      description: |
+        Transitions a request to a new status. Valid moves:
+        `PENDING -> ACCEPTED | REJECTED | CANCELED` and
+        `ACCEPTED -> COMPLETED | CANCELED`; the NGO actor is expected to
+        supply the transition.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePartnershipStatusRequest'
+      responses:
+        '200':
+          description: Request transitioned to the new status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/PartnershipRequest'
+        '400':
+          description: Invalid status value in the body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Unknown campaign or request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: The requested transition is not allowed from the current status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for Paid Tier 1 ($10/mo) or Paid Tier 2 ($50/mo) access.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: APIKey
+      description: Bearer token for Paid Tier 1 or Tier 2 subscriptions.
+    creatorSession:
+      type: http
+      scheme: bearer
+      description: Creator verification session token from POST /api/creators/{address}/verification/session.
+
+  parameters:
+    CampaignId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CampaignStatus:
+      name: status
+      in: query
+      schema:
+        $ref: '#/components/schemas/CampaignStatus'
+  headers:
+    ContentDisposition:
+      description: Attachment filename for the generated PDF
+      schema:
+        type: string
+    RateLimitLimit:
+      description: The maximum number of requests allowed within the current window
+      schema:
+        type: integer
+        example: 1000
+    RateLimitRemaining:
+      description: The number of remaining requests allowed within the current window
+      schema:
+        type: integer
+        example: 842
+    RateLimitReset:
+      description: The time in seconds remaining until the rate limit resets
+      schema:
+        type: integer
+        example: 45
+    RetryAfter:
+      description: Number of seconds to wait before retrying after being rate-limited
+      schema:
+        type: integer
+        example: 60
+
+  responses:
+    BadRequest:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    GraphQLResponse:
+      description: GraphQL execution result
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/GraphQLResponse'
+    RateLimitExceeded:
+      description: Rate limit exceeded (Free Tier 100 req/day, Tier 1 1000 req/day, Tier 2 10k req/day)
+      headers:
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitError'
+
+  schemas:
+    CreatorVerificationSummary:
+      type: object
+      description: Public, PII-free creator identity verification summary. The Verified Creator badge requires all three steps.
+      properties:
+        emailVerified: { type: boolean }
+        phoneVerified: { type: boolean }
+        governmentIdVerified: { type: boolean }
+        badges:
+          type: array
+          items: { type: string, enum: [email, phone, government_id] }
+        status: { type: string, enum: [unverified, partial, verified] }
+        isVerified: { type: boolean }
+        verifiedCount: { type: integer }
+        totalCount: { type: integer }
+        verifiedAt: { type: integer, description: Epoch ms when the badge was earned }
+    RateLimitError:
+      type: object
+      required: [error, code, retryAfter]
+      properties:
+        error:
+          type: string
+          example: Too many requests
+        code:
+          type: string
+          example: RATE_LIMIT_EXCEEDED
+        message:
+          type: string
+          example: Daily rate limit exceeded for Free Tier (100 req/day). Upgrade to Tier 1 ($10/mo) or Tier 2 ($50/mo).
+        retryAfter:
+          type: integer
+          example: 45
+        currentTier:
+          type: string
+          enum: [free, tier1, tier2, enterprise]
+          example: free
+        upgradeUrl:
+          type: string
+          format: uri
+          example: https://fundable.network/pricing
+    CampaignStatus:
+      type: string
+      enum: [DRAFT, PENDING_VERIFICATION, ACTIVE, PAUSED, COMPLETED, FAILED]
+    Campaign:
+      type: object
+      required: [id, creator, name, status, goalAmount, raisedAmount, sponsorCount, treeCount, createdAt, updatedAt, statusChangedAt, sponsors, statusHistory]
+      properties:
+        id: { type: string, format: uuid }
+        creator: { type: string }
+        name: { type: string }
+        description: { type: string }
+        location: { type: string }
+        durationMs: { type: integer, minimum: 0 }
+        status: { $ref: '#/components/schemas/CampaignStatus' }
+        goalAmount: { type: string, pattern: '^\\d+$' }
+        raisedAmount: { type: string, pattern: '^\\d+$' }
+        sponsorCount: { type: integer, minimum: 0 }
+        treeCount: { type: integer, minimum: 0 }
+        co2Sequestration: { type: string, description: 'Cumulative CO2 sequestration in metric tonnes' }
+        impactMilestonesReached:
+          type: array
+          items: { type: string, enum: [1000_trees, 5000_trees, 10_tons_co2] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        statusChangedAt: { type: string, format: date-time }
+        sponsors:
+          type: array
+          items: { $ref: '#/components/schemas/CampaignSponsor' }
+        statusHistory:
+          type: array
+          items: { $ref: '#/components/schemas/CampaignStatusHistory' }
+    CampaignSponsor:
+      type: object
+      required: [id, campaignId, address, amount, token, sponsoredAt]
+      properties:
+        id: { type: string, format: uuid }
+        campaignId: { type: string, format: uuid }
+        address: { type: string }
+        amount: { type: string }
+        token: { type: string }
+        sponsoredAt: { type: string, format: date-time }
+    CampaignStatusHistory:
+      type: object
+      required: [id, campaignId, toStatus, changedBy, changedAt]
+      properties:
+        id: { type: string, format: uuid }
+        campaignId: { type: string, format: uuid }
+        fromStatus: { allOf: [{ $ref: '#/components/schemas/CampaignStatus' }], nullable: true }
+        toStatus: { $ref: '#/components/schemas/CampaignStatus' }
+        changedBy: { type: string }
+        changedAt: { type: string, format: date-time }
+        reason: { type: string }
+    CreateCampaignRequest:
+      type: object
+      required: [creator, name, goalAmount]
+      properties:
+        creator: { type: string }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        location: { type: string, maxLength: 500 }
+        durationMs: { type: integer, minimum: 0 }
+        deadline: { type: integer, description: 'Unix timestamp (ms); sets durationMs to deadline minus now' }
+        goalAmount: { type: string, pattern: '^\\d+$' }
+        network: { type: string, enum: [testnet, mainnet], default: testnet }
+    UpdateCampaignRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, maxLength: 5000 }
+        status: { $ref: '#/components/schemas/CampaignStatus' }
+        changedBy: { type: string }
+        reason: { type: string }
+        treeCount: { type: integer, minimum: 0, description: 'Cumulative trees planted; crossing 1000 or 5000 emits a campaign_milestone_reached webhook' }
+        co2Sequestration: { type: string, pattern: '^\d+(\.\d+)?$', description: 'Cumulative CO2 sequestration in metric tonnes; crossing 10 emits a campaign_milestone_reached webhook' }
+    Pagination:
+      type: object
+      required: [limit, offset, count]
+      properties:
+        limit: { type: integer }
+        offset: { type: integer }
+        count: { type: integer }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          description: Structured validation details or upstream error information
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            details:
+              type: object
+              additionalProperties: true
+    CertificateInput:
+      type: object
+      required: [donorName, donorAddress, recipientName, transactionHash, lineItems, totalAmount]
+      properties:
+        donorName:
+          type: string
+        donorAddress:
+          type: string
+          description: Stellar public address
+        recipientName:
+          type: string
+        transactionHash:
+          type: string
+        network:
+          type: string
+          enum: [testnet, mainnet]
+          default: testnet
+        documentType:
+          type: string
+          enum: [certificate, invoice]
+          default: certificate
+        issuedAt:
+          type: string
+          format: date
+        lineItems:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/CertificateLineItem'
+        totalAmount:
+          type: string
+    CertificateLineItem:
+      type: object
+      required: [description, token, amount, timestamp]
+      properties:
+        description:
+          type: string
+        token:
+          type: string
+        amount:
+          type: string
+        timestamp:
+          oneOf:
+            - type: integer
+              format: int64
+            - type: string
+              format: date-time
+    CompileRequest:
+      type: object
+      required: [sourceCode]
+      properties:
+        sourceCode:
+          type: string
+          minLength: 1
+    CompileResponse:
+      type: object
+      required: [wasmBase64]
+      properties:
+        wasmBase64:
+          type: string
+          format: byte
+    CompilationError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: Compilation failed
+        details:
+          type: string
+    AddressesResponse:
+      type: object
+      required: [addresses]
+      properties:
+        addresses:
+          type: array
+          items:
+            type: string
+            pattern: '^G[A-Z2-7]{55}$'
+    GraphQLRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        operationName:
+          type: string
+          nullable: true
+        variables:
+          type: object
+          nullable: true
+          additionalProperties: true
+    GraphQLResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          nullable: true
+          additionalProperties: true
+        errors:
+          type: array
+          items:
+            type: object
+            required: [message]
+            properties:
+              message:
+                type: string
+              path:
+                type: array
+                items: {}
+              extensions:
+                type: object
+                additionalProperties: true
+    MilestonePhotoUpload:
+      type: object
+      required: [photo, submissionId]
+      properties:
+        photo:
+          type: string
+          format: binary
+          description: PNG, JPEG, or WebP milestone photo
+        submissionId:
+          type: string
+        threshold:
+          type: integer
+          minimum: 0
+          maximum: 64
+          default: 8
+    AcceptedPhoto:
+      type: object
+      required: [accepted, hash, hammingDistance]
+      properties:
+        accepted:
+          type: boolean
+          enum: [true]
+        hash:
+          type: string
+        hammingDistance:
+          type: integer
+        duplicateOf:
+          type: string
+          nullable: true
+        message:
+          type: string
+    DuplicatePhoto:
+      type: object
+      required: [accepted, hash, hammingDistance, duplicateOf]
+      properties:
+        accepted:
+          type: boolean
+          enum: [false]
+        hash:
+          type: string
+        hammingDistance:
+          type: integer
+        duplicateOf:
+          type: string
+        message:
+          type: string
+    PhotoError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            code:
+              type: string
+              enum: [UNSUPPORTED_FORMAT, IMAGE_TOO_SMALL]
+    RemovedHash:
+      type: object
+      required: [removed, hash]
+      properties:
+        removed:
+          type: boolean
+          enum: [true]
+        hash:
+          type: string
+    PhotoStats:
+      type: object
+      required: [indexSize]
+      properties:
+        indexSize:
+          type: integer
+          minimum: 0
+    PresignUploadRequest:
+      type: object
+      required: [campaignId, milestoneId, contentType]
+      properties:
+        campaignId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        milestoneId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        contentType:
+          type: string
+          enum: [image/jpeg, image/png, image/webp, image/heic, application/pdf]
+    PresignUploadResponse:
+      type: object
+      required: [url, key, contentType, expiresAt, requestId]
+      properties:
+        url:
+          type: string
+          format: uri
+        key:
+          type: string
+        contentType:
+          type: string
+        expiresAt:
+          type: integer
+          format: int64
+        requestId:
+          type: string
+    StreamMapResponse:
+      type: object
+      required: [streams, count]
+      properties:
+        streams:
+          type: array
+          items:
+            $ref: '#/components/schemas/MapStream'
+        count:
+          type: integer
+          minimum: 0
+    MapStream:
+      type: object
+      description: Stream-map record returned by the configured geographic data source.
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+    WebhookSubscription:
+      type: object
+      required: [id, url, events, secret, createdAt]
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [stream.status_updated, milestone.funds_released, '*']
+        secret:
+          type: string
+          writeOnly: true
+        createdAt:
+          type: string
+          format: date-time
+    CreateWebhookSubscriptionRequest:
+      type: object
+      required: [url, events]
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [stream.status_updated, milestone.funds_released, '*']
+        secret:
+          type: string
+          minLength: 8
+          writeOnly: true
+    TriggerWebhookRequest:
+      type: object
+      required: [event, payload]
+      properties:
+        event:
+          type: string
+          minLength: 1
+        payload:
+          type: object
+          additionalProperties: true
+    TrendingCampaignsResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrendingCampaign'
+        meta:
+          $ref: '#/components/schemas/TrendingCampaignMeta'
+    TrendingCampaign:
+      type: object
+      required: [id, score, rank, components, raw]
+      properties:
+        id:
+          type: string
+          description: On-chain campaign id (numeric string).
+        creator:
+          type: string
+        token:
+          type: string
+        targetAmount:
+          type: string
+          description: Hard-cap target in stroops.
+        minTarget:
+          type: string
+          description: Minimum success threshold in stroops.
+        createdAt:
+          type: integer
+          format: int64
+        deadline:
+          type: integer
+          format: int64
+        totalRaised:
+          type: string
+        status:
+          type: string
+          enum: [Active, Successful, Failed, Claimed]
+        score:
+          type: number
+          format: double
+          description: Composite trending score in [0, 100].
+        rank:
+          type: integer
+          minimum: 1
+        components:
+          $ref: '#/components/schemas/TrendingComponents'
+        raw:
+          $ref: '#/components/schemas/TrendingRaw'
+    TrendingComponents:
+      type: object
+      required: [velocity, engagement, completion]
+      properties:
+        velocity:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        engagement:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        completion:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+    TrendingRaw:
+      type: object
+      required:
+        - dailyVelocity
+        - engagementRate
+        - completionProbability
+        - uniqueContributors
+        - contributionCount
+        - progressPercent
+      properties:
+        dailyVelocity:
+          type: number
+          description: Stroops raised in the trailing 24 h window.
+        engagementRate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        completionProbability:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        uniqueContributors:
+          type: integer
+          minimum: 0
+        contributionCount:
+          type: integer
+          minimum: 0
+        progressPercent:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+    TrendingWeights:
+      type: object
+      required: [velocity, engagement, completion]
+      properties:
+        velocity:
+          type: number
+          format: double
+          minimum: 0
+        engagement:
+          type: number
+          format: double
+          minimum: 0
+        completion:
+          type: number
+          format: double
+          minimum: 0
+    TrendingCampaignMeta:
+      type: object
+      required: [total, evaluated, weights, generatedAt, network]
+      properties:
+        total:
+          type: integer
+          description: Number of ranked campaigns in the eligible set.
+        evaluated:
+          type: integer
+          description: Total campaigns loaded from the data source.
+        weights:
+          $ref: '#/components/schemas/TrendingWeights'
+        generatedAt:
+          type: integer
+          format: int64
+        network:
+          type: string
+          enum: [testnet, mainnet]
+    SuccessMessage:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+    NGOServiceType:
+      type: string
+      enum: [LAND_ACCESS, PLANTING_LABOR, VERIFICATION]
+    NGOVerificationStatus:
+      type: string
+      enum: [PENDING, VERIFIED, REJECTED]
+    NGOProfile:
+      type: object
+      required: [id, name, description, services, country, createdAt, verificationStatus, isVerified]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        services:
+          type: array
+          items: { $ref: '#/components/schemas/NGOServiceType' }
+        country: { type: string }
+        website: { type: string, nullable: true }
+        verificationStatus: { $ref: '#/components/schemas/NGOVerificationStatus' }
+        isVerified: { type: boolean }
+        reviewedBy: { type: string, nullable: true }
+        reviewedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    NGOListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/NGOProfile' }
+    RegisterNGOSchema:
+      type: object
+      required: [name, description, services]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, minLength: 1, maxLength: 2000 }
+        services:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/NGOServiceType' }
+        country: { type: string, maxLength: 100 }
+        website: { type: string, format: uri }
+        submitterWallet: { type: string }
+    NGOReviewRequest:
+      type: object
+      required: [verdict]
+      properties:
+        verdict: { $ref: '#/components/schemas/NGOVerificationStatus' }
+        reviewer: { type: string }
+    PartnershipStatus:
+      type: string
+      enum: [PENDING, ACCEPTED, REJECTED, COMPLETED, CANCELED]
+    PartnershipRequest:
+      type: object
+      required: [id, campaignId, ngoId, ngoName, servicesRequested, status, initiatedBy, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        campaignId: { type: string }
+        ngoId: { type: string }
+        ngoName: { type: string }
+        servicesRequested:
+          type: array
+          items: { $ref: '#/components/schemas/NGOServiceType' }
+        proposedTerms: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/PartnershipStatus' }
+        initiatedBy: { type: string }
+        updatedBy: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PartnershipListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/PartnershipRequest' }
+    CreatePartnershipRequest:
+      type: object
+      required: [ngoId, servicesRequested]
+      properties:
+        ngoId: { type: string }
+        servicesRequested:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/NGOServiceType' }
+        proposedTerms: { type: string, maxLength: 2000 }
+    UpdatePartnershipStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/PartnershipStatus' }
+        updatedBy: { type: string }

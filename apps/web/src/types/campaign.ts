@@ -1,3 +1,4 @@
+import type { CreatorVerificationFlags } from "@/lib/creator-verification";
 /**
  * Campaign data models and filter types for the Stellar Client OS frontend.
  */
@@ -172,6 +173,8 @@ export interface CampaignData {
   staffPickReason?: string;
   category?: CampaignCategory;
   tags?: string[];
+  /** Optional creator identity verification (email, phone, government ID). */
+  creatorVerification?: CreatorVerificationFlags;
 }
 
 export interface CampaignFilterOptions {
@@ -185,4 +188,6 @@ export interface CampaignFilterOptions {
   categories: CampaignCategory[];
   /** Selected tags; an empty array means "All". */
   tags: string[];
+  /** Only show campaigns whose creator holds the "Verified Creator" badge. */
+  verifiedOnly?: boolean;
 }

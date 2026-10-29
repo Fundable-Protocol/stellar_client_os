@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#8256ff">
+  <title>You're offline · Fundable</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0d0019;color:#f8f7ff}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;background:radial-gradient(ellipse at top,#26134b 0%,#0d0019 58%);padding:24px}
+    main{width:min(720px,100%);margin:8vh auto 0}
+    .brand{color:#b9a4ff;font-size:.85rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+    h1{font-size:clamp(2rem,6vw,3.25rem);line-height:1.05;margin:14px 0}
+    .muted{color:#c5bfd6;line-height:1.6}
+    .status{display:inline-flex;align-items:center;gap:8px;border:1px solid #69558e;background:#201239;border-radius:999px;padding:7px 12px;font-size:.9rem}
+    .dot{width:8px;height:8px;border-radius:50%;background:#f59e0b}
+    #campaigns{display:grid;gap:12px;margin-top:26px}
+    .campaign{display:block;color:inherit;text-decoration:none;border:1px solid #403052;background:#160b25;border-radius:16px;padding:18px}
+    .campaign:hover{border-color:#a78bfa}
+    .campaign h2{font-size:1.05rem;margin:0 0 8px}
+    .campaign p{color:#c5bfd6;line-height:1.5;margin:0 0 12px}
+    .meta{font-size:.85rem;color:#b9a4ff}
+    .empty{border:1px dashed #57446d;border-radius:16px;padding:20px;color:#c5bfd6}
+    button{margin-top:22px;border:0;border-radius:10px;background:#8256ff;color:#fff;font:inherit;font-weight:700;padding:11px 16px;cursor:pointer}
+    a:focus-visible,button:focus-visible{outline:3px solid #fff;outline-offset:3px}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand">Fundable Stellar</div>
+    <h1>You're offline.</h1>
+    <p class="muted">The connection dropped, but campaigns you've viewed before may still be available on this device.</p>
+    <div class="status" role="status"><span class="dot" id="status-dot"></span><span id="connection-status">No internet connection</span></div>
+    <section aria-labelledby="saved-heading">
+      <h2 id="saved-heading">Saved campaigns</h2>
+      <p class="muted">Campaign summaries are stored on this device for offline access. Donation and wallet actions still require a connection.</p>
+      <div id="campaigns" aria-live="polite"><div class="empty">Loading saved campaigns…</div></div>
+    </section>
+    <button type="button" onclick="location.reload()">Try connecting again</button>
+  </main>
+  <script>
+    (function () {
+      var dbName = "fundable-offline";
+      var storeName = "campaigns";
+      var list = document.getElementById("campaigns");
+      var status = document.getElementById("connection-status");
+      var dot = document.getElementById("status-dot");
+
+      function updateConnection() {
+        var online = navigator.onLine;
+        status.textContent = online ? "Connection restored" : "No internet connection";
+        dot.style.background = online ? "#34d399" : "#f59e0b";
+      }
+      window.addEventListener("online", updateConnection);
+      window.addEventListener("offline", updateConnection);
+      updateConnection();
+
+      function showEmpty(message) {
+        list.textContent = "";
+        var empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = message;
+        list.appendChild(empty);
+      }
+
+      function renderCampaigns(campaigns) {
+        list.textContent = "";
+        if (!campaigns.length) {
+          showEmpty("No campaigns have been saved yet. Open a campaign while online to make it available here.");
+          return;
+        }
+        campaigns.sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+        campaigns.forEach(function (campaign) {
+          var card = document.createElement("a");
+          card.className = "campaign";
+          card.href = "/campaigns/" + encodeURIComponent(campaign.id);
+          var title = document.createElement("h2");
+          title.textContent = campaign.name || "Untitled campaign";
+          var description = document.createElement("p");
+          description.textContent = campaign.description || "No description saved.";
+          var meta = document.createElement("div");
+          meta.className = "meta";
+          var pieces = [];
+          if (campaign.location) pieces.push(campaign.location);
+          if (campaign.status) pieces.push(campaign.status);
+          if (campaign.raisedAmount || campaign.goalAmount) pieces.push((campaign.raisedAmount || "0") + " raised of " + (campaign.goalAmount || "—"));
+          meta.textContent = pieces.join(" · ");
+          card.appendChild(title);
+          card.appendChild(description);
+          card.appendChild(meta);
+          list.appendChild(card);
+        });
+      }
+
+      if (!("indexedDB" in window)) {
+        showEmpty("This browser does not support offline storage.");
+        return;
+      }
+      var request = indexedDB.open(dbName, 1);
+      request.onupgradeneeded = function () {
+        var db = request.result;
+        if (!db.objectStoreNames.contains(storeName)) db.createObjectStore(storeName, { keyPath: "id" });
+        if (!db.objectStoreNames.contains("apiResponses")) db.createObjectStore("apiResponses", { keyPath: "url" });
+      };
+      request.onerror = function () { showEmpty("Saved campaigns could not be opened on this device."); };
+      request.onsuccess = function () {
+        var db = request.result;
+        if (!db.objectStoreNames.contains(storeName)) {
+          showEmpty("No saved campaigns yet.");
+          db.close();
+          return;
+        }
+        var tx = db.transaction(storeName, "readonly");
+        var read = tx.objectStore(storeName).getAll();
+        read.onsuccess = function () { renderCampaigns(Array.isArray(read.result) ? read.result : []); };
+        read.onerror = function () { showEmpty("Saved campaigns could not be loaded."); };
+        tx.oncomplete = function () { db.close(); };
+      };
+    })();
+  </script>
+</body>
+</html>

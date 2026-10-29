@@ -15,13 +15,19 @@ export async function GET(request: Request) {
   }
 }
 
-/** POST /api/trustee/withdrawals — body `{ requestId, trustee, action: "cosign" | "reject" }`. */
+/**
+ * POST /api/trustee/withdrawals — body `{ requestId, trustee, action: "cosign" | "reject", twoFactorToken? }`.
+ * When the trustee has 2FA enabled, `cosign` requires a valid TOTP code or unused backup code in `twoFactorToken`.
+ */
 export async function POST(request: Request) {
   try {
     const body = await readJsonBody(request);
     const requestId = str(body.requestId) ?? "";
     const trustee = str(body.trustee);
-    if (body.action === "cosign") return Response.json({ request: svc.coSign(requestId, trustee) });
+    if (body.action === "cosign") {
+      svc.assertTwoFactorForCoSign(trustee, str(body.twoFactorToken));
+      return Response.json({ request: svc.coSign(requestId, trustee) });
+    }
     if (body.action === "reject") return Response.json({ request: svc.reject(requestId, trustee) });
     return Response.json({ error: 'action must be "cosign" or "reject"' }, { status: 400 });
   } catch (error) {

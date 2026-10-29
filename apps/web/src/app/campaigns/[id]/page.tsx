@@ -28,6 +28,7 @@ import { BackerMessageComposer } from "@/components/modules/campaign/BackerMessa
 // #1207 — Campaign boost purchase (creator only)
 import { CampaignBoostPurchase } from "@/components/modules/campaign/CampaignBoostPurchase";
 import { CampaignRisksAndChallenges } from "@/components/campaign/CampaignRisksAndChallenges";
+import { OfflineCampaignCache } from "@/components/pwa/OfflineCampaignCache";
 
 export const runtime = "nodejs";
 
@@ -47,6 +48,17 @@ export default async function CampaignPage({
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-6 py-10">
+      <OfflineCampaignCache campaign={{
+        id: campaign.id,
+        name: campaign.name,
+        description: campaign.description ?? "",
+        location: campaign.location ?? "",
+        goalAmount: campaign.goalAmount,
+        raisedAmount: campaign.raisedAmount,
+        treeCount: campaign.treeCount ?? null,
+        status: campaign.status,
+        deadline: campaign.deadline ?? null,
+      }} />
       <CampaignViewTracker campaignId={campaign.id} />
       <InAppSurveyNotificationBanner campaignId={campaign.id} />
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
@@ -71,6 +83,10 @@ export default async function CampaignPage({
           <Link href={`/campaigns/${campaign.id}/impact`} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-300">
             <Leaf className="h-4 w-4" />
             Impact Calculator
+          </Link>
+          <Link href={`/campaigns/${campaign.id}/impact-report`} className="inline-flex items-center gap-1.5 rounded-md border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-900/50 dark:bg-purple-950/30 dark:text-purple-300">
+            <FileText className="h-4 w-4" />
+            Impact Report
           </Link>
           <Link href={`/campaigns/${campaign.id}/donate`} className="inline-flex items-center gap-1.5 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
             <Heart className="h-4 w-4" />
@@ -147,6 +163,8 @@ export default async function CampaignPage({
       </section>
 
       <VerificationEvidenceGallery evidence={campaign.verificationEvidence ?? []} />
+
+      <CampaignPartnersSection partners={campaign.partners} />
 
       {/* Compliance & Due Diligence Documents */}
       <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
