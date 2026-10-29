@@ -87,11 +87,12 @@ export function CampaignSearchPanel() {
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4" aria-label="Campaign search and filters">
       <form onSubmit={search} className="grid gap-3">
         <input
+          type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search campaigns by title, description, or tags"
           aria-label="Campaign search"
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
         />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           <label className="flex flex-col gap-1 text-xs font-medium text-zinc-300">

@@ -7,6 +7,7 @@ import { LanguageSwitcher } from "@/components/molecules/LanguageSwitcher";
 import { useTranslation } from "@/i18n/I18nProvider";
 import type { MessageKey } from "@/i18n/translate";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { HighContrastToggle } from "@/components/ui/high-contrast-toggle";
 
 const NAV_LINKS: { href: string; label: MessageKey }[] = [
   { href: "/balances", label: "nav.balances" },
@@ -50,6 +51,7 @@ export function Navbar() {
 
         {/* Action Area */}
         <div className="flex items-center gap-4">
+          <HighContrastToggle showLabel={false} />
           <ThemeToggle />
           <LanguageSwitcher />
           <NetworkSwitcher />

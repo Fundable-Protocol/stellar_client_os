@@ -10,6 +10,7 @@
     "generate:sdk": "pnpm --filter @fundable/sdk generate",
     "test:contracts": "cd contracts && cargo test",
     "test:mobile": "pnpm --filter @fundable/mobile test",
+    "test:a11y": "pnpm --filter @fundable/web test:a11y",
     "typecheck:mobile": "pnpm --filter @fundable/mobile typecheck",
     "test:sdk": "pnpm --filter @fundable/sdk test",
     "test:sdk:coverage": "pnpm --filter @fundable/sdk test:coverage",
