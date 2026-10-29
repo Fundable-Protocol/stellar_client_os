@@ -121,9 +121,41 @@ export const CampaignEditModal: React.FC<CampaignEditModalProps> = ({
           </button>
         </div>
 
+        <div className="flex gap-2 border-b border-slate-800 mt-4 mb-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab("general")}
+            className={`px-3 py-1.5 text-sm font-medium rounded-t border-b-2 transition-colors ${
+              activeTab === "general"
+                ? "border-emerald-500 text-emerald-400 bg-slate-800/40"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            General Details
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("ab-testing")}
+            className={`px-3 py-1.5 text-sm font-medium rounded-t border-b-2 transition-colors ${
+              activeTab === "ab-testing"
+                ? "border-emerald-500 text-emerald-400 bg-slate-800/40"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            A/B Testing Tools
+          </button>
+        </div>
+
         {!isEditable ? (
           <div className="py-6 text-center text-amber-400">
             Campaign details cannot be modified once launched or completed.
+          </div>
+        ) : activeTab === "ab-testing" ? (
+          <div className="pt-2">
+            <CampaignABTestingEditor
+              campaignId={campaign.id.toString()}
+              defaultHeadline={campaign.name || "Support Our Green Future"}
+            />
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="mt-4 space-y-4">
