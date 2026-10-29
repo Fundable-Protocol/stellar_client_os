@@ -240,6 +240,8 @@ export const typeDefs = /* GraphQL */`
     createdBefore: Int
     categories: [CampaignCategory!]
     tags: [String!]
+    """Only campaigns whose creator holds the "Verified Creator" badge."""
+    verifiedOnly: Boolean
   }
 
   input CampaignSort {
@@ -266,9 +268,15 @@ export const typeDefs = /* GraphQL */`
     reason: String
   }
 
+  """
+  Optional creator identity verification (email, phone, government ID).
+  isVerified is true only when all three steps are complete ("Verified Creator" badge).
+  """
   type CampaignVerification {
     emailVerified: Boolean!
     phoneVerified: Boolean!
+    governmentIdVerified: Boolean!
+    """Deprecated: replaced by governmentIdVerified; no longer counts towards verification."""
     addressVerified: Boolean!
     badges: [String!]!
     status: String!

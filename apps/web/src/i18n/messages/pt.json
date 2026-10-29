@@ -59,7 +59,7 @@
       "title": "Idioma e região",
       "nav": "Idioma",
       "description": "Escolha o idioma usado na interface da Fundable. Sua escolha fica salva neste dispositivo.",
-      "rtlNotice": "O árabe é exibido da direita para a esquerda."
+      "rtlNotice": "O árabe e o hebraico são exibidos da direita para a esquerda."
     },
     "webhooks": {
       "title": "Webhooks",
@@ -162,5 +162,91 @@
       "saved": "Condições de investimento salvas.",
       "notInvestment": "Esta campanha não oferece retorno financeiro."
     }
+  },
+  "campaign": {
+    "progress": {
+      "title": "Progresso do financiamento da campanha",
+      "ariaLabel": "Progresso do financiamento da campanha",
+      "valuetext": "{percentage}% financiado, {raised} de {goal} {currency}",
+      "goalProgress": "Progresso da meta",
+      "stretchUnlocked": "Meta estendida desbloqueada! Incrível!",
+      "goalReached": "Meta atingida! Totalmente financiada!",
+      "minTargetReached": "Meta mínima atingida! A campanha será bem-sucedida.",
+      "inProgress": "Captação em andamento…",
+      "totalRaised": "Total arrecadado",
+      "minimum": "Mínimo",
+      "goal": "Meta",
+      "stretch": "Estendida",
+      "minMilestone": "Mín. ({percent}%)",
+      "goalMilestone": "Meta ({percent}%)",
+      "stretchMilestone": "Estendida (100%)",
+      "goalMilestoneFull": "Meta (100%)"
+    },
+    "stepper": {
+      "ariaLabel": "Etapas de criação da campanha",
+      "stepOf": "Etapa {current} de {total}",
+      "streamAriaLabel": "Progresso da criação do fluxo",
+      "stepAriaLabel": "Etapa {number}: {title}"
+    },
+    "milestones": {
+      "ariaLabel": "Progresso das marcas da campanha",
+      "title": "Marcas de financiamento",
+      "reached": "{achieved} / {total} alcançadas",
+      "marker": "Marco {label} {status}",
+      "reachedStatus": "alcançado",
+      "notReachedStatus": "não alcançado",
+      "next": "Próximo marco:",
+      "percentOfGoal": "({percent}% da meta)",
+      "allReached": "Todas as marcas alcançadas — meta atingida!",
+      "raisedOfGoal": "{raised} / {goal} {token} arrecadados ({percent}%)"
+    }
+  },
+  "pledge": {
+    "pageTitle": "Fazer uma doação única",
+    "pageDescription": "Contribua com esta campanha sem comprar árvores específicas. Sua doação fica a critério do criador para cobrir custos do projeto, e você recebe um recibo.",
+    "backToCampaign": "Voltar à campanha",
+    "donateTo": "Doar para {campaign}",
+    "thisCampaign": "esta campanha",
+    "oneTimeTrigger": "Doação única",
+    "oneTimeTitle": "Doação única",
+    "closeDialog": "Fechar a caixa de doação",
+    "openFullPage": "Prefere uma página completa?",
+    "openDonationPage": "Abrir a página de doação",
+    "quickAmounts": "Valores rápidos",
+    "amountLabel": "Valor da doação",
+    "tokenLabel": "Token",
+    "nameLabel": "Seu nome (opcional)",
+    "emailLabel": "E-mail para uma mensagem de agradecimento (opcional)",
+    "messageLabel": "Mensagem para o criador (opcional)",
+    "messagePlaceholder": "Adicione uma nota de incentivo…",
+    "anonymous": "Doar anonimamente",
+    "submit": "Doar {amount}",
+    "submitNow": "Doar agora",
+    "submitting": "Registrando doação…",
+    "connectWallet": "Conecte sua carteira para doar.",
+    "recordError": "Não foi possível registrar sua doação. Tente novamente.",
+    "networkError": "Erro de rede — verifique sua conexão e tente novamente.",
+    "successToast": "Obrigado pela sua doação!",
+    "confirmed": "Doação confirmada",
+    "confirmedDescription": "Obrigado — sua contribuição vai direto para o criador da campanha.",
+    "loadingThankYou": "Carregando a mensagem do criador…",
+    "receiptReference": "Referência do recibo",
+    "amount": "Valor",
+    "allocatedTo": "Alocado para",
+    "donor": "Doador",
+    "anonymousDonor": "Anônimo",
+    "insuranceNotice": "1% de cada doação financia o fundo de seguro da campanha. Se árvores morrerem nos dois anos seguintes ao plantio, os patrocinadores recebem reembolso automático do fundo.",
+    "badgesUnlocked": "Progresso de selo desbloqueado",
+    "makeAnother": "Fazer outra doação",
+    "charCount": "{count}/{max}"
+  },
+  "errors": {
+    "genericTitle": "Algo deu errado",
+    "genericDescription": "Ocorreu um erro inesperado ao carregar esta seção.",
+    "rootTitle": "Erro do aplicativo",
+    "rootDescription": "Algo inesperado aconteceu na interface do aplicativo.",
+    "tryAgain": "Tentar novamente",
+    "backToDashboard": "Voltar ao painel",
+    "configTitle": "Erro de configuração"
   }
 }

@@ -81,6 +81,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       fundsRaised?: number;
       deadTrees?: number;
     };
+    if (body.partners !== undefined && !isValidCampaignPartners(body.partners)) {
+      return noStore({ error: "partners must contain up to 20 entries with a name and valid HTTP(S) logo and website URLs" }, { status: 400 });
+    }
     if (body.language && !isSupportedTranslationLocale(body.language)) {
       return noStore({ error: "language is not supported" }, { status: 400 });
     }
@@ -204,6 +207,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         description,
         pledgeThankYouGreeting: body.pledgeThankYouGreeting ?? updated.pledgeThankYouGreeting,
         pledgeThankYouBody: body.pledgeThankYouBody ?? updated.pledgeThankYouBody,
+        partners: body.partners === undefined ? updated.partners : body.partners,
         language,
         translations,
         localizedContent,

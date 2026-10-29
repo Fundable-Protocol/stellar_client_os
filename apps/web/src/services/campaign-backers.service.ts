@@ -109,6 +109,20 @@ class CampaignBackersService {
     return (this.contributions.get(campaignId?.trim() ?? "") ?? []).length > 0;
   }
 
+  /** Campaigns in which the given wallet has an on-platform contribution. */
+  getCampaignIdsForBacker(backerAddress: string): string[] {
+    const address = backerAddress?.trim().toLowerCase();
+    if (!address) return [];
+    return [...this.contributions.entries()]
+      .filter(([, contributions]) => contributions.some((entry) => entry.backerAddress.trim().toLowerCase() === address))
+      .map(([campaignId]) => campaignId);
+  }
+
+  hasBacker(campaignId: string, backerAddress: string): boolean {
+    const address = backerAddress?.trim().toLowerCase();
+    return Boolean(address && this.getContributions(campaignId).some((entry) => entry.backerAddress.trim().toLowerCase() === address));
+  }
+
   recordContribution(input: RecordContributionInput): BackerContribution {
     const campaignId = input.campaignId?.trim();
     const backerAddress = input.backerAddress?.trim();
@@ -121,7 +135,10 @@ class CampaignBackersService {
     }
 
     const treeCount = input.treeCount ?? 1;
-    const pricing = calculateSponsorshipPricing(input.grossAmount ?? input.amount, treeCount);
+    const amountInput = String(input.grossAmount ?? input.amount).trim();
+    const inputScaled = parseTokenAmount(amountInput);
+    if (inputScaled === null || inputScaled <= 0n) throw new Error("A positive contribution amount is required");
+    const pricing = calculateSponsorshipPricing(amountInput, treeCount);
     const amount = input.grossAmount ? pricing.netAmount : String(input.amount).trim();
     const scaled = parseTokenAmount(amount);
     if (scaled === null || scaled <= 0n) throw new Error("A positive contribution amount is required");
@@ -318,10 +335,6 @@ class CampaignBackersService {
       sameAddress(item.backerAddress, entry.backerAddress) ? entry : item,
     );
     this.featured.set(campaignId.trim(), list);
-  }
-
-  private hasBacker(campaignId: string, backerAddress: string): boolean {
-    return this.getContributions(campaignId).some((entry) => sameAddress(entry.backerAddress, backerAddress));
   }
 
   // --------------------------------------------------------------- leaderboard

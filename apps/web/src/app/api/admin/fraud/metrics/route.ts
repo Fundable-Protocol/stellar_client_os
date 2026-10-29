@@ -9,25 +9,34 @@ export const revalidate = 0;
 const NO_STORE_HEADERS = { 'Cache-Control': 'private, no-store, max-age=0' };
 
 /**
- * GET /api/admin/fraud/metrics — Monitor ML model metrics, including False Positive Rate and quarterly retraining status.
+ * GET /api/admin/fraud/metrics — Monitor ML model metrics, including False Positive Rate, quarterly retraining status,
+ * and the admin moderation queue of wash-pledging / Sybil risk scores.
+ *
+ * Query params:
+ * - queue=true: include the risk-scored moderation queue (suspicious campaigns withheld from leaderboard/matching).
  */
 export async function GET(request: NextRequest) {
   const denied = authorizeAdminRequest(request);
   if (denied) return denied;
 
   try {
+    const includeQueue = request.nextUrl.searchParams.get('queue') === 'true';
+
     const metrics = fraudDetectionService.getModelMetrics();
     const retrainingLogs = fraudDetectionService.getRetrainingLogs();
     const isRetrainingDue = fraudDetectionService.isQuarterlyRetrainingDue();
 
-    return NextResponse.json(
-      {
-        metrics,
-        isRetrainingDue,
-        retrainingLogs,
-      },
-      { headers: NO_STORE_HEADERS }
-    );
+    const body: Record<string, unknown> = {
+      metrics,
+      isRetrainingDue,
+      retrainingLogs,
+    };
+
+    if (includeQueue) {
+      body.moderationQueue = await fraudDetectionService.getModerationQueue();
+    }
+
+    return NextResponse.json(body, { headers: NO_STORE_HEADERS });
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || 'Failed to fetch fraud model metrics' },

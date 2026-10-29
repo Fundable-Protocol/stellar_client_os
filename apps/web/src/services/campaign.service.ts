@@ -14,6 +14,11 @@ import { campaignNFTRewardService } from "./campaign-nft-reward.service";
 import type { CampaignWebhookEvent } from "@/types/webhook";
 import type { CampaignLocalizedContent } from "@/lib/translation";
 import type { CampaignLiveStream } from "@/lib/live-stream";
+import {
+  getVerificationSummaryFor,
+  type CampaignVerificationSummary,
+  type CreatorVerificationLevel,
+} from "@/lib/creator-verification";
 
 export type { CampaignLiveStream, LiveStreamPlatform, LiveStreamStatus } from "@/lib/live-stream";
 
@@ -76,6 +81,43 @@ export interface SponsorRecord {
   sponsoredAt: number;
 }
 
+export interface CampaignPartner {
+  name: string;
+  logoUrl: string;
+  url: string;
+}
+
+export function isValidCampaignPartners(value: unknown): value is CampaignPartner[] {
+  if (!Array.isArray(value) || value.length > 20) return false;
+
+  return value.every((partner) => {
+    if (
+      !partner ||
+      typeof partner !== "object" ||
+      typeof partner.name !== "string" ||
+      partner.name.trim().length === 0 ||
+      partner.name.length > 100 ||
+      typeof partner.logoUrl !== "string" ||
+      partner.logoUrl.length > 2048 ||
+      typeof partner.url !== "string" ||
+      partner.url.length > 2048
+    ) {
+      return false;
+    }
+
+    return [partner.logoUrl, partner.url].every((value) => {
+      try {
+        const parsed = new URL(value);
+        return (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+          !parsed.username &&
+          !parsed.password;
+      } catch {
+        return false;
+      }
+    });
+  });
+}
+
 export type CharityBadgeType = "TAX_EXEMPT" | "CHARITY_VERIFIED";
 
 /** Trust badge awarded to a campaign by a platform admin after reviewing charity documents. */
@@ -125,24 +167,12 @@ export interface StatusHistoryEntry {
   reason?: string;
 }
 
-export type CampaignVerificationStatus = "verified" | "partial" | "unverified";
+export type CampaignVerificationStatus = CreatorVerificationLevel;
 export type CampaignRiskLevel = "low" | "moderate" | "high" | "critical";
 export type CampaignHealthLevel = "excellent" | "good" | "fair" | "poor";
 
-export interface CampaignVerificationSummary {
-  emailVerified: boolean;
-  phoneVerified: boolean;
-  addressVerified: boolean;
-  /** Backwards-compatible aliases used by older API consumers. */
-  verifiedEmail?: boolean;
-  verifiedPhone?: boolean;
-  verifiedAddress?: boolean;
-  badges: string[];
-  status: CampaignVerificationStatus;
-  isVerified: boolean;
-  verifiedCount: number;
-  totalCount: number;
-}
+/** Public creator identity verification summary (email, phone, government ID). */
+export type { CampaignVerificationSummary };
 
 export interface CampaignRiskAssessment {
   score: number;
@@ -202,6 +232,12 @@ export interface CampaignRecord {
   pledgeThankYouImageUrl?: string;
   pledgeThankYouVideoUrl?: string;
   pledgeThankYouNextSteps?: string;
+  /** Optional creator-defined reward offered to the top campaign referrers. */
+  referralReward?: {
+    description: string;
+    recipientCount: number;
+    updatedAt: number;
+  };
   name: string;
   description?: string;
   /** Creator-authored risks, uncertainties, and mitigation plans. */
@@ -260,6 +296,7 @@ export interface CampaignRecord {
   statusChangedAt: number;
   network?: "testnet" | "mainnet";
   sponsors: SponsorRecord[];
+  partners?: CampaignPartner[];
   /** Partner details are eligible for certificates only after independent verification. */
   nonprofitPartner?: CampaignNonprofitPartner;
   /** Tax-Exempt / Charity Verified badge shown to backers; set only by a platform admin. */
@@ -394,6 +431,8 @@ export interface CampaignFilter {
   categories?: CampaignCategory[];
   /** Tag facet filter; a campaign matches when it carries any listed tag. */
   tags?: string[];
+  /** Only return campaigns whose creator earned the "Verified Creator" badge. */
+  verifiedOnly?: boolean;
 }
 
 export interface CampaignQueryInput {
@@ -480,32 +519,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/**
+ * Public creator identity verification summary for a campaign. Verification is
+ * optional: campaigns whose creator has not completed any step are reported as
+ * `unverified`; completing email, phone and government ID earns `verified`
+ * (the "Verified Creator" badge). See docs/creator-identity-verification.md.
+ */
 export function getCampaignVerificationSummary(campaign: Partial<CampaignRecord> = {}): CampaignVerificationSummary {
-  const explicit = campaign.creatorVerification ?? campaign.verification ?? {};
-  const emailVerified = Boolean((explicit as Partial<CampaignVerificationSummary>).emailVerified ?? false);
-  const phoneVerified = Boolean((explicit as Partial<CampaignVerificationSummary>).phoneVerified ?? false);
-  const addressVerified = Boolean((explicit as Partial<CampaignVerificationSummary>).addressVerified ?? false);
-  const badges = [
-    emailVerified ? "email" : null,
-    phoneVerified ? "phone" : null,
-    addressVerified ? "address" : null,
-  ].filter((badge): badge is string => Boolean(badge));
-  const verifiedCount = [emailVerified, phoneVerified, addressVerified].filter(Boolean).length;
-  const status: CampaignVerificationStatus = verifiedCount === 3 ? "verified" : verifiedCount > 0 ? "partial" : "unverified";
-
-  return {
-    emailVerified,
-    phoneVerified,
-    addressVerified,
-    verifiedEmail: emailVerified,
-    verifiedPhone: phoneVerified,
-    verifiedAddress: addressVerified,
-    badges,
-    status,
-    isVerified: verifiedCount === 3,
-    verifiedCount,
-    totalCount: 3,
-  };
+  return getVerificationSummaryFor(campaign);
 }
 
 export function getCampaignRiskAssessment(campaign: Partial<CampaignRecord> = {}): CampaignRiskAssessment {
@@ -926,6 +947,7 @@ export async function createCampaign(input: {
   raisedAmount?: string;
   sponsorCount?: number;
   sponsors?: SponsorRecord[];
+  partners?: CampaignPartner[];
   network?: "testnet" | "mainnet";
   nonprofitPartner?: Omit<CampaignNonprofitPartner, "verificationStatus" | "verifiedAt" | "verifiedBy">;
 }, dataSource = getCampaignDataSource(), now = Date.now()): Promise<CampaignRecord> {
@@ -965,6 +987,7 @@ export async function createCampaign(input: {
     species: input.species,
     treeCount: input.treeCount ?? 0,
     durationMs: input.deadline !== undefined ? input.deadline - now : input.durationMs,
+    deadline: input.deadline ?? (input.durationMs !== undefined ? now + input.durationMs : undefined),
     status: "DRAFT",
     goalAmount: input.goalAmount,
     raisedAmount: input.raisedAmount ?? "0",
@@ -975,6 +998,7 @@ export async function createCampaign(input: {
     statusChangedAt: now,
     network: input.network,
     sponsors: input.sponsors ?? [],
+    partners: input.partners ?? [],
     nonprofitPartner: input.nonprofitPartner
       ? { ...input.nonprofitPartner, verificationStatus: "PENDING" }
       : undefined,
@@ -1112,6 +1136,7 @@ export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource 
     if (filter.minGoalAmount && BigInt(campaign.goalAmount) < BigInt(filter.minGoalAmount)) return false;
     if (filter.maxGoalAmount && BigInt(campaign.goalAmount) > BigInt(filter.maxGoalAmount)) return false;
     if (filter.isStaffPick !== undefined && Boolean(campaign.isStaffPick) !== filter.isStaffPick) return false;
+    if (filter.verifiedOnly && !getCampaignVerificationSummary(campaign).isVerified) return false;
     if (filter.categories?.length && !filter.categories.includes(campaign.category as CampaignCategory)) return false;
     if (filter.tags?.length) {
       const campaignTags = new Set((campaign.tags ?? []).map((tag) => tag.toLowerCase()));

@@ -87,6 +87,7 @@ stellar_client/
 │   ├── webhooks.md            # Webhook system documentation
 │   ├── openapi.yaml           # OpenAPI specification
 │   ├── rate-limits.md         # API rate limiting documentation
+│   ├── creator-identity-verification.md # Optional creator verification & badge
 │   ├── contracts/             # Contracts documentation
 │   │   ├── distributor.md
 │   │   └── payment-stream.md
@@ -108,6 +109,7 @@ stellar_client/
 - **Multi-Asset Support** - USDC, XLM, and other Stellar assets
 - **Campaign Milestone Push Notifications** - Real-time mobile push updates for trees planted, verification complete, campaign finished, and impact achieved
 - **Campaign Verification Audit Trail** - Immutable blockchain log of all verification activities (submitted for review, verifier comments, photo uploaded, approved/rejected)
+- **Verified Creator Badge** - Optional creator identity verification (email, phone, government ID); verified creators get a badge on campaigns and in search results. See [docs/creator-identity-verification.md](docs/creator-identity-verification.md)
 - **Offramp Integration** - Convert crypto to fiat currencies
 
 ## 🛠️ Tech Stack

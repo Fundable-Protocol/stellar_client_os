@@ -16,7 +16,19 @@ export async function POST(
     if (!existing || existing.campaignId !== id) {
       return Response.json({ error: "Withdrawal request not found" }, { status: 404 });
     }
-    return Response.json({ request: svc.release(requestId, str(body.callerAddress)) });
+
+    const callerAddress = str(body.callerAddress);
+
+    // Enforce 2FA for creator accounts with 2FA enabled before releasing funds.
+    const twoFactor = await svc.verifyTwoFactorForRelease(callerAddress, body.twoFactor);
+    if (!twoFactor.ok) {
+      return Response.json(
+        { error: twoFactor.error, twoFactorRequired: true },
+        { status: twoFactor.status },
+      );
+    }
+
+    return Response.json({ request: svc.release(requestId, callerAddress) });
   } catch (error) {
     return multisigErrorResponse(error);
   }

@@ -31,9 +31,15 @@ export async function POST(
 ) {
   try {
     const campaignId = params.id;
+    const body = await request.json();
     const {
       campaignTitle,
       creatorAddress,
+      location,
+      treeCount,
+      targetTrees,
+      campaignDurationDays,
+      verifications,
       backers,
       transactions,
       campaignSnapshot,
@@ -58,6 +64,10 @@ export async function POST(
       verificationEvents,
       submittedLocation,
     });
+
+    // Wash-pledging / Sybil signals: withhold suspicious campaigns from
+    // leaderboard and matching pending admin review.
+    await fraudDetectionService.applyWithholdingPolicy(campaignId, report);
 
     const securityStatus = await fraudDetectionService.getSecurityStatus(campaignId);
 

@@ -59,7 +59,7 @@
       "title": "Idioma y región",
       "nav": "Idioma",
       "description": "Elige el idioma de la interfaz de Fundable. Tu elección se guarda en este dispositivo.",
-      "rtlNotice": "El árabe se muestra de derecha a izquierda."
+      "rtlNotice": "El árabe y el hebreo se muestran de derecha a izquierda."
     },
     "webhooks": {
       "title": "Webhooks",
@@ -162,5 +162,91 @@
       "saved": "Condiciones de inversión guardadas.",
       "notInvestment": "Esta campaña no ofrece rendimiento financiero."
     }
+  },
+  "campaign": {
+    "progress": {
+      "title": "Progreso de financiación de la campaña",
+      "ariaLabel": "Progreso de financiación de la campaña",
+      "valuetext": "{percentage} % financiado, {raised} de {goal} {currency}",
+      "goalProgress": "Progreso del objetivo",
+      "stretchUnlocked": "¡Objetivo ampliado desbloqueado! ¡Increíble!",
+      "goalReached": "¡Objetivo alcanzado! ¡Financiación completa!",
+      "minTargetReached": "¡Objetivo mínimo cumplido! La campaña saldrá adelante.",
+      "inProgress": "Recaudación en curso…",
+      "totalRaised": "Total recaudado",
+      "minimum": "Mínimo",
+      "goal": "Objetivo",
+      "stretch": "Ampliado",
+      "minMilestone": "Mín. ({percent} %)",
+      "goalMilestone": "Objetivo ({percent} %)",
+      "stretchMilestone": "Ampliado (100 %)",
+      "goalMilestoneFull": "Objetivo (100 %)"
+    },
+    "stepper": {
+      "ariaLabel": "Pasos de creación de la campaña",
+      "stepOf": "Paso {current} de {total}",
+      "streamAriaLabel": "Progreso de creación del flujo",
+      "stepAriaLabel": "Paso {number}: {title}"
+    },
+    "milestones": {
+      "ariaLabel": "Progreso de los hitos de la campaña",
+      "title": "Hitos de financiación",
+      "reached": "{achieved} / {total} alcanzados",
+      "marker": "Hito {label} {status}",
+      "reachedStatus": "alcanzado",
+      "notReachedStatus": "no alcanzado",
+      "next": "Próximo hito:",
+      "percentOfGoal": "({percent} % del objetivo)",
+      "allReached": "¡Todos los hitos alcanzados — objetivo logrado!",
+      "raisedOfGoal": "{raised} / {goal} {token} recaudados ({percent} %)"
+    }
+  },
+  "pledge": {
+    "pageTitle": "Hacer una donación única",
+    "pageDescription": "Contribuye a esta campaña sin comprar árboles concretos. Tu donación queda a discreción del creador para cubrir los costes del proyecto y recibirás un recibo.",
+    "backToCampaign": "Volver a la campaña",
+    "donateTo": "Donar a {campaign}",
+    "thisCampaign": "esta campaña",
+    "oneTimeTrigger": "Donación única",
+    "oneTimeTitle": "Donación única",
+    "closeDialog": "Cerrar el diálogo de donación",
+    "openFullPage": "¿Prefieres una página completa?",
+    "openDonationPage": "Abrir la página de donación",
+    "quickAmounts": "Importes rápidos",
+    "amountLabel": "Importe de la donación",
+    "tokenLabel": "Token",
+    "nameLabel": "Tu nombre (opcional)",
+    "emailLabel": "Correo para una nota de agradecimiento (opcional)",
+    "messageLabel": "Mensaje para el creador (opcional)",
+    "messagePlaceholder": "Añade una nota de ánimo…",
+    "anonymous": "Donar de forma anónima",
+    "submit": "Donar {amount}",
+    "submitNow": "Donar ahora",
+    "submitting": "Registrando la donación…",
+    "connectWallet": "Conecta tu cartera para donar.",
+    "recordError": "No pudimos registrar tu donación. Inténtalo de nuevo.",
+    "networkError": "Error de red — comprueba tu conexión e inténtalo de nuevo.",
+    "successToast": "¡Gracias por tu donación!",
+    "confirmed": "Donación confirmada",
+    "confirmedDescription": "Gracias — tu contribución va directamente al creador de la campaña.",
+    "loadingThankYou": "Cargando el mensaje del creador…",
+    "receiptReference": "Referencia del recibo",
+    "amount": "Importe",
+    "allocatedTo": "Asignado a",
+    "donor": "Donante",
+    "anonymousDonor": "Anónimo",
+    "insuranceNotice": "El 1 % de cada donación financia el fondo de seguro de la campaña. Si los árboles mueren en los dos años siguientes a la plantación, los patrocinadores reciben un reembolso automático del fondo.",
+    "badgesUnlocked": "Progreso de insignia desbloqueado",
+    "makeAnother": "Hacer otra donación",
+    "charCount": "{count}/{max}"
+  },
+  "errors": {
+    "genericTitle": "Algo salió mal",
+    "genericDescription": "Se produjo un error inesperado al cargar esta sección.",
+    "rootTitle": "Error de la aplicación",
+    "rootDescription": "Ocurrió algo inesperado en la interfaz de la aplicación.",
+    "tryAgain": "Reintentar",
+    "backToDashboard": "Volver al panel",
+    "configTitle": "Error de configuración"
   }
 }

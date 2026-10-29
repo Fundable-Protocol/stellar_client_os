@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { Coins, Leaf, MapPin, Plus, Scale, Sprout, Target, Users, X } from "lucide-react";
+import { Award, Calendar, Coins, Leaf, MapPin, Plus, Scale, Sprout, Target, Users, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type {
   CampaignComparison,
@@ -28,6 +28,35 @@ interface MetricRow {
 }
 
 const ROWS: MetricRow[] = [
+  {
+    label: "Funding goal",
+    icon: <Target className="h-4 w-4 text-blue-400" />,
+    render: (column) => <span className="font-semibold text-zinc-100">{column.goalAmount ?? "—"}</span>,
+  },
+  {
+    label: "Raised amount",
+    icon: <Coins className="h-4 w-4 text-emerald-400" />,
+    render: (column) => <span className="font-semibold text-zinc-100">{column.raisedAmount ?? "—"}</span>,
+  },
+  {
+    label: "End date",
+    icon: <Calendar className="h-4 w-4 text-amber-400" />,
+    render: (column) => <span className="text-zinc-200">{column.deadline ? new Date(column.deadline).toLocaleDateString() : "—"}</span>,
+  },
+  {
+    label: "Creator reputation",
+    icon: <Award className="h-4 w-4 text-purple-400" />,
+    render: (column) => column.creatorReputation ? (
+      <div><strong className="text-zinc-100">{column.creatorReputation.score}/100</strong><p className="text-[11px] text-zinc-400">{column.creatorReputation.completedCampaigns} completed · {column.creatorReputation.verified ? "Verified" : "Unverified"}</p></div>
+    ) : <span className="text-zinc-500">—</span>,
+  },
+  {
+    label: "Reward tiers",
+    icon: <Award className="h-4 w-4 text-pink-400" />,
+    render: (column) => column.rewardTiers?.length ? (
+      <ul className="space-y-1">{column.rewardTiers.map((tier) => <li key={tier.id} className="text-zinc-200">{tier.name} <span className="text-zinc-400">· {tier.amount}{tier.token ? ` ${tier.token}` : ""}</span></li>)}</ul>
+    ) : <span className="text-zinc-500">No reward tiers</span>,
+  },
   {
     label: "Tree species",
     icon: <Sprout className="h-4 w-4 text-emerald-400" />,
@@ -170,6 +199,13 @@ export function CampaignSideBySideComparison({ initialIds = [] }: CampaignSideBy
       });
     return () => controller.abort();
   }, [selectionKey]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (selectedIds.length > 0) url.searchParams.set("ids", selectedIds.join(","));
+    else url.searchParams.delete("ids");
+    window.history.replaceState(null, "", url);
+  }, [selectedIds]);
 
   const comparison = result?.comparison ?? null;
   const loading = selectionKey !== "" && result?.key !== selectionKey;

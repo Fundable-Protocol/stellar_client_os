@@ -53,6 +53,20 @@ describe("Environment Variable Validation", () => {
     expect(validated.NEXT_PUBLIC_SOROBAN_RPC_HEADER).toBe("Bearer secret-rpc-key");
   });
 
+  it("should accept a valid optional campaign-funding contract ID", () => {
+    process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID = "CVALID123";
+    process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID456";
+    process.env.NEXT_PUBLIC_CAMPAIGN_FUNDING_CONTRACT_ID = "CVALID789";
+    expect(validateEnv().NEXT_PUBLIC_CAMPAIGN_FUNDING_CONTRACT_ID).toBe("CVALID789");
+  });
+
+  it("should accept a blank optional campaign-funding contract ID", () => {
+    process.env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID = "CVALID123";
+    process.env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID = "CVALID456";
+    process.env.NEXT_PUBLIC_CAMPAIGN_FUNDING_CONTRACT_ID = "";
+    expect(validateEnv().NEXT_PUBLIC_CAMPAIGN_FUNDING_CONTRACT_ID).toBe("");
+  });
+
   it("should export contract IDs from the env module", () => {
     expect(PAYMENT_STREAM_CONTRACT_ID).toBe(env.NEXT_PUBLIC_PAYMENT_STREAM_CONTRACT_ID);
     expect(DISTRIBUTOR_CONTRACT_ID).toBe(env.NEXT_PUBLIC_DISTRIBUTOR_CONTRACT_ID);
