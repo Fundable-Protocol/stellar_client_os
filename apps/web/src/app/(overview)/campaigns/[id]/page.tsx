@@ -876,6 +876,9 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           <TabsTrigger value="milestone-release" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
             <Coins className="me-1.5 h-4 w-4 text-emerald-400" /> Tranche Releases
           </TabsTrigger>
+          <TabsTrigger value="discussion" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
+            <MessageSquare className="mr-1.5 h-4 w-4 text-purple-400" /> Discussion Board
+          </TabsTrigger>
         </TabsList>
 
         {/* Tab 1: Overview */}
@@ -1086,6 +1089,16 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             isCreator={isCreatorView}
             viewerAddress={viewerAddress}
             campaignStatus={campaign.status}
+          />
+        </TabsContent>
+
+        {/* Tab 10: Token-gated community discussion forum for verified backers */}
+        <TabsContent value="discussion">
+          <CampaignDiscussion
+            campaignId={campaign.id}
+            creatorAddress={campaign.creator}
+            viewerAddress={viewerAddress}
+            canManage={isCreatorView}
           />
         </TabsContent>
       </Tabs>
