@@ -9,6 +9,7 @@ import type { MessageKey } from "@/i18n/translate";
 const SECTIONS: { href: string; label: MessageKey }[] = [
   { href: "/settings/language", label: "settings.language.nav" },
   { href: "/settings/notifications", label: "settings.notifications.nav" },
+  { href: "/settings/tax-reports", label: "settings.taxReports.nav" },
   { href: "/settings/webhooks", label: "settings.webhooks.nav" },
   { href: "/settings/security", label: "settings.security.nav" },
 ];

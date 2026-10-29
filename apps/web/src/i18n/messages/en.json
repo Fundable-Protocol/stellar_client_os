@@ -65,6 +65,18 @@
       "title": "Webhooks",
       "nav": "Webhooks",
       "description": "Receive signed POST notifications when something happens on your campaigns."
+    },
+    "taxReports": {
+      "title": "Annual Tax Reports",
+      "nav": "Tax reports",
+      "description": "Download an annual summary of your recorded campaign contributions.",
+      "year": "Tax year",
+      "role": "Report view",
+      "creator": "Creator",
+      "backer": "Backer",
+      "downloadCSV": "Download CSV",
+      "downloadPDF": "Download PDF",
+      "ledgerNotice": "Reports include recorded dates, transaction hashes when available, token amounts, and counterparties. Transaction-time USD rates, platform fees, milestone payouts, and reward fulfillment are not available unless recorded in the transaction ledger. This report is informational and is not tax advice."
     }
   },
   "seo": {
