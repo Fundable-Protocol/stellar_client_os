@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Activity } from "lucide-react";
 import { useFundingCounter, type FundingFeedStatus } from "@/hooks/use-funding-counter";
+import { useTranslation } from "@/i18n/I18nProvider";
 import { easeOutCubic, formatFunding, fundingPercent, tweenFundingValue } from "@/lib/funding-counter";
 
 const ROLL_DURATION_MS = 900;
@@ -37,6 +38,7 @@ export function FundingCounter({
   token,
   className,
 }: FundingCounterProps) {
+  const { t } = useTranslation();
   const { snapshot, status } = useFundingCounter(campaignId);
 
   const targetRaised = snapshot
@@ -93,7 +95,7 @@ export function FundingCounter({
         <span className="text-xs font-semibold text-zinc-400">
           Total Raised
           {badge ? (
-            <span className={`ml-2 inline-flex items-center gap-1 font-bold ${badge.tone}`}>
+            <span className={`ms-2 inline-flex items-center gap-1 font-bold ${badge.tone}`}>
               <Activity className="h-3 w-3 animate-pulse" aria-hidden />
               {badge.text}
             </span>
@@ -112,15 +114,16 @@ export function FundingCounter({
 
       {/* Progress bar follows the animated value so it rolls together with the number. */}
       <div
-        className="h-2 w-full overflow-hidden rounded-full bg-zinc-800"
+        className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800"
         role="progressbar"
+        aria-label={t("campaign.progress.ariaLabel")}
         aria-valuenow={percent}
         aria-valuemin={0}
         aria-valuemax={100}
       >
         <div
-          className="h-full rounded-full bg-gradient-to-r from-purple-500 via-indigo-500 to-emerald-400"
-          style={{ width: `${percent}%` }}
+          className="absolute inset-y-0 rounded-full bg-gradient-to-r rtl:bg-gradient-to-l from-purple-500 via-indigo-500 to-emerald-400"
+          style={{ insetInlineStart: 0, width: `${percent}%` }}
         />
       </div>
     </div>

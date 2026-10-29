@@ -1,11 +1,11 @@
-﻿/**
+/**
  * CampaignDetailScreen
  *
  * React Native screen for campaign details with:
  *   - Live-updating tree counter
  *   - Sponsor list
  *   - Verification progress bar
- *   - Real-time updates via WebSocket (issue #984)
+ *   - Real-time updates via WebSocket (issue #848)
  *
  * Navigation param: { campaignId: string }
  */
@@ -39,145 +39,21 @@ import {
   createManualConnectivitySource,
   getOfflineServices,
 } from "../offline";
+import {
+  CampaignDetail,
+  CampaignMilestone,
+  CampaignRealtimeClient,
+  Sponsor,
+  computeSustainabilityScore,
+  progressPercent,
+  reducer,
+  scoreColor,
+  scoreLabel,
+  shortAddress,
+} from "../realtime";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export interface Sponsor {
-  id: string;
-  address: string;
-  amount: string;
-  token: string;
-  sponsoredAt: number;
-}
-
-export interface CampaignDetail {
-  id: string;
-  name: string;
-  description?: string;
-  status: string;
-  goalAmount: string;
-  raisedAmount: string;
-  treeCount: number;
-  sponsorCount: number;
-  location?: string;
-  sponsors: Sponsor[];
-  /** Percentage of verification steps completed (0-100). */
-  verificationProgress: number;
-  /** Tree species diversity score (0-100). */
-  treeSpeciesDiversity?: number;
-  /** Region climate impact score (0-100). */
-  regionClimateImpact?: number;
-  /** Soil health improvement score (0-100). */
-  soilHealthImprovement?: number;
-  /** Biodiversity potential score (0-100). */
-  biodiversityPotential?: number;
-}
-
-type WsMessage =
-  | { type: "campaign_update"; payload: Partial<CampaignDetail> }
-  | { type: "tree_planted";    payload: { treeCount: number } }
-  | { type: "new_sponsor";     payload: Sponsor }
-  | { type: "milestone";       payload: CampaignMilestone }
-  | { type: "ping" };
-
-export type CampaignMilestoneType =
-  | "trees_planted"
-  | "verification_complete"
-  | "campaign_finished"
-  | "impact_achieved";
-
-export interface CampaignMilestone {
-  type: CampaignMilestoneType;
-  title: string;
-  body: string;
-  /** Optional numeric value associated with the milestone (e.g. tree count). */
-  value?: number;
-}
-
-// ── State / reducer ───────────────────────────────────────────────────────────
-
-type ScreenState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | {
-      status: "ready";
-      campaign: CampaignDetail;
-      connected: boolean;
-      /** True when the campaign was served from the offline cache. */
-      offline: boolean;
-    };
-
-type Action =
-  | { type: "LOADED";          campaign: CampaignDetail; fromCache?: boolean }
-  | { type: "LOAD_ERROR";      message: string }
-  | { type: "WS_CONNECTED" }
-  | { type: "WS_DISCONNECTED" }
-  | { type: "CAMPAIGN_UPDATE"; patch: Partial<CampaignDetail> }
-  | { type: "TREE_PLANTED";    treeCount: number }
-  | { type: "NEW_SPONSOR";     sponsor: Sponsor }
-  | { type: "MILESTONE";       milestone: CampaignMilestone };
-
-function reducer(state: ScreenState, action: Action): ScreenState {
-  switch (action.type) {
-    case "LOADED":
-      return {
-        status: "ready",
-        campaign: action.campaign,
-        connected: false,
-        offline: action.fromCache ?? false,
-      };
-
-    case "LOAD_ERROR":
-      return { status: "error", message: action.message };
-
-    case "WS_CONNECTED":
-      return state.status === "ready" ? { ...state, connected: true } : state;
-
-    case "WS_DISCONNECTED":
-      return state.status === "ready" ? { ...state, connected: false } : state;
-
-    case "CAMPAIGN_UPDATE":
-      if (state.status !== "ready") return state;
-      return { ...state, campaign: { ...state.campaign, ...action.patch } };
-
-    case "TREE_PLANTED":
-      if (state.status !== "ready") return state;
-      return {
-        ...state,
-        campaign: { ...state.campaign, treeCount: action.treeCount },
-      };
-
-    case "NEW_SPONSOR": {
-      if (state.status !== "ready") return state;
-      const already = state.campaign.sponsors.some(
-        (s) => s.id === action.sponsor.id,
-      );
-      if (already) return state;
-      return {
-        ...state,
-        campaign: {
-          ...state.campaign,
-          sponsorCount: state.campaign.sponsorCount + 1,
-          sponsors: [action.sponsor, ...state.campaign.sponsors],
-        },
-      };
-    }
-
-    case "MILESTONE":
-      // Milestones are surfaced as push notifications; no state change needed.
-      return state;
-
-    default:
-      return state;
-  }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function shortAddress(address: string): string {
-  if (address.length <= 12) return address;
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
+export type { CampaignDetail, Sponsor, CampaignMilestone };
+export { computeSustainabilityScore, progressPercent, shortAddress };
 
 // ── Push notifications ────────────────────────────────────────────────────────
 
@@ -268,62 +144,6 @@ async function pushWishlistRemote(
     headers: { "Content-Type": "application/json" },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-}
-
-function progressPercent(raised: string, goal: string): number {
-  try {
-    const g = BigInt(goal);
-    if (g === 0n) return 0;
-    const r = BigInt(raised);
-    const pct = Number((r * 100n) / g);
-    return Math.min(100, Math.max(0, pct));
-  } catch {
-    return 0;
-  }
-}
-
-/**
- * Compute the campaign sustainability score (0-100) as a weighted average of
- * four environmental indices. Missing indices default to 0 and are excluded
- * from the weighting so partial data still yields a meaningful score.
- */
-export function computeSustainabilityScore(campaign: {
-  treeSpeciesDiversity?: number;
-  regionClimateImpact?: number;
-  soilHealthImprovement?: number;
-  biodiversityPotential?: number;
-}): number {
-  const clamp = (n: number) => Math.min(100, Math.max(0, n));
-  const components: Array<{ value: number; weight: number }> = [
-    { value: campaign.treeSpeciesDiversity,   weight: 0.3 },
-    { value: campaign.regionClimateImpact,    weight: 0.25 },
-    { value: campaign.soilHealthImprovement,  weight: 0.25 },
-    { value: campaign.biodiversityPotential,  weight: 0.2 },
-  ].filter((c): c is { value: number; weight: number } =>
-    typeof c.value === "number" && Number.isFinite(c.value),
-  );
-
-  if (components.length === 0) return 0;
-
-  const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
-  const weighted = components.reduce(
-    (sum, c) => sum + clamp(c.value) * c.weight,
-    0,
-  );
-  return Math.round(weighted / totalWeight);
-}
-
-function scoreColor(score: number): string {
-  if (score >= 75) return "#1a7248";
-  if (score >= 50) return "#b8860b";
-  return "#c0392b";
-}
-
-function scoreLabel(score: number): string {
-  if (score >= 75) return "Excellent";
-  if (score >= 50) return "Good";
-  if (score >= 25) return "Fair";
-  return "Low";
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -445,14 +265,15 @@ export interface CampaignDetailScreenProps {
 }
 
 /**
- * CampaignDetailScreen — issue #984
+ * CampaignDetailScreen — issue #848
  *
  * Connects to the WebSocket at `wsUrl` and subscribes to the campaign channel
- * with `{ type: "subscribe", campaignId }`.  Handles three server-pushed
- * message types:
- *   - `campaign_update`  — merges a partial campaign patch
- *   - `tree_planted`     — updates the tree counter with a pulse animation
- *   - `new_sponsor`      — prepends a new sponsor row de-duplicated by id
+ * with `{ type: "subscribe", campaignId }`. Handles server-pushed real-time updates:
+ *   - `tree_planted`          — updates the tree counter with pulse animation
+ *   - `new_sponsor`           — prepends a new sponsor row de-duplicated by id
+ *   - `verification_update`   — updates verification progress bar smoothly
+ *   - `campaign_update`       — merges a partial campaign patch
+ *   - `milestone`             — triggers local push notifications
  */
 export default function CampaignDetailScreen({
   campaignId,
@@ -463,7 +284,6 @@ export default function CampaignDetailScreen({
   const [state, dispatch] = useReducer(reducer, { status: "loading" });
   const [inWishlist, setInWishlist] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
-  const wsRef             = useRef<WebSocket | null>(null);
   const treeAnim          = useRef(new Animated.Value(1)).current;
   const seenMilestonesRef = useRef<Set<string>>(new Set());
 
@@ -499,7 +319,6 @@ export default function CampaignDetailScreen({
     let cancelled = false;
     registerForPushNotifications(apiBaseUrl, subscriberAddress).then((token) => {
       if (cancelled) return;
-      // Token is registered server-side; nothing else to do here.
       void token;
     });
     return () => { cancelled = true; };
@@ -564,85 +383,49 @@ export default function CampaignDetailScreen({
     });
   }, [connectivity, syncEngine]);
 
-  // ── WebSocket real-time updates ────────────────────────────────────────────
+  // ── WebSocket real-time updates (issue #848) ───────────────────────────────
   useEffect(() => {
     if (!wsUrl || state.status !== "ready") return;
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-    let disposed = false;
+    const client = new CampaignRealtimeClient({
+      wsUrl,
+      campaignId,
+      onOpen: () => {
+        dispatch({ type: "WS_CONNECTED" });
+        connectivity.setOnline(true);
+      },
+      onClose: () => {
+        dispatch({ type: "WS_DISCONNECTED" });
+        connectivity.setOnline(false);
+      },
+      onTreePlanted: (treeCount) => {
+        dispatch({ type: "TREE_PLANTED", treeCount });
+        pulsTree();
+      },
+      onNewSponsor: (sponsor) => {
+        dispatch({ type: "NEW_SPONSOR", sponsor });
+      },
+      onVerificationUpdate: (verificationProgress) => {
+        dispatch({ type: "VERIFICATION_UPDATE", verificationProgress });
+      },
+      onCampaignUpdate: (patch) => {
+        dispatch({ type: "CAMPAIGN_UPDATE", patch });
+      },
+      onMilestone: (milestone) => {
+        const key = `${milestone.type}:${milestone.value ?? ""}`;
+        if (seenMilestonesRef.current.has(key)) return;
+        seenMilestonesRef.current.add(key);
+        dispatch({ type: "MILESTONE", milestone });
+        presentMilestoneNotification(milestone);
+      },
+    });
 
-    ws.onopen = () => {
-      if (disposed) return;
-      dispatch({ type: "WS_CONNECTED" });
-      // Socket is live again — flush queued offline wishlist mutations.
-      connectivity.setOnline(true);
-      ws.send(JSON.stringify({ type: "subscribe", campaignId }));
-    };
-
-    ws.onmessage = (event) => {
-      let msg: unknown;
-      try { msg = JSON.parse(event.data as string); }
-      catch { return; }
-      if (!msg || typeof msg !== "object" || !("type" in msg)) return;
-      const message = msg as Partial<WsMessage>;
-
-      switch (message.type) {
-        case "campaign_update":
-          if (message.payload && typeof message.payload === "object") {
-            dispatch({ type: "CAMPAIGN_UPDATE", patch: message.payload });
-          }
-          break;
-        case "tree_planted":
-          if (message.payload && "treeCount" in message.payload && Number.isFinite(message.payload.treeCount)) {
-            dispatch({ type: "TREE_PLANTED", treeCount: message.payload.treeCount });
-            pulsTree();
-          }
-          break;
-        case "new_sponsor":
-          if (message.payload && "id" in message.payload && typeof message.payload.id === "string") {
-            dispatch({ type: "NEW_SPONSOR", sponsor: message.payload as Sponsor });
-          }
-          break;
-        case "milestone": {
-          const milestone = message.payload as CampaignMilestone | undefined;
-          if (!milestone || typeof milestone.type !== "string") break;
-          const key = `${milestone.type}:${milestone.value ?? ""}`;
-          if (seenMilestonesRef.current.has(key)) break;
-          seenMilestonesRef.current.add(key);
-          dispatch({ type: "MILESTONE", milestone });
-          presentMilestoneNotification(milestone);
-          break;
-        }
-        case "ping":
-          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "pong" }));
-          break;
-      }
-    };
-
-    ws.onclose  = () => {
-      if (disposed) return;
-      dispatch({ type: "WS_DISCONNECTED" });
-      connectivity.setOnline(false);
-    };
-    ws.onerror  = () => {
-      if (disposed) return;
-      dispatch({ type: "WS_DISCONNECTED" });
-      connectivity.setOnline(false);
-    };
+    client.connect();
 
     return () => {
-      disposed = true;
-      ws.onopen = null;
-      ws.onmessage = null;
-      ws.onclose = null;
-      ws.onerror = null;
-      ws.close();
-      wsRef.current = null;
+      client.dispose();
     };
-  // Re-connect when campaign moves from loading → ready, or wsUrl changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status, wsUrl, campaignId, connectivity]);
+  }, [state.status, wsUrl, campaignId, connectivity, pulsTree]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 

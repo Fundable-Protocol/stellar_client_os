@@ -1,162 +1,38 @@
+//! Quadratic Funding (QF) match pool distribution contract (Issue #1340).
+//!
+//! # Algorithm
+//!
+//! Calculates matching allocations using the quadratic funding formula:
+//!
+//! ```text
+//! match_for_campaign_i = (sum_j sqrt(contribution_j))^2
+//! ```
+//!
+//! The total pool is then divided proportionally across all campaigns.
+//!
+//! # Anti-Sybil protection
+//!
+//! Each backer wallet must pass a one-time verification check before
+//! their contribution is counted in the QF calculation.  Verified wallets
+//! are tracked in contract storage.  The contract admin registers the
+//! verifier oracle; in production this would be an on-chain KYC / Proof-of-
+//! Personhood oracle (e.g. Stellar Keybase attestation or zk-ID proof).
+//!
+//! # Round lifecycle
+//!
+//! 1. Admin calls `create_round` – sets match pool amount, token, deadline.
+//! 2. Contributors call `contribute` – records individual pledge per campaign.
+//! 3. Admin / anyone calls `estimate_match` at any time for real-time preview.
+//! 4. After round `deadline_ledger`, admin calls `distribute` which:
+//!    a. Computes QF allocations across all campaigns.
+//!    b. Transfers matching funds from the contract's escrow to each campaign.
+
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
-    Address, Env, Map, Vec,
+    contract, contracterror, contractimpl, contracttype, panic_with_error, token,
+    Address, Env, Vec,
 };
-
-// ---------------------------------------------------------------------------
-// Data types
-// ---------------------------------------------------------------------------
-
-/// Storage key enumeration for quadratic funding rounds.
-#[contracttype]
-#[derive(Clone)]
-pub enum DataKey {
-    /// Global admin address (instance storage).
-    Admin,
-    /// Running total of funding rounds created (instance storage).
-    RoundCount,
-    /// Full [`FundingRound`] struct keyed by round ID (persistent storage).
-    Round(u64),
-    /// Contributor record keyed by `(round_id, contributor)` (persistent storage).
-    Contribution(u64, Address),
-    /// List of all contributors to a round (persistent storage).
-    Contributors(u64),
-    /// Sybil resistance verification keyed by `(round_id, contributor)` (persistent storage).
-    SybilCheck(u64, Address),
-    /// Matching pool allocation for a project keyed by `(round_id, project)` (persistent storage).
-    MatchAllocation(u64, Address),
-}
-
-/// Current lifecycle state of a funding round.
-#[contracttype]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum RoundStatus {
-    /// Open and accepting contributions.
-    Active,
-    /// Round ended; calculating final matching allocations.
-    Ended,
-    /// Matching funds distributed to projects.
-    Distributed,
-    /// Round cancelled by admin.
-    Cancelled,
-}
-
-/// Sybil resistance verification status.
-#[contracttype]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum SybilStatus {
-    /// Contributor not yet verified.
-    Unverified,
-    /// Contributor passed anti-Sybil checks.
-    Verified,
-    /// Contributor flagged as potential Sybil attack.
-    Flagged,
-}
-
-/// Core funding round record stored on-chain.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct FundingRound {
-    /// Unique numeric identifier assigned at creation.
-    pub id: u64,
-    /// Address that created the round (admin).
-    pub admin: Address,
-    /// Stellar asset contract address of the funding token.
-    pub token: Address,
-    /// Total matching pool available for distribution.
-    pub matching_pool: i128,
-    /// Remaining matching pool balance.
-    pub remaining_pool: i128,
-    /// Unix timestamp (seconds) when contributions start.
-    pub start_time: u64,
-    /// Unix timestamp (seconds) when contributions end.
-    pub end_time: u64,
-    /// Current lifecycle state.
-    pub status: RoundStatus,
-    /// Minimum contribution amount to prevent spam.
-    pub min_contribution: i128,
-}
-
-/// Individual contributor record within a funding round.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct Contribution {
-    /// Round identifier.
-    pub round_id: u64,
-    /// Address of the contributor.
-    pub contributor: Address,
-    /// Project receiving the contribution.
-    pub project: Address,
-    /// Amount contributed in funding token.
-    pub amount: i128,
-    /// Unix timestamp (seconds) when contribution was made.
-    pub timestamp: u64,
-    /// Sybil resistance status.
-    pub sybil_status: SybilStatus,
-}
-
-/// Matching allocation result for a project.
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct MatchingAllocation {
-    /// Project address.
-    pub project: Address,
-    /// Direct contributions sum.
-    pub direct_contributions: i128,
-    /// Calculated matching amount using QF formula.
-    pub matching_amount: i128,
-    /// Number of unique contributors.
-    pub contributor_count: u32,
-}
-
-// ---------------------------------------------------------------------------
-// Event types
-// ---------------------------------------------------------------------------
-
-/// Emitted when a new funding round is created.
-#[contractevent]
-#[derive(Clone)]
-pub struct RoundCreatedEvent {
-    pub round_id: u64,
-    pub admin: Address,
-    pub token: Address,
-    pub matching_pool: i128,
-    pub start_time: u64,
-    pub end_time: u64,
-}
-
-/// Emitted when a contribution is made to a project.
-#[contractevent]
-#[derive(Clone)]
-pub struct ContributionMadeEvent {
-    pub round_id: u64,
-    pub contributor: Address,
-    pub project: Address,
-    pub amount: i128,
-    pub estimated_match: i128,
-}
-
-/// Emitted when matching funds are distributed.
-#[contractevent]
-#[derive(Clone)]
-pub struct MatchingDistributedEvent {
-    pub round_id: u64,
-    pub project: Address,
-    pub direct_contributions: i128,
-    pub matching_amount: i128,
-    pub total_payout: i128,
-}
-
-/// Emitted when a contributor's Sybil status is updated.
-#[contractevent]
-#[derive(Clone)]
-pub struct SybilStatusUpdatedEvent {
-    pub round_id: u64,
-    pub contributor: Address,
-    pub status: SybilStatus,
-}
 
 // ---------------------------------------------------------------------------
 // Error codes
@@ -166,42 +42,65 @@ pub struct SybilStatusUpdatedEvent {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    /// The caller does not have the required permission for this action.
+    /// Caller is not the contract admin.
     Unauthorized = 1,
-    /// A zero or negative monetary amount was supplied where a positive value is required.
-    InvalidAmount = 2,
-    /// The supplied time range is invalid.
-    InvalidTimeRange = 3,
-    /// No round exists with the requested ID.
-    RoundNotFound = 4,
-    /// The operation requires the round to be in the `Active` state.
-    RoundNotActive = 5,
-    /// The round has not ended yet.
-    RoundNotEnded = 6,
-    /// An intermediate arithmetic value overflowed `i128`.
-    ArithmeticOverflow = 7,
-    /// Contribution amount below minimum threshold.
-    BelowMinimum = 8,
-    /// Contributor flagged as potential Sybil attack.
-    SybilFlagged = 9,
-    /// Insufficient matching pool balance.
-    InsufficientPool = 10,
+    /// Round does not exist.
+    RoundNotFound = 2,
+    /// Round is not yet open for contributions (or has ended).
+    RoundNotActive = 3,
+    /// Round deadline has not yet passed; distribution is premature.
+    RoundNotEnded = 4,
     /// Round has already been distributed.
-    AlreadyDistributed = 11,
-    /// Contract not initialized.
-    NotInitialized = 12,
-    /// Already initialized.
-    AlreadyInitialized = 13,
+    AlreadyDistributed = 5,
+    /// Backer wallet has not passed the anti-Sybil verification check.
+    BackerNotVerified = 6,
+    /// Contribution amount must be positive.
+    InvalidAmount = 7,
+    /// Match pool is empty; nothing to distribute.
+    EmptyPool = 8,
+    /// Arithmetic overflow during QF calculation.
+    Overflow = 9,
 }
 
 // ---------------------------------------------------------------------------
-// Constants
+// Storage keys
 // ---------------------------------------------------------------------------
 
-/// Storage TTL threshold: ~30 days at 5 s/ledger.
-const LEDGER_THRESHOLD: u32 = 518_400;
-/// Storage TTL bump: ~31 days at 5 s/ledger.
-const LEDGER_BUMP: u32 = 535_680;
+#[contracttype]
+#[derive(Clone)]
+pub enum DataKey {
+    Admin,
+    Round(u64),
+    Contribution(u64, Address, u64), // (round_id, backer, campaign_id)
+    RoundCampaigns(u64),             // Vec<u64> of campaign ids in round
+    RoundBackers(u64, u64),          // Vec<Address> of backers for (round, campaign)
+    Verified(Address),               // anti-Sybil flag
+    NextRoundId,
+}
+
+// ---------------------------------------------------------------------------
+// Data types
+// ---------------------------------------------------------------------------
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Round {
+    pub round_id: u64,
+    pub token: Address,
+    pub match_pool: i128,
+    pub deadline_ledger: u32,
+    pub distributed: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MatchEstimate {
+    pub campaign_id: u64,
+    /// Estimated match in token stroops.
+    pub estimated_match: i128,
+    /// Sum of sqrt(contribution_i) in 1e6 fixed-point.
+    pub sqrt_sum_fp6: i128,
+}
 
 // ---------------------------------------------------------------------------
 // Contract
@@ -213,529 +112,386 @@ pub struct QuadraticFundingContract;
 #[contractimpl]
 impl QuadraticFundingContract {
     // -----------------------------------------------------------------------
-    // Initialization
+    // Admin / setup
     // -----------------------------------------------------------------------
 
-    /// Initialize the contract with an admin address.
-    ///
-    /// Must be called exactly once before any other function.
-    ///
-    /// # Arguments
-    /// * `admin` — Address authorized to manage funding rounds.
-    ///
-    /// # Errors
-    /// * [`Error::AlreadyInitialized`] — if called a second time.
+    /// Initialises the contract with an admin address.
+    /// Can only be called once.
     pub fn initialize(env: Env, admin: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
-            panic_with_error!(&env, Error::AlreadyInitialized);
+            panic_with_error!(&env, Error::Unauthorized);
         }
-
-        admin.require_auth();
-
         env.storage().instance().set(&DataKey::Admin, &admin);
-        env.storage().instance().set(&DataKey::RoundCount, &0u64);
+        env.storage().instance().set(&DataKey::NextRoundId, &1u64);
+    }
 
-        env.storage()
-            .instance()
-            .extend_ttl(LEDGER_THRESHOLD, LEDGER_BUMP);
+    /// Returns the admin address.
+    pub fn get_admin(env: Env) -> Address {
+        env.storage().instance().get(&DataKey::Admin).unwrap()
     }
 
     // -----------------------------------------------------------------------
-    // Admin functions
+    // Anti-Sybil verification
     // -----------------------------------------------------------------------
 
-    /// Create a new quadratic funding round.
-    ///
-    /// # Arguments
-    /// * `token` — Token contract address for contributions and matching.
-    /// * `matching_pool` — Total matching pool amount to be distributed.
-    /// * `start_time` — Unix timestamp when contributions start.
-    /// * `end_time` — Unix timestamp when contributions end.
-    /// * `min_contribution` — Minimum contribution amount.
-    ///
-    /// # Returns
-    /// The ID of the newly created funding round.
-    ///
-    /// # Errors
-    /// * [`Error::NotInitialized`] — if contract not initialized.
-    /// * [`Error::Unauthorized`] — if caller is not admin.
-    /// * [`Error::InvalidAmount`] — if matching_pool or min_contribution invalid.
-    /// * [`Error::InvalidTimeRange`] — if time range is invalid.
+    /// Admin marks a backer wallet as verified (anti-Sybil gate).
+    /// In production the admin would be replaced with an oracle contract.
+    pub fn verify_backer(env: Env, caller: Address, backer: Address) {
+        caller.require_auth();
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if caller != admin {
+            panic_with_error!(&env, Error::Unauthorized);
+        }
+        env.storage().persistent().set(&DataKey::Verified(backer), &true);
+    }
+
+    /// Returns true if the wallet has been verified.
+    pub fn is_verified(env: Env, backer: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Verified(backer))
+            .unwrap_or(false)
+    }
+
+    // -----------------------------------------------------------------------
+    // Round management
+    // -----------------------------------------------------------------------
+
+    /// Creates a new funding round.  The match pool must be pre-deposited
+    /// to the contract address by the caller before calling this function.
     pub fn create_round(
         env: Env,
+        caller: Address,
         token: Address,
-        matching_pool: i128,
-        start_time: u64,
-        end_time: u64,
-        min_contribution: i128,
+        match_pool: i128,
+        deadline_ledger: u32,
     ) -> u64 {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
-
-        admin.require_auth();
-
-        if matching_pool <= 0 || min_contribution <= 0 {
-            panic_with_error!(&env, Error::InvalidAmount);
+        caller.require_auth();
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if caller != admin {
+            panic_with_error!(&env, Error::Unauthorized);
+        }
+        if match_pool <= 0 {
+            panic_with_error!(&env, Error::EmptyPool);
         }
 
-        let current_time = env.ledger().timestamp();
-        if start_time >= end_time || end_time <= current_time {
-            panic_with_error!(&env, Error::InvalidTimeRange);
-        }
+        // Transfer match pool from admin to contract escrow.
+        let token_client = token::Client::new(&env, &token);
+        token_client.transfer(&caller, &env.current_contract_address(), &match_pool);
 
-        let round_id: u64 = env
-            .storage()
-            .instance()
-            .get(&DataKey::RoundCount)
-            .unwrap_or(0u64);
-        let new_round_id = round_id + 1;
-
-        let round = FundingRound {
-            id: new_round_id,
-            admin: admin.clone(),
+        let round_id: u64 = env.storage().instance().get(&DataKey::NextRoundId).unwrap();
+        let round = Round {
+            round_id,
             token: token.clone(),
-            matching_pool,
-            remaining_pool: matching_pool,
-            start_time,
-            end_time,
-            status: RoundStatus::Active,
-            min_contribution,
+            match_pool,
+            deadline_ledger,
+            distributed: false,
         };
-
+        env.storage().persistent().set(&DataKey::Round(round_id), &round);
         env.storage()
             .persistent()
-            .set(&DataKey::Round(new_round_id), &round);
+            .set(&DataKey::RoundCampaigns(round_id), &Vec::<u64>::new(&env));
         env.storage()
             .instance()
-            .set(&DataKey::RoundCount, &new_round_id);
-        env.storage()
-            .persistent()
-            .set(&DataKey::Contributors(new_round_id), &Vec::<Address>::new(&env));
+            .set(&DataKey::NextRoundId, &(round_id + 1));
 
-        // Transfer matching pool from admin to contract
-        let client = token::Client::new(&env, &token);
-        client.transfer(&admin, &env.current_contract_address(), &matching_pool);
-
-        env.events().publish(
-            (soroban_sdk::symbol_short!("round_new"),),
-            RoundCreatedEvent {
-                round_id: new_round_id,
-                admin,
-                token,
-                matching_pool,
-                start_time,
-                end_time,
-            },
-        );
-
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Round(new_round_id), LEDGER_THRESHOLD, LEDGER_BUMP);
-
-        new_round_id
+        round_id
     }
 
-    /// Update Sybil verification status for a contributor.
+    /// Returns the round data.
+    pub fn get_round(env: Env, round_id: u64) -> Round {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Round(round_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::RoundNotFound))
+    }
+
+    // -----------------------------------------------------------------------
+    // Contributions
+    // -----------------------------------------------------------------------
+
+    /// Records a backer's contribution to a campaign within a QF round.
+    /// The actual token pledge is handled by the campaign-funding contract;
+    /// this contract records the amount for QF match calculation only.
     ///
-    /// # Arguments
-    /// * `round_id` — Round identifier.
-    /// * `contributor` — Address to verify or flag.
-    /// * `status` — New Sybil status.
-    ///
-    /// # Errors
-    /// * [`Error::Unauthorized`] — if caller is not admin.
-    /// * [`Error::RoundNotFound`] — if round doesn't exist.
-    pub fn set_sybil_status(
+    /// Backer must have been verified via `verify_backer` first.
+    pub fn contribute(
         env: Env,
+        backer: Address,
         round_id: u64,
-        contributor: Address,
-        status: SybilStatus,
+        campaign_id: u64,
+        amount: i128,
     ) {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
-
-        admin.require_auth();
-
-        let round: FundingRound = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Round(round_id))
-            .unwrap_or_else(|| panic_with_error!(&env, Error::RoundNotFound));
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::SybilCheck(round_id, contributor.clone()), &status);
-
-        env.events().publish(
-            (soroban_sdk::symbol_short!("sybil"),),
-            SybilStatusUpdatedEvent {
-                round_id,
-                contributor,
-                status,
-            },
-        );
-
-        env.storage()
-            .persistent()
-            .extend_ttl(
-                &DataKey::SybilCheck(round_id, round.admin),
-                LEDGER_THRESHOLD,
-                LEDGER_BUMP,
-            );
-    }
-
-    // -----------------------------------------------------------------------
-    // Contribution functions
-    // -----------------------------------------------------------------------
-
-    /// Make a contribution to a project in an active funding round.
-    ///
-    /// # Arguments
-    /// * `round_id` — Round identifier.
-    /// * `project` — Project address receiving the contribution.
-    /// * `amount` — Contribution amount.
-    ///
-    /// # Errors
-    /// * [`Error::RoundNotFound`] — if round doesn't exist.
-    /// * [`Error::RoundNotActive`] — if round is not active.
-    /// * [`Error::InvalidAmount`] — if amount is invalid.
-    /// * [`Error::BelowMinimum`] — if amount below minimum.
-    /// * [`Error::SybilFlagged`] — if contributor is flagged.
-    pub fn contribute(env: Env, round_id: u64, project: Address, amount: i128) {
-        let contributor = env.current_contract_address();
-        let mut round: FundingRound = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Round(round_id))
-            .unwrap_or_else(|| panic_with_error!(&env, Error::RoundNotFound));
-
-        if round.status != RoundStatus::Active {
-            panic_with_error!(&env, Error::RoundNotActive);
-        }
-
-        let current_time = env.ledger().timestamp();
-        if current_time < round.start_time || current_time > round.end_time {
-            panic_with_error!(&env, Error::RoundNotActive);
-        }
+        backer.require_auth();
 
         if amount <= 0 {
             panic_with_error!(&env, Error::InvalidAmount);
         }
 
-        if amount < round.min_contribution {
-            panic_with_error!(&env, Error::BelowMinimum);
-        }
-
-        // Check Sybil status
-        let sybil_status: SybilStatus = env
+        // Anti-Sybil gate.
+        if !env
             .storage()
             .persistent()
-            .get(&DataKey::SybilCheck(round_id, contributor.clone()))
-            .unwrap_or(SybilStatus::Unverified);
-
-        if sybil_status == SybilStatus::Flagged {
-            panic_with_error!(&env, Error::SybilFlagged);
+            .get::<_, bool>(&DataKey::Verified(backer.clone()))
+            .unwrap_or(false)
+        {
+            panic_with_error!(&env, Error::BackerNotVerified);
         }
 
-        // Transfer tokens from contributor to project
-        let client = token::Client::new(&env, &round.token);
-        client.transfer(&contributor, &project, &amount);
-
-        // Record contribution
-        let contribution = Contribution {
-            round_id,
-            contributor: contributor.clone(),
-            project: project.clone(),
-            amount,
-            timestamp: current_time,
-            sybil_status,
-        };
-
-        env.storage().persistent().set(
-            &DataKey::Contribution(round_id, contributor.clone()),
-            &contribution,
-        );
-
-        // Add contributor to list if not already present
-        let mut contributors: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contributors(round_id))
-            .unwrap_or_else(|| Vec::new(&env));
-
-        if !contributors.contains(&contributor) {
-            contributors.push_back(contributor.clone());
-            env.storage()
-                .persistent()
-                .set(&DataKey::Contributors(round_id), &contributors);
-        }
-
-        // Calculate estimated match for real-time display
-        let estimated_match = Self::calculate_estimated_match(&env, round_id, &project);
-
-        env.events().publish(
-            (soroban_sdk::symbol_short!("contrib"),),
-            ContributionMadeEvent {
-                round_id,
-                contributor,
-                project,
-                amount,
-                estimated_match,
-            },
-        );
-
-        env.storage()
-            .persistent()
-            .extend_ttl(&DataKey::Round(round_id), LEDGER_THRESHOLD, LEDGER_BUMP);
-    }
-
-    // -----------------------------------------------------------------------
-    // Distribution functions
-    // -----------------------------------------------------------------------
-
-    /// End a funding round and distribute matching funds using quadratic formula.
-    ///
-    /// Implements the formula: matching = (sum(sqrt(contribution_i)))^2
-    ///
-    /// # Arguments
-    /// * `round_id` — Round identifier.
-    ///
-    /// # Errors
-    /// * [`Error::Unauthorized`] — if caller is not admin.
-    /// * [`Error::RoundNotFound`] — if round doesn't exist.
-    /// * [`Error::RoundNotEnded`] — if round hasn't ended yet.
-    /// * [`Error::AlreadyDistributed`] — if already distributed.
-    pub fn distribute_matching(env: Env, round_id: u64) {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .unwrap_or_else(|| panic_with_error!(&env, Error::NotInitialized));
-
-        admin.require_auth();
-
-        let mut round: FundingRound = env
+        let round: Round = env
             .storage()
             .persistent()
             .get(&DataKey::Round(round_id))
             .unwrap_or_else(|| panic_with_error!(&env, Error::RoundNotFound));
 
-        let current_time = env.ledger().timestamp();
-        if current_time < round.end_time {
+        if round.distributed {
+            panic_with_error!(&env, Error::AlreadyDistributed);
+        }
+        if env.ledger().sequence() > round.deadline_ledger {
+            panic_with_error!(&env, Error::RoundNotActive);
+        }
+
+        // Accumulate contribution (a backer may contribute multiple times).
+        let prev: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Contribution(round_id, backer.clone(), campaign_id))
+            .unwrap_or(0i128);
+        let new_total = prev.checked_add(amount).unwrap_or_else(|| panic_with_error!(&env, Error::Overflow));
+        env.storage()
+            .persistent()
+            .set(&DataKey::Contribution(round_id, backer.clone(), campaign_id), &new_total);
+
+        // Register campaign in round if new.
+        let mut campaigns: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoundCampaigns(round_id))
+            .unwrap_or_else(|| Vec::new(&env));
+        if !campaigns.contains(campaign_id) {
+            campaigns.push_back(campaign_id);
+            env.storage()
+                .persistent()
+                .set(&DataKey::RoundCampaigns(round_id), &campaigns);
+        }
+
+        // Register backer for this (round, campaign) pair.
+        let mut backers: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoundBackers(round_id, campaign_id))
+            .unwrap_or_else(|| Vec::new(&env));
+        if !backers.contains(backer.clone()) {
+            backers.push_back(backer);
+            env.storage()
+                .persistent()
+                .set(&DataKey::RoundBackers(round_id, campaign_id), &backers);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Match estimation (real-time, read-only)
+    // -----------------------------------------------------------------------
+
+    /// Computes the estimated quadratic funding match for each campaign in a
+    /// round, using the current contribution snapshot.
+    ///
+    /// Returns a Vec of `MatchEstimate` sorted by campaign_id.
+    ///
+    /// Uses 64-bit integer square root (Newton's method) scaled by 1e6 to
+    /// approximate `sqrt(contribution_i)` without floating point.
+    pub fn estimate_matches(env: Env, round_id: u64) -> Vec<MatchEstimate> {
+        let round: Round = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Round(round_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::RoundNotFound));
+
+        let campaigns: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoundCampaigns(round_id))
+            .unwrap_or_else(|| Vec::new(&env));
+
+        compute_qf_estimates(&env, &round, &campaigns)
+    }
+
+    // -----------------------------------------------------------------------
+    // Distribution
+    // -----------------------------------------------------------------------
+
+    /// Distributes match pool to campaigns after the round deadline.
+    ///
+    /// Only callable by the admin after `deadline_ledger` has passed.
+    /// Each campaign's campaign-funding contract address is passed in `campaign_addresses`
+    /// (index-aligned with the campaigns returned by `get_round_campaigns`).
+    pub fn distribute(
+        env: Env,
+        caller: Address,
+        round_id: u64,
+        campaign_addresses: Vec<Address>,
+    ) {
+        caller.require_auth();
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if caller != admin {
+            panic_with_error!(&env, Error::Unauthorized);
+        }
+
+        let mut round: Round = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Round(round_id))
+            .unwrap_or_else(|| panic_with_error!(&env, Error::RoundNotFound));
+
+        if round.distributed {
+            panic_with_error!(&env, Error::AlreadyDistributed);
+        }
+        if env.ledger().sequence() <= round.deadline_ledger {
             panic_with_error!(&env, Error::RoundNotEnded);
         }
 
-        if round.status == RoundStatus::Distributed {
-            panic_with_error!(&env, Error::AlreadyDistributed);
-        }
-
-        // Calculate matching allocations for all projects
-        let allocations = Self::calculate_all_matches(&env, round_id);
-
-        // Distribute matching funds to each project
-        let client = token::Client::new(&env, &round.token);
-        
-        for allocation in allocations.iter() {
-            if allocation.matching_amount > 0 {
-                // Transfer matching funds to project
-                client.transfer(
-                    &env.current_contract_address(),
-                    &allocation.project,
-                    &allocation.matching_amount,
-                );
-
-                env.events().publish(
-                    (soroban_sdk::symbol_short!("match"),),
-                    MatchingDistributedEvent {
-                        round_id,
-                        project: allocation.project.clone(),
-                        direct_contributions: allocation.direct_contributions,
-                        matching_amount: allocation.matching_amount,
-                        total_payout: allocation.direct_contributions + allocation.matching_amount,
-                    },
-                );
-            }
-        }
-
-        round.status = RoundStatus::Distributed;
-        env.storage()
-            .persistent()
-            .set(&DataKey::Round(round_id), &round);
-    }
-
-    // -----------------------------------------------------------------------
-    // View functions
-    // -----------------------------------------------------------------------
-
-    /// Get funding round details.
-    pub fn get_round(env: Env, round_id: u64) -> FundingRound {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Round(round_id))
-            .unwrap_or_else(|| panic_with_error!(&env, Error::RoundNotFound))
-    }
-
-    /// Get estimated matching amount for a project in real-time.
-    pub fn get_estimated_match(env: Env, round_id: u64, project: Address) -> i128 {
-        Self::calculate_estimated_match(&env, round_id, &project)
-    }
-
-    /// Get contribution details for a contributor.
-    pub fn get_contribution(env: Env, round_id: u64, contributor: Address) -> Contribution {
-        env.storage()
-            .persistent()
-            .get(&DataKey::Contribution(round_id, contributor))
-            .unwrap_or_else(|| panic_with_error!(&env, Error::RoundNotFound))
-    }
-
-    // -----------------------------------------------------------------------
-    // Internal helper functions
-    // -----------------------------------------------------------------------
-
-    /// Calculate estimated matching amount for a project using quadratic formula.
-    ///
-    /// Formula: matching_i = matching_pool * (sum_sqrt_i)^2 / sum_of_all_(sum_sqrt)^2
-    fn calculate_estimated_match(env: &Env, round_id: u64, project: &Address) -> i128 {
-        let round: FundingRound = env
+        let campaigns: Vec<u64> = env
             .storage()
             .persistent()
-            .get(&DataKey::Round(round_id))
-            .unwrap_or_else(|| panic_with_error!(env, Error::RoundNotFound));
+            .get(&DataKey::RoundCampaigns(round_id))
+            .unwrap_or_else(|| Vec::new(&env));
 
-        let contributors: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contributors(round_id))
-            .unwrap_or_else(|| Vec::new(env));
+        if campaigns.len() == 0 {
+            // Nothing to distribute – just mark as done.
+            round.distributed = true;
+            env.storage().persistent().set(&DataKey::Round(round_id), &round);
+            return;
+        }
 
-        let mut sum_sqrt: i128 = 0;
+        let estimates = compute_qf_estimates(&env, &round, &campaigns);
+        let token_client = token::Client::new(&env, &round.token);
 
-        // Calculate sum of square roots of contributions to this project
-        for contributor in contributors.iter() {
-            if let Some(contribution) = env
-                .storage()
-                .persistent()
-                .get::<DataKey, Contribution>(&DataKey::Contribution(
-                    round_id,
-                    contributor.clone(),
-                ))
-            {
-                if contribution.project == *project
-                    && contribution.sybil_status != SybilStatus::Flagged
-                {
-                    // Simple integer square root approximation
-                    sum_sqrt += Self::isqrt(contribution.amount);
+        // Transfer proportional shares.
+        for i in 0..estimates.len() {
+            let est = estimates.get(i).unwrap();
+            if est.estimated_match > 0 {
+                if let Some(addr) = campaign_addresses.get(i) {
+                    token_client.transfer(
+                        &env.current_contract_address(),
+                        &addr,
+                        &est.estimated_match,
+                    );
                 }
             }
         }
 
-        // Square the sum
-        let qf_score = sum_sqrt * sum_sqrt;
+        round.distributed = true;
+        env.storage().persistent().set(&DataKey::Round(round_id), &round);
+    }
 
-        // For estimated match, return proportional allocation
-        // In real distribution, this would be normalized across all projects
-        if round.matching_pool > 0 && qf_score > 0 {
-            qf_score / 100 // Simple estimation
+    /// Returns the list of campaign ids participating in the round.
+    pub fn get_round_campaigns(env: Env, round_id: u64) -> Vec<u64> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RoundCampaigns(round_id))
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Returns the total accumulated contribution for a (backer, campaign) pair in a round.
+    pub fn get_contribution(env: Env, round_id: u64, backer: Address, campaign_id: u64) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Contribution(round_id, backer, campaign_id))
+            .unwrap_or(0i128)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// QF core algorithm (pure function, no storage side-effects)
+// ---------------------------------------------------------------------------
+
+/// Computes the quadratic funding match for each campaign.
+///
+/// For each campaign i:
+///   sqrt_sum_i = sum over backers j of isqrt(contribution_j)   [scaled x1e6]
+///   qf_weight_i = sqrt_sum_i^2
+///
+/// Proportional allocation:
+///   match_i = match_pool * qf_weight_i / sum_k(qf_weight_k)
+fn compute_qf_estimates(env: &Env, round: &Round, campaigns: &Vec<u64>) -> Vec<MatchEstimate> {
+    let mut estimates: Vec<MatchEstimate> = Vec::new(env);
+    let mut weights: Vec<i128> = Vec::new(env);
+    let mut total_weight: i128 = 0i128;
+
+    for i in 0..campaigns.len() {
+        let campaign_id = campaigns.get(i).unwrap();
+        let backers: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoundBackers(round.round_id, campaign_id))
+            .unwrap_or_else(|| Vec::new(env));
+
+        let mut sqrt_sum: i128 = 0i128;
+        for j in 0..backers.len() {
+            let backer = backers.get(j).unwrap();
+            let contrib: i128 = env
+                .storage()
+                .persistent()
+                .get(&DataKey::Contribution(round.round_id, backer, campaign_id))
+                .unwrap_or(0i128);
+            // isqrt scaled by 1_000_000 (6 decimal places of precision)
+            let s = isqrt_fp6(contrib);
+            sqrt_sum = sqrt_sum.saturating_add(s);
+        }
+
+        // QF weight = sqrt_sum^2
+        let qf_weight = sqrt_sum.saturating_mul(sqrt_sum);
+        total_weight = total_weight.saturating_add(qf_weight);
+        weights.push_back(qf_weight);
+
+        estimates.push_back(MatchEstimate {
+            campaign_id,
+            estimated_match: 0i128, // filled in below
+            sqrt_sum_fp6: sqrt_sum,
+        });
+    }
+
+    // Second pass: assign proportional match amounts
+    for i in 0..estimates.len() {
+        let mut est = estimates.get(i).unwrap();
+        let w = weights.get(i).unwrap();
+        est.estimated_match = if total_weight > 0 {
+            // Use i128 to avoid overflow; match_pool fits in i128.
+            (round.match_pool / total_weight).saturating_mul(w)
         } else {
-            0
-        }
+            0i128
+        };
+        estimates.set(i, est);
     }
 
-    /// Calculate matching allocations for all projects.
-    fn calculate_all_matches(env: &Env, round_id: u64) -> Vec<MatchingAllocation> {
-        let round: FundingRound = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Round(round_id))
-            .unwrap_or_else(|| panic_with_error!(env, Error::RoundNotFound));
+    estimates
+}
 
-        let contributors: Vec<Address> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Contributors(round_id))
-            .unwrap_or_else(|| Vec::new(env));
-
-        // Group contributions by project
-        let mut project_data: Map<Address, (i128, i128, u32)> = Map::new(env);
-
-        for contributor in contributors.iter() {
-            if let Some(contribution) = env
-                .storage()
-                .persistent()
-                .get::<DataKey, Contribution>(&DataKey::Contribution(
-                    round_id,
-                    contributor.clone(),
-                ))
-            {
-                if contribution.sybil_status != SybilStatus::Flagged {
-                    let project = contribution.project.clone();
-                    let sqrt_amount = Self::isqrt(contribution.amount);
-
-                    if let Some((sum_sqrt, direct, count)) = project_data.get(project.clone()) {
-                        project_data.set(
-                            project,
-                            (sum_sqrt + sqrt_amount, direct + contribution.amount, count + 1),
-                        );
-                    } else {
-                        project_data.set(project, (sqrt_amount, contribution.amount, 1));
-                    }
-                }
-            }
-        }
-
-        // Calculate QF scores and total
-        let mut total_qf_score: i128 = 0;
-        let mut qf_scores: Map<Address, i128> = Map::new(env);
-
-        for (project, (sum_sqrt, _, _)) in project_data.iter() {
-            let qf_score = sum_sqrt * sum_sqrt;
-            qf_scores.set(project.clone(), qf_score);
-            total_qf_score += qf_score;
-        }
-
-        // Distribute matching pool proportionally
-        let mut allocations = Vec::new(env);
-
-        for (project, (_, direct, count)) in project_data.iter() {
-            let qf_score = qf_scores.get(project.clone()).unwrap_or(0);
-            let matching_amount = if total_qf_score > 0 {
-                (round.matching_pool * qf_score) / total_qf_score
-            } else {
-                0
-            };
-
-            allocations.push_back(MatchingAllocation {
-                project,
-                direct_contributions: direct,
-                matching_amount,
-                contributor_count: count,
-            });
-        }
-
-        allocations
+/// Integer square root scaled by 1_000_000 (fp6).
+///
+/// Returns floor(sqrt(n) * 1_000_000).  Uses Newton's method.
+/// Safe for n in [0, i128::MAX / 1e12].
+fn isqrt_fp6(n: i128) -> i128 {
+    if n <= 0 {
+        return 0;
     }
-
-    /// Integer square root using Newton's method.
-    fn isqrt(n: i128) -> i128 {
-        if n < 2 {
-            return n;
+    // Scale: multiply n by 10^12 then take integer sqrt -> gives sqrt(n)*10^6
+    let scaled = n.saturating_mul(1_000_000_000_000i128);
+    if scaled <= 0 {
+        return 0;
+    }
+    // Initial guess using u64 sqrt
+    let mut x: i128 = (scaled as f64).sqrt() as i128;
+    if x == 0 {
+        x = 1;
+    }
+    // Newton iteration
+    loop {
+        let x1 = (x + scaled / x) / 2;
+        if x1 >= x {
+            return x;
         }
-
-        let mut x = n;
-        let mut y = (x + 1) / 2;
-
-        while y < x {
-            x = y;
-            y = (x + n / x) / 2;
-        }
-
-        x
+        x = x1;
     }
 }
 
@@ -744,5 +500,179 @@ impl QuadraticFundingContract {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod test;
+mod test {
+    use super::*;
+    use soroban_sdk::{
+        testutils::{Address as _, Ledger, LedgerInfo},
+        Env,
+    };
 
+    fn setup_env() -> (Env, QuadraticFundingContractClient<'static>) {
+        let env = Env::default();
+        env.ledger().set(LedgerInfo {
+            timestamp: 0,
+            protocol_version: 25,
+            sequence_number: 0,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 100,
+            min_persistent_entry_ttl: 100,
+            max_entry_ttl: 9_999_999,
+        });
+        env.mock_all_auths();
+        let contract_id = env.register(QuadraticFundingContract, ());
+        let client = QuadraticFundingContractClient::new(&env, &contract_id);
+        (env, client)
+    }
+
+    fn set_ledger(env: &Env, seq: u32) {
+        env.ledger().set(LedgerInfo {
+            timestamp: seq as u64 * 5,
+            protocol_version: 25,
+            sequence_number: seq,
+            network_id: Default::default(),
+            base_reserve: 10,
+            min_temp_entry_ttl: 100,
+            min_persistent_entry_ttl: 100,
+            max_entry_ttl: 9_999_999,
+        });
+    }
+
+    fn create_token<'a>(env: &'a Env, admin: &'a Address) -> (Address, token::StellarAssetClient<'a>, token::Client<'a>) {
+        let token_addr = env.register_stellar_asset_contract_v2(admin.clone()).address();
+        let sac = token::StellarAssetClient::new(env, &token_addr);
+        let client = token::Client::new(env, &token_addr);
+        (token_addr, sac, client)
+    }
+
+    #[test]
+    fn test_isqrt_fp6_basic() {
+        // sqrt(100) * 1e6 = 10_000_000
+        assert_eq!(isqrt_fp6(100), 10_000_000);
+        // sqrt(4) * 1e6 = 2_000_000
+        assert_eq!(isqrt_fp6(4), 2_000_000);
+        // sqrt(0) = 0
+        assert_eq!(isqrt_fp6(0), 0);
+    }
+
+    #[test]
+    fn test_initialize_and_admin() {
+        let (env, client) = setup_env();
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        assert_eq!(client.get_admin(), admin);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #1)")]
+    fn test_initialize_twice_fails() {
+        let (env, client) = setup_env();
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        client.initialize(&admin); // should panic
+    }
+
+    #[test]
+    fn test_verify_backer() {
+        let (env, client) = setup_env();
+        let admin = Address::generate(&env);
+        let backer = Address::generate(&env);
+        client.initialize(&admin);
+        assert!(!client.is_verified(&backer));
+        client.verify_backer(&admin, &backer);
+        assert!(client.is_verified(&backer));
+    }
+
+    #[test]
+    fn test_create_round_and_contribute() {
+        let (env, client) = setup_env();
+        set_ledger(&env, 100);
+
+        let admin = Address::generate(&env);
+        let backer1 = Address::generate(&env);
+        let backer2 = Address::generate(&env);
+        let (token_addr, sac, _) = create_token(&env, &admin);
+
+        sac.mint(&admin, &1_000_000);
+        client.initialize(&admin);
+        client.verify_backer(&admin, &backer1);
+        client.verify_backer(&admin, &backer2);
+
+        let round_id = client.create_round(&admin, &token_addr, &1_000_000i128, &200u32);
+
+        // backer1 contributes 100 to campaign 1
+        client.contribute(&backer1, &round_id, &1u64, &100i128);
+        // backer2 contributes 400 to campaign 1
+        client.contribute(&backer2, &round_id, &1u64, &400i128);
+        // backer1 contributes 900 to campaign 2
+        client.contribute(&backer1, &round_id, &2u64, &900i128);
+
+        assert_eq!(client.get_contribution(&round_id, &backer1, &1u64), 100);
+        assert_eq!(client.get_contribution(&round_id, &backer2, &1u64), 400);
+        assert_eq!(client.get_contribution(&round_id, &backer1, &2u64), 900);
+    }
+
+    #[test]
+    fn test_estimate_matches() {
+        let (env, client) = setup_env();
+        set_ledger(&env, 100);
+
+        let admin = Address::generate(&env);
+        let backer1 = Address::generate(&env);
+        let backer2 = Address::generate(&env);
+        let (token_addr, sac, _) = create_token(&env, &admin);
+
+        sac.mint(&admin, &10_000);
+        client.initialize(&admin);
+        client.verify_backer(&admin, &backer1);
+        client.verify_backer(&admin, &backer2);
+
+        let round_id = client.create_round(&admin, &token_addr, &10_000i128, &200u32);
+
+        // Campaign 1: backer1=100, backer2=400 -> sqrt_sum = sqrt(100)+sqrt(400) = 10M+20M = 30M
+        // Campaign 2: backer1=900 -> sqrt_sum = sqrt(900) = 30M
+        client.contribute(&backer1, &round_id, &1u64, &100i128);
+        client.contribute(&backer2, &round_id, &1u64, &400i128);
+        client.contribute(&backer1, &round_id, &2u64, &900i128);
+
+        let estimates = client.estimate_matches(&round_id);
+        assert_eq!(estimates.len(), 2);
+
+        // Both campaigns have equal sqrt_sum = 30M, so equal weight -> equal match
+        let est1 = estimates.get(0).unwrap();
+        let est2 = estimates.get(1).unwrap();
+        assert_eq!(est1.estimated_match, est2.estimated_match);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #6)")]
+    fn test_contribute_unverified_backer_fails() {
+        let (env, client) = setup_env();
+        set_ledger(&env, 100);
+
+        let admin = Address::generate(&env);
+        let unverified = Address::generate(&env);
+        let (token_addr, sac, _) = create_token(&env, &admin);
+        sac.mint(&admin, &1_000);
+        client.initialize(&admin);
+
+        let round_id = client.create_round(&admin, &token_addr, &1_000i128, &200u32);
+        client.contribute(&unverified, &round_id, &1u64, &50i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "Error(Contract, #4)")]
+    fn test_distribute_before_deadline_fails() {
+        let (env, client) = setup_env();
+        set_ledger(&env, 100);
+
+        let admin = Address::generate(&env);
+        let (token_addr, sac, _) = create_token(&env, &admin);
+        sac.mint(&admin, &1_000);
+        client.initialize(&admin);
+
+        let round_id = client.create_round(&admin, &token_addr, &1_000i128, &200u32);
+        // deadline is 200 but current ledger is 100
+        client.distribute(&admin, &round_id, &Vec::new(&env));
+    }
+}

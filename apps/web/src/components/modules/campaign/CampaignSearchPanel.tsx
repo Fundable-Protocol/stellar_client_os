@@ -3,10 +3,14 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { CATEGORY_OPTIONS } from "@/components/modules/campaign/wizard/campaign-wizard-config";
+import { CreatorVerificationBadge } from "@/components/creator/CreatorVerificationBadge";
+import type { CampaignVerificationSummary } from "@/lib/creator-verification";
 
 interface SearchResult {
-  campaign: { id: string; name: string; location?: string; species?: string[] };
+  campaign: { id: string; name: string; location?: string; species?: string[]; creatorVerification?: CampaignVerificationSummary };
   highlights: string[];
+  /** Creator identity verification status (email, phone, government ID). */
+  verification?: CampaignVerificationSummary;
 }
 
 interface PopularSuggestion {
@@ -15,6 +19,7 @@ interface PopularSuggestion {
   location?: string;
   category?: string;
   sponsorCount?: number;
+  verification?: CampaignVerificationSummary;
 }
 
 const DAYS_REMAINING_OPTIONS = [
@@ -31,6 +36,7 @@ export function CampaignSearchPanel() {
   const [minGoalAmount, setMinGoalAmount] = useState("");
   const [maxGoalAmount, setMaxGoalAmount] = useState("");
   const [maxDaysRemaining, setMaxDaysRemaining] = useState("");
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [suggestions, setSuggestions] = useState<PopularSuggestion[]>([]);
   const [searched, setSearched] = useState(false);
@@ -49,6 +55,7 @@ export function CampaignSearchPanel() {
       if (minGoalAmount.trim()) params.set("minGoalAmount", minGoalAmount.trim());
       if (maxGoalAmount.trim()) params.set("maxGoalAmount", maxGoalAmount.trim());
       if (maxDaysRemaining) params.set("maxDaysRemaining", maxDaysRemaining);
+      if (verifiedOnly) params.set("verified", "true");
 
       const response = await fetch(`/api/campaigns/search?${params}`);
       const payload = await response.json() as {
@@ -80,11 +87,12 @@ export function CampaignSearchPanel() {
     <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-4" aria-label="Campaign search and filters">
       <form onSubmit={search} className="grid gap-3">
         <input
+          type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search campaigns by title, description, or tags"
           aria-label="Campaign search"
-          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
+          className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
         />
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           <label className="flex flex-col gap-1 text-xs font-medium text-zinc-300">
@@ -146,6 +154,16 @@ export function CampaignSearchPanel() {
               className="rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
             />
           </label>
+          <label className="flex items-center gap-2 self-end pb-2 text-xs font-medium text-zinc-300">
+            <input
+              type="checkbox"
+              checked={verifiedOnly}
+              onChange={(event) => setVerifiedOnly(event.target.checked)}
+              aria-label="Verified creators only"
+              className="h-4 w-4 rounded border-zinc-700 bg-zinc-950 text-emerald-500"
+            />
+            Verified creators only
+          </label>
           <button
             type="submit"
             disabled={loading}
@@ -168,12 +186,13 @@ export function CampaignSearchPanel() {
 
       {results.length > 0 && (
         <ul className="mt-2 space-y-2" aria-label="Search results">
-          {results.map(({ campaign, highlights }) => (
-            <li key={campaign.id} className="rounded-md border border-zinc-800 px-3 py-2 text-sm">
+          {results.map(({ campaign, highlights, verification }) => (
+            <li key={campaign.id} className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-800 px-3 py-2 text-sm">
               <Link className="font-semibold text-purple-300" href={`/campaigns/${campaign.id}`}>
                 {campaign.name}
               </Link>
-              {highlights.length > 0 && <span className="ml-2 text-zinc-500">{highlights.join(" · ")}</span>}
+              <CreatorVerificationBadge verification={verification ?? campaign.creatorVerification} />
+              {highlights.length > 0 && <span className="text-zinc-500">{highlights.join(" · ")}</span>}
             </li>
           ))}
         </ul>
@@ -190,6 +209,7 @@ export function CampaignSearchPanel() {
                   <Link className="font-semibold text-purple-300" href={`/campaigns/${suggestion.id}`}>
                     {suggestion.name}
                   </Link>
+                  <CreatorVerificationBadge verification={suggestion.verification} className="ml-2" />
                   {suggestion.sponsorCount !== undefined && (
                     <span className="ml-2 text-xs text-zinc-500">{suggestion.sponsorCount} sponsors</span>
                   )}

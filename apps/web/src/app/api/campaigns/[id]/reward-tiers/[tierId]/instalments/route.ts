@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { campaignInstalmentsService } from "@/services/campaign-instalments.service";
+import { pledgeRecoveryService } from "@/services/pledge-recovery.service";
 import { InstalmentPlanMonths, isSupportedPlanMonths } from "@/types/campaign-instalments";
 
 const NO_STORE = { "Cache-Control": "private, no-store, max-age=0" } as const;
@@ -79,6 +80,11 @@ export async function POST(
       planMonths: body.planMonths as InstalmentPlanMonths,
       idempotencyKey: body.idempotencyKey,
     });
+    try {
+      await pledgeRecoveryService.completeCheckout(id, body.backerAddress, body.backerEmail);
+    } catch (error) {
+      console.error(`[pledge-recovery] Could not mark completed checkout for ${id}:`, error);
+    }
 
     return NextResponse.json({ success: true, pledge }, { status: 201, headers: NO_STORE });
   } catch (err) {

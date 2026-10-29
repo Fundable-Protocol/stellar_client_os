@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "@/i18n/I18nProvider";
 
 export default function Error({
   error,
@@ -9,6 +10,7 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const { t } = useTranslation();
   const [stackOpen, setStackOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -44,7 +46,7 @@ export default function Error({
       <div className="w-full max-w-2xl rounded-lg bg-white p-8 shadow-lg">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-red-600">
-            {isEnvError ? "⚙️ Configuration Error" : "Something went wrong"}
+            {isEnvError ? `⚙️ ${t("errors.configTitle")}` : t("errors.genericTitle")}
           </h1>
         </div>
 
@@ -121,7 +123,7 @@ export default function Error({
           onClick={reset}
           className="rounded-lg bg-blue-600 px-6 py-2 text-white transition-colors hover:bg-blue-700"
         >
-          Try again
+          {t("errors.tryAgain")}
         </button>
       </div>
     </div>

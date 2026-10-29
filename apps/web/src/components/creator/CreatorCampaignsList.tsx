@@ -32,8 +32,9 @@ function CampaignCard({ campaign, rating }: CampaignCardProps) {
   const progressPercentage = targetAmount > 0 ? Math.min((raisedAmount / targetAmount) * 100, 100) : 0;
 
   return (
-    <Link href={`/campaigns/${campaign.id}`}>
-      <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow border border-gray-200 cursor-pointer">
+    <div>
+      <Link href={`/campaigns/${campaign.id}`}>
+        <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow border border-gray-200 cursor-pointer">
         <div className="flex items-start justify-between mb-4">
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
@@ -93,8 +94,12 @@ function CampaignCard({ campaign, rating }: CampaignCardProps) {
             </p>
           </div>
         </div>
-      </div>
-    </Link>
+        </div>
+      </Link>
+      <Link href={`/campaigns/create?cloneId=${encodeURIComponent(campaign.id)}`} className="mt-2 inline-flex rounded-md border border-purple-300 px-3 py-1.5 text-xs font-semibold text-purple-700 hover:bg-purple-50">
+        Clone as draft
+      </Link>
+    </div>
   );
 }
 

@@ -52,6 +52,8 @@ tags:
     description: Campaign discovery and trending rankings
   - name: Compilation
     description: Soroban source compilation
+  - name: CreatorVerification
+    description: Optional creator identity verification (email, phone, government ID) and the Verified Creator badge. See docs/creator-identity-verification.md.
   - name: GraphQL
     description: Aggregate payment-stream queries
   - name: Milestone photos
@@ -947,6 +949,278 @@ paths:
         '201':
           description: Activity logged to immutable trail
 
+  /api/campaigns/search:
+    get:
+      tags: [Campaigns]
+      summary: Full-text campaign search with creator verification status
+      description: Every result includes `verification` (the creator verification summary). Verified creators rank first when relevance is equal.
+      parameters:
+        - { in: query, name: q, schema: { type: string } }
+        - { in: query, name: category, schema: { type: string } }
+        - in: query
+          name: verified
+          description: When `true`, return only campaigns by Verified Creators (email, phone and government ID verified).
+          schema: { type: string, enum: ['true', 'false'] }
+        - { in: query, name: minGoalAmount, schema: { type: string } }
+        - { in: query, name: maxGoalAmount, schema: { type: string } }
+        - { in: query, name: maxDaysRemaining, schema: { type: number } }
+        - { in: query, name: limit, schema: { type: integer } }
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        campaign: { type: object }
+                        score: { type: number }
+                        verification: { $ref: '#/components/schemas/CreatorVerificationSummary' }
+                  count: { type: integer }
+                  suggestions: { type: array, items: { type: string } }
+        '400':
+          description: Invalid filter (e.g. `verified` is not true/false), or neither a query nor a filter was provided
+
+  /api/creators/{address}/verification:
+    get:
+      tags: [CreatorVerification]
+      summary: Creator verification status
+      description: Public summary contains outcomes only (no PII). With a valid creator session for the same address, the owner view includes masked contacts and pending/rejected states.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      responses:
+        '200':
+          description: Verification status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  owner: { type: boolean }
+                  verification:
+                    type: object
+                    properties:
+                      creator: { type: string }
+                      summary: { $ref: '#/components/schemas/CreatorVerificationSummary' }
+                      steps:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            step: { type: string, enum: [email, phone, government_id] }
+                            status: { type: string, enum: [not_started, pending, verified, rejected] }
+                            verifiedAt: { type: integer }
+        '400': { description: Invalid address }
+    delete:
+      tags: [CreatorVerification]
+      summary: Withdraw and erase all verification data (removes the badge)
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      responses:
+        '200': { description: Verification withdrawn }
+        '401': { description: Missing or invalid creator session }
+        '403': { description: Session belongs to a different address }
+
+  /api/creators/{address}/verification/session:
+    post:
+      tags: [CreatorVerification]
+      summary: Prove ownership of the creator address with a wallet signature
+      description: |
+        `{"action":"challenge"}` returns a message to sign (valid 5 minutes).
+        `{"action":"verify","nonce":"...","signature":"..."}` returns a 1-hour session token.
+        Raw ed25519 and SEP-53 (wallet signMessage) signatures are accepted, base64 or hex encoded.
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [challenge, verify] }
+                nonce: { type: string }
+                signature: { type: string }
+      responses:
+        '200': { description: Challenge or session token }
+        '400': { description: Invalid request }
+        '401': { description: Invalid or expired signature }
+
+  /api/creators/{address}/verification/email:
+    post:
+      tags: [CreatorVerification]
+      summary: Send or confirm an email one-time code
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [start, confirm] }
+                email: { type: string, format: email }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200': { description: Code confirmed; step verified }
+        '202': { description: Code sent }
+        '400': { description: Invalid input or wrong code }
+        '401': { description: Missing or invalid creator session }
+        '409': { description: No pending code or step already verified }
+        '410': { description: Code expired }
+        '429': { description: Too many attempts or resend cooldown }
+
+  /api/creators/{address}/verification/phone:
+    post:
+      tags: [CreatorVerification]
+      summary: Send or confirm an SMS one-time code
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [start, confirm] }
+                phone: { type: string, description: E.164 format, example: '+2348012345678' }
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200': { description: Code confirmed; step verified }
+        '202': { description: Code sent }
+        '400': { description: Invalid input or wrong code }
+        '401': { description: Missing or invalid creator session }
+        '409': { description: No pending code or step already verified }
+        '410': { description: Code expired }
+        '429': { description: Too many attempts or resend cooldown }
+
+  /api/creators/{address}/verification/government-id/upload:
+    post:
+      tags: [CreatorVerification]
+      summary: Pre-signed upload URL for a government ID document (private storage)
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contentType]
+              properties:
+                contentType: { type: string, enum: [image/jpeg, image/png, image/webp, image/heic, application/pdf] }
+      responses:
+        '200': { description: Upload URL and storage key }
+        '401': { description: Missing or invalid creator session }
+        '503': { description: Storage not configured }
+
+  /api/creators/{address}/verification/government-id:
+    post:
+      tags: [CreatorVerification]
+      summary: Submit a government ID document for review
+      security:
+        - creatorSession: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentType, issuingCountry, documentReference]
+              properties:
+                documentType: { type: string, enum: [passport, national_id, drivers_license] }
+                issuingCountry: { type: string, pattern: '^[A-Z]{2}$' }
+                documentReference: { type: string, description: Storage key returned by the upload endpoint }
+      responses:
+        '202': { description: Submitted; awaiting review }
+        '400': { description: Invalid input }
+        '401': { description: Missing or invalid creator session }
+        '409': { description: Already verified or already awaiting review }
+    patch:
+      tags: [CreatorVerification]
+      summary: Approve or reject a pending government ID (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          description: Creator Stellar public key (G...)
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, reviewer]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                reviewer: { type: string }
+                reason: { type: string, description: Required when rejecting }
+      responses:
+        '200': { description: Review recorded }
+        '401': { description: Admin key required }
+        '404': { description: No pending submission }
+
+  /api/admin/creator-verifications:
+    get:
+      tags: [CreatorVerification]
+      summary: Pending government ID review queue (admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Pending submissions, oldest first }
+        '401': { description: Admin key required }
+
   /api/ngos:
     get:
       tags: [NGOs]
@@ -1277,6 +1551,10 @@ components:
       scheme: bearer
       bearerFormat: APIKey
       description: Bearer token for Paid Tier 1 or Tier 2 subscriptions.
+    creatorSession:
+      type: http
+      scheme: bearer
+      description: Creator verification session token from POST /api/creators/{address}/verification/session.
 
   parameters:
     CampaignId:
@@ -1351,6 +1629,21 @@ components:
             $ref: '#/components/schemas/RateLimitError'
 
   schemas:
+    CreatorVerificationSummary:
+      type: object
+      description: Public, PII-free creator identity verification summary. The Verified Creator badge requires all three steps.
+      properties:
+        emailVerified: { type: boolean }
+        phoneVerified: { type: boolean }
+        governmentIdVerified: { type: boolean }
+        badges:
+          type: array
+          items: { type: string, enum: [email, phone, government_id] }
+        status: { type: string, enum: [unverified, partial, verified] }
+        isVerified: { type: boolean }
+        verifiedCount: { type: integer }
+        totalCount: { type: integer }
+        verifiedAt: { type: integer, description: Epoch ms when the badge was earned }
     RateLimitError:
       type: object
       required: [error, code, retryAfter]

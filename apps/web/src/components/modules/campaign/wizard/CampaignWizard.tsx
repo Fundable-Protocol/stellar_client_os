@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { ArrowLeft, ArrowRight, Loader2, Save, Rocket, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useCampaignWizard } from "@/hooks/use-campaign-wizard";
+import { useTranslation } from "@/i18n/I18nProvider";
 import { CampaignWizardStepper } from "./CampaignWizardStepper";
 import {
   DetailsStep,
@@ -30,6 +31,7 @@ export function CampaignWizard({
   onSaveDraft,
   initialData,
 }: CampaignWizardProps) {
+  const { t } = useTranslation();
   const wizard = useCampaignWizard(initialData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -137,7 +139,11 @@ export function CampaignWizard({
             Campaign Creation Wizard
           </h2>
           <p className="mt-1 text-sm text-zinc-400">
-            Step {wizard.stepIndex + 1} of {wizard.steps.length} — {wizard.currentStep.description}
+            {t("campaign.stepper.stepOf", {
+              current: wizard.stepIndex + 1,
+              total: wizard.steps.length,
+            })}{" — "}
+            {wizard.currentStep.description}
           </p>
         </div>
 
@@ -149,7 +155,7 @@ export function CampaignWizard({
           disabled={isSavingDraft || isSubmitting}
           className="border-zinc-700 bg-zinc-800/60 text-zinc-300 hover:bg-zinc-800"
         >
-          {isSavingDraft ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
+          {isSavingDraft ? <Loader2 className="me-1.5 h-4 w-4 animate-spin" /> : <Save className="me-1.5 h-4 w-4" />}
           Save Draft
         </Button>
       </header>
@@ -192,7 +198,7 @@ export function CampaignWizard({
             disabled={wizard.isFirstStep || isSubmitting}
             className="h-11 border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
           >
-            <ArrowLeft className="mr-2 h-4 w-4" />
+            <ArrowLeft className="me-2 h-4 w-4 rtl:rotate-180" />
             Back
           </Button>
 
@@ -219,18 +225,18 @@ export function CampaignWizard({
         >
           {isSubmitting ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="me-2 h-4 w-4 animate-spin" />
               Launching Campaign...
             </>
           ) : wizard.isLastStep ? (
             <>
               Launch Campaign
-              <Rocket className="ml-2 h-4 w-4" />
+              <Rocket className="ms-2 h-4 w-4" />
             </>
           ) : (
             <>
               Continue to {wizard.steps[wizard.stepIndex + 1]?.title}
-              <ArrowRight className="ml-2 h-4 w-4" />
+              <ArrowRight className="ms-2 h-4 w-4 rtl:rotate-180" />
             </>
           )}
         </Button>

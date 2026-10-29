@@ -4,6 +4,7 @@ import React from "react";
 import { Check, Circle } from "lucide-react";
 import { CampaignWizardStepDef } from "./campaign-wizard-config";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/i18n/I18nProvider";
 
 export interface CampaignWizardStepperProps {
   steps: readonly CampaignWizardStepDef[];
@@ -18,8 +19,10 @@ export function CampaignWizardStepper({
   onStepSelect,
   disabled = false,
 }: CampaignWizardStepperProps) {
+  const { t } = useTranslation();
+
   return (
-    <nav aria-label="Campaign creation steps" className="w-full py-2">
+    <nav aria-label={t("campaign.stepper.ariaLabel")} className="w-full py-2">
       <ol className="grid grid-cols-5 gap-2 sm:gap-4">
         {steps.map((step, idx) => {
           const isCompleted = idx < currentIndex;

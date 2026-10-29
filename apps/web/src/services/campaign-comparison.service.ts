@@ -43,6 +43,11 @@ export interface CampaignLocation {
 /** A campaign as indexed for comparison: the impact record plus where it plants. */
 export interface ComparisonCampaignRecord extends CampaignImpactRecord {
   location: CampaignLocation;
+  goalAmount?: string;
+  raisedAmount?: string;
+  deadline?: number | null;
+  creatorReputation?: { score: number; completedCampaigns: number; verified: boolean };
+  rewardTiers?: Array<{ id: string; name: string; amount: string; token?: string; description?: string; perks?: string[] }>;
 }
 
 export interface ComparedSpecies {
@@ -73,6 +78,11 @@ export interface CampaignComparisonColumn {
   raisedXlm: number;
   /** Raised XLM per tree planted; `null` until the campaign has planted a tree. */
   costPerTreeXlm: number | null;
+  goalAmount?: string;
+  raisedAmount?: string;
+  deadline?: number | null;
+  creatorReputation?: ComparisonCampaignRecord["creatorReputation"];
+  rewardTiers?: ComparisonCampaignRecord["rewardTiers"];
 }
 
 /** The metrics a column can lead on. */
@@ -176,6 +186,11 @@ export function buildComparisonColumn(record: ComparisonCampaignRecord): Campaig
     sponsorCount: metrics.sponsors,
     raisedXlm: roundTo(raisedXlm, 7),
     costPerTreeXlm: metrics.trees === 0 ? null : roundTo(raisedXlm / metrics.trees, 7),
+    goalAmount: record.goalAmount,
+    raisedAmount: record.raisedAmount ?? record.totalRaised,
+    deadline: record.deadline,
+    creatorReputation: record.creatorReputation,
+    rewardTiers: record.rewardTiers,
   };
 }
 

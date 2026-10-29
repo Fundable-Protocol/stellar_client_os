@@ -33,6 +33,7 @@ export function CampaignAccessibilityControls() {
 
   useEffect(() => {
     document.documentElement.dataset.campaignHighContrast = String(enabled);
+    document.documentElement.classList.toggle("high-contrast", enabled);
   }, [enabled]);
 
   const toggleHighContrast = () => {

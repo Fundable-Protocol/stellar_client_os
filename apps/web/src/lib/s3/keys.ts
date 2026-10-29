@@ -28,6 +28,24 @@ export function buildEvidenceKey(
   return key;
 }
 
+/** Key prefix for a creator's private identity documents (government ID verification). */
+export function creatorIdentityKeyPrefix(creator: string): string {
+  return `creator-identity/${String(creator).replace(/[^A-Z0-9]/g, "")}/`;
+}
+
+/**
+ * Build a namespaced object key for a creator's government ID document.
+ * Identity documents live under their own prefix (never alongside public
+ * campaign evidence) so bucket policies can restrict access to reviewers.
+ */
+export function buildCreatorIdentityDocumentKey(creator: string, contentType: AllowedContentType): string {
+  const key = `${creatorIdentityKeyPrefix(creator)}${randomUUID()}.${extensionForContentType(contentType)}`;
+  if (key.length > MAX_KEY_LENGTH) {
+    throw new Error(`Generated identity document key exceeds max length (${MAX_KEY_LENGTH})`);
+  }
+  return key;
+}
+
 const EXTENSIONS: Record<AllowedContentType, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",

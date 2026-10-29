@@ -1,43 +1,14 @@
-import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { resolveCampaignSeo } from "@/lib/campaign-seo";
-import { getCampaign } from "@/services/campaign.service";
-import { campaignSeoService } from "@/services/campaign-seo.service";
+import { generateCampaignShareMetadata } from "@/lib/campaign-share-metadata";
 
 type Props = { params: Promise<{ id: string }> };
 
 /**
- * Applies the creator's SEO overrides (#1222) to the campaign page <head>:
- * title tag, meta description and Open Graph / Twitter card image.
+ * Applies the creator's SEO overrides (#1222) and dynamic OG cards (#1346).
  */
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params }: Props) {
   const { id } = await params;
-  const campaign = await getCampaign(id).catch(() => null);
-  const seo = campaignSeoService.getSeo(id);
-  if (!campaign && !seo) return {};
-
-  const resolved = resolveCampaignSeo(seo, {
-    name: campaign?.name ?? "Fundable campaign",
-    description: campaign?.description,
-  });
-  const images = resolved.ogImageUrl ? [{ url: resolved.ogImageUrl }] : undefined;
-
-  return {
-    title: resolved.title,
-    description: resolved.description,
-    openGraph: {
-      title: resolved.title,
-      description: resolved.description,
-      type: "website",
-      images,
-    },
-    twitter: {
-      card: images ? "summary_large_image" : "summary",
-      title: resolved.title,
-      description: resolved.description,
-      images: resolved.ogImageUrl ? [resolved.ogImageUrl] : undefined,
-    },
-  };
+  return generateCampaignShareMetadata(id);
 }
 
 export default function CampaignLayout({ children }: { children: ReactNode }) {
