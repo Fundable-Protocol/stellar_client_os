@@ -507,16 +507,18 @@ distribution-scrollbar {
   color: #a1a1aa !important;
 }
 
-/* ── Right-to-left support (#1202) ─────────────────────────────────────────
- * The root layout sets <html dir="rtl"> for Arabic. Prefer logical utilities
- * (ms-/me-/ps-/pe-/start-/end-) in new code; these rules cover the common
- * physical-direction cases that remain in older components. */
+/* ── Right-to-left support (#1202, #1355) ───────────────────────────────────
+ * The root layout sets <html dir="rtl"> for Arabic and Hebrew. Prefer logical
+ * utilities (ms-/me-/ps-/pe-/start-/end-/text-start/text-end) in new code; these
+ * rules cover the common physical-direction cases that remain in older
+ * components. */
 [dir="rtl"] .rtl-flip {
   transform: scaleX(-1);
 }
 
 [dir="rtl"] body {
-  font-family: var(--font-geist-sans), "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  font-family: var(--font-geist-sans), "Noto Sans Arabic", "Noto Sans Hebrew",
+    "Segoe UI", Tahoma, "Arial Hebrew", sans-serif;
 }
 
 /* Numbers, addresses and code stay left-to-right inside RTL text. */

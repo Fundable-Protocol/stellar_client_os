@@ -58,6 +58,8 @@ import { CampaignCharityBadge } from "@/components/modules/campaign/CharityBadge
 import { CampaignCreatorVerificationBadge } from "@/components/creator/CreatorVerificationBadge";
 import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
 import { CampaignLiveStreamSection } from "@/components/modules/campaign/live-stream/CampaignLiveStreamSection";
+import { useTranslation } from "@/i18n/I18nProvider";
+import { getLanguageDirection } from "@/i18n/config";
 
 const translations = {
   en: {
@@ -298,6 +300,7 @@ const detectLanguage = (text: string): string => {
   if (/[\u3040-\u30ff]/.test(text)) return "ja";
   if (/[\uac00-\ud7af]/.test(text)) return "ko";
   if (/[\u0600-\u06ff]/.test(text)) return "ar";
+  if (/[\u0590-\u05ff]/.test(text)) return "he";
   if (/[\u0400-\u04ff]/.test(text)) return "ru";
   return "en";
 };
@@ -335,6 +338,7 @@ export function MilestoneProgressBar({
   goalAmount,
   token = "XLM",
 }: MilestoneProgressBarProps) {
+  const { t, dir, formatNumber } = useTranslation();
   const goal = parseAmount(goalAmount);
   const raised = parseAmount(raisedAmount);
   const progressPct = goal > 0 ? Math.min(100, Math.max(0, (raised / goal) * 100)) : 0;
@@ -352,13 +356,13 @@ export function MilestoneProgressBar({
 
   return (
     <section
-      aria-label="Campaign milestone progress"
+      aria-label={t("campaign.milestones.ariaLabel")}
       className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-5 space-y-4"
     >
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-purple-400">Funding Milestones</h3>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-purple-400">{t("campaign.milestones.title")}</h3>
         <span className="text-[11px] text-zinc-400">
-          {achievedCount} / {sortedMilestones.length} reached
+          {t("campaign.milestones.reached", { achieved: achievedCount, total: sortedMilestones.length })}
         </span>
       </div>
 
@@ -366,8 +370,9 @@ export function MilestoneProgressBar({
         {/* Track */}
         <div className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-purple-500 via-indigo-500 to-emerald-400 transition-all duration-500"
-            style={{ width: `${progressPct}%` }}
+            data-testid="milestone-progress-fill"
+            className="absolute inset-y-0 rounded-full bg-gradient-to-r rtl:bg-gradient-to-l from-purple-500 via-indigo-500 to-emerald-400 transition-all duration-500"
+            style={{ insetInlineStart: 0, width: `${progressPct}%` }}
           />
         </div>
 
@@ -378,12 +383,17 @@ export function MilestoneProgressBar({
           return (
             <div
               key={milestone.id}
-              className="absolute top-0 flex -translate-x-1/2 flex-col items-center"
-              style={{ left: `${Math.min(100, Math.max(0, milestone.percentage))}%` }}
+              className={`absolute top-0 flex flex-col items-center ${dir === "rtl" ? "translate-x-1/2" : "-translate-x-1/2"}`}
+              style={{ insetInlineStart: `${Math.min(100, Math.max(0, milestone.percentage))}%` }}
             >
               <span
                 role="img"
-                aria-label={`${milestone.label} milestone ${achieved ? "reached" : "not reached"}`}
+                aria-label={t("campaign.milestones.marker", {
+                  label: milestone.label,
+                  status: achieved
+                    ? t("campaign.milestones.reachedStatus")
+                    : t("campaign.milestones.notReachedStatus"),
+                })}
                 className={`h-3 w-3 rounded-full border-2 transition-colors ${
                   achieved
                     ? "border-emerald-400 bg-emerald-400"
@@ -407,16 +417,22 @@ export function MilestoneProgressBar({
       <p className="text-xs text-zinc-400" aria-live="polite">
         {nextMilestone ? (
           <>
-            Next milestone: <strong className="text-purple-300">{nextMilestone.label}</strong>{" "}
-            ({nextMilestone.percentage}% of goal)
+            {t("campaign.milestones.next")}{" "}
+            <strong className="text-purple-300">{nextMilestone.label}</strong>{" "}
+            {t("campaign.milestones.percentOfGoal", { percent: nextMilestone.percentage })}
           </>
         ) : (
-          <span className="text-emerald-400 font-semibold">All milestones reached — goal achieved!</span>
+          <span className="text-emerald-400 font-semibold">{t("campaign.milestones.allReached")}</span>
         )}
       </p>
 
       <p className="text-[11px] text-zinc-500">
-        {raised.toLocaleString()} / {goal.toLocaleString()} {token} raised ({Math.round(progressPct)}%)
+        {t("campaign.milestones.raisedOfGoal", {
+          raised: formatNumber(raised),
+          goal: formatNumber(goal),
+          token,
+          percent: formatNumber(Math.round(progressPct)),
+        })}
       </p>
     </section>
   );
@@ -424,6 +440,7 @@ export function MilestoneProgressBar({
 
 export default function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const { dir: uiDir, t } = useTranslation();
   useEffect(() => {
     const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]') ?? document.createElement("link");
     canonical.rel = "canonical";
@@ -518,14 +535,14 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           aria-label="Back to Campaigns Directory"
           className="inline-flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
         >
-          <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back to Campaigns Directory
+          <ArrowLeft className="me-1 h-3.5 w-3.5 rtl:rotate-180" /> Back to Campaigns Directory
         </Link>
 
         <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-r from-zinc-900 via-purple-950/20 to-zinc-900 p-6 md:p-10 shadow-2xl space-y-4">
           <div className="flex items-center gap-2.5">
             <Badge className="bg-purple-600 text-white font-semibold text-xs">{campaign.category}</Badge>
             <Badge variant="outline" className="border-amber-500 text-amber-400 text-xs font-semibold">
-              <Bell className="mr-1 h-3 w-3" /> Coming Soon
+              <Bell className="me-1 h-3 w-3" /> Coming Soon
             </Badge>
           </div>
           <h1 className="text-3xl font-extrabold text-zinc-50 tracking-tight">{campaign.title}</h1>
@@ -558,9 +575,16 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
     );
   }
 
+  // Campaign copy can be translated independently of the UI locale, so the
+  // page direction follows the selected campaign translation first and falls
+  // back to the document locale direction (Arabic/Hebrew => rtl).
+  const pageDirection = translationLang
+    ? getLanguageDirection(translationLang)
+    : uiDir;
+
   return (
     <div
-      dir={translationLang === "ar" || translationLang === "fa" || translationLang === "he" || translationLang === "ur" ? "rtl" : "ltr"}
+      dir={pageDirection}
       lang={translationLang || detectedLang}
       className="campaign-accessible container mx-auto px-4 py-8 max-w-6xl space-y-8"
     >
@@ -572,20 +596,20 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           aria-label="Back to Campaigns Directory"
           className="inline-flex items-center text-xs font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
         >
-          <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back to Campaigns Directory
+          <ArrowLeft className="me-1 h-3.5 w-3.5 rtl:rotate-180" /> Back to Campaigns Directory
         </Link>
 
         <div className="flex items-center gap-2">
           <CampaignAccessibilityControls />
           <Link href={`/campaigns/${id}/donate`}>
             <Button size="sm" variant="outline" className="border-rose-600/40 text-rose-300 hover:bg-rose-950/40 text-xs">
-              <Heart className="mr-1.5 h-3.5 w-3.5" /> Donate
+              <Heart className="me-1.5 h-3.5 w-3.5" /> Donate
             </Button>
           </Link>
           <OneTimeDonationButton campaignId={campaign.id} campaignName={campaign.title} />
           <Link href="/campaigns/create">
             <Button size="sm" variant="outline" className="border-purple-600/40 text-purple-300 hover:bg-purple-950/40 text-xs">
-              <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Campaign
+              <Edit className="me-1.5 h-3.5 w-3.5" /> Edit Campaign
             </Button>
           </Link>
           <Link href="/campaigns/social-scheduler">
@@ -599,7 +623,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             className="border-amber-600/40 text-amber-300 hover:bg-amber-950/40 text-xs"
             onClick={() => setShowInsuranceModal(true)}
           >
-            <AlertTriangle className="mr-1.5 h-3.5 w-3.5" /> Submit Insurance Claim
+            <AlertTriangle className="me-1.5 h-3.5 w-3.5" /> Submit Insurance Claim
           </Button>
           <a
             href={`/api/reports/campaign/${id}`}
@@ -679,7 +703,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
             <div className="flex items-center gap-2.5">
               <Badge className="bg-purple-600 text-white font-semibold text-xs">{campaign.category}</Badge>
               <Badge variant="outline" className="border-emerald-500 text-emerald-400 text-xs font-semibold">
-                <ShieldCheck className="mr-1 h-3 w-3" /> {campaign.status}
+                <ShieldCheck className="me-1 h-3 w-3" /> {campaign.status}
               </Badge>
               <SustainabilityScoreBadge
                 score={sustainabilityScore.totalScore}
@@ -762,18 +786,24 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
               aria-valuenow={progressPct}
               aria-valuemin={0}
               aria-valuemax={100}
-              aria-label="Campaign funding progress"
-              aria-valuetext={`${progressPct}% funded (${campaign.raisedAmount} of ${campaign.goalAmount} ${campaign.token})`}
-              className="h-2 w-full overflow-hidden rounded-full bg-zinc-800"
+              aria-label={t("campaign.progress.ariaLabel")}
+              aria-valuetext={t("campaign.progress.valuetext", {
+                percentage: progressPct,
+                raised: campaign.raisedAmount,
+                goal: campaign.goalAmount,
+                currency: campaign.token,
+              })}
+              className="relative h-2 w-full overflow-hidden rounded-full bg-zinc-800"
             >
               <div
-                className="h-full rounded-full bg-gradient-to-r from-purple-500 via-indigo-500 to-emerald-400 transition-all duration-500"
-                style={{ width: `${progressPct}%` }}
+                data-testid="hero-progress-fill"
+                className="absolute inset-y-0 rounded-full bg-gradient-to-r rtl:bg-gradient-to-l from-purple-500 via-indigo-500 to-emerald-400 transition-all duration-500"
+                style={{ insetInlineStart: 0, width: `${progressPct}%` }}
               />
             </div>
 
             <Button className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 font-bold text-white hover:from-emerald-700 hover:to-teal-700 shadow-md">
-              <Heart className="mr-2 h-4 w-4 fill-white" /> Sponsor This Campaign
+              <Heart className="me-2 h-4 w-4 fill-white" /> Sponsor This Campaign
             </Button>
 
             {/* Milestone progress bar with markers for each funding milestone */}
@@ -814,37 +844,37 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full space-y-6">
         <TabsList aria-label="Campaign navigation tabs" className="grid w-full grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9">
           <TabsTrigger value="overview" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <Target className="mr-1.5 h-4 w-4" /> Overview & Story
+            <Target className="me-1.5 h-4 w-4" /> Overview & Story
           </TabsTrigger>
           <TabsTrigger value="ar-view" className="text-xs font-semibold data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
-            <Camera className="mr-1.5 h-4 w-4 text-emerald-300" /> AR Tree View
+            <Camera className="me-1.5 h-4 w-4 text-emerald-300" /> AR Tree View
           </TabsTrigger>
           <TabsTrigger value="sponsors" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <Heart className="mr-1.5 h-4 w-4 text-rose-400" /> Sponsor Wall (#724)
+            <Heart className="me-1.5 h-4 w-4 text-rose-400" /> Sponsor Wall (#724)
           </TabsTrigger>
           <TabsTrigger value="backers" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <Crown className="mr-1.5 h-4 w-4 text-amber-400" /> Top Backers
+            <Crown className="me-1.5 h-4 w-4 text-amber-400" /> Top Backers
           </TabsTrigger>
           <TabsTrigger value="fulfillment" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <Package className="mr-1.5 h-4 w-4 text-purple-400" /> Reward Fulfillment
+            <Package className="me-1.5 h-4 w-4 text-purple-400" /> Reward Fulfillment
           </TabsTrigger>
           <TabsTrigger value="collaboration" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <Users className="mr-1.5 h-4 w-4 text-purple-400" /> Co-Creators (#722)
+            <Users className="me-1.5 h-4 w-4 text-purple-400" /> Co-Creators (#722)
           </TabsTrigger>
           <TabsTrigger value="qa" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <MessageSquare className="mr-1.5 h-4 w-4 text-purple-400" /> Q&A (#791)
+            <MessageSquare className="me-1.5 h-4 w-4 text-purple-400" /> Q&A (#791)
           </TabsTrigger>
           <TabsTrigger value="success" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <Trophy className="mr-1.5 h-4 w-4 text-amber-400" /> Success Story
+            <Trophy className="me-1.5 h-4 w-4 text-amber-400" /> Success Story
           </TabsTrigger>
           <TabsTrigger value="series" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <Sparkles className="mr-1.5 h-4 w-4 text-amber-400" /> Series & Sequels
+            <Sparkles className="me-1.5 h-4 w-4 text-amber-400" /> Series & Sequels
           </TabsTrigger>
           <TabsTrigger value="analytics" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <BarChart3 className="mr-1.5 h-4 w-4 text-emerald-400" /> Analytics
+            <BarChart3 className="me-1.5 h-4 w-4 text-emerald-400" /> Analytics
           </TabsTrigger>
           <TabsTrigger value="milestone-release" className="text-xs font-semibold data-[state=active]:bg-purple-600 data-[state=active]:text-white">
-            <Coins className="mr-1.5 h-4 w-4 text-emerald-400" /> Tranche Releases
+            <Coins className="me-1.5 h-4 w-4 text-emerald-400" /> Tranche Releases
           </TabsTrigger>
         </TabsList>
 
@@ -884,7 +914,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                     onClick={() => setShowARModal(true)}
                     className="w-full border-emerald-600/40 bg-emerald-950/20 text-emerald-300 hover:bg-emerald-950/40 text-xs font-semibold"
                   >
-                    <TreePine className="mr-1.5 h-3.5 w-3.5 text-emerald-400" /> Visualize {campaign.treesPlanted} Planted Trees in AR (5-20yr)
+                    <TreePine className="me-1.5 h-3.5 w-3.5 text-emerald-400" /> Visualize {campaign.treesPlanted} Planted Trees in AR (5-20yr)
                   </Button>
                 </div>
               </div>
@@ -1013,7 +1043,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
           <div className="relative overflow-hidden rounded-2xl border border-emerald-800/60 bg-gradient-to-br from-emerald-950/40 via-zinc-900 to-zinc-900 p-6 md:p-8">
             <div className="flex items-center gap-2">
               <Badge className="bg-emerald-600 text-white font-semibold text-xs">
-                <Trophy className="mr-1 h-3 w-3" /> Featured Success Story
+                <Trophy className="me-1 h-3 w-3" /> Featured Success Story
               </Badge>
             </div>
             <h3 className="text-2xl font-extrabold text-zinc-50 mt-4">{campaign.successStory.headline}</h3>

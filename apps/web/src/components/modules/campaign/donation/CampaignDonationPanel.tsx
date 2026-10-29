@@ -6,6 +6,7 @@ import { Heart, Receipt, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useTranslation } from "@/i18n/I18nProvider";
 import { useWallet } from "@/providers/StellarWalletProvider";
 import { PledgeThankYouContent, type PledgeThankYouDetails } from "@/components/modules/campaign/thank-you/PledgeThankYouContent";
 import { PersonalizedCampaignRecommendations } from "@/components/campaign/PersonalizedCampaignRecommendations";
@@ -48,6 +49,7 @@ export function CampaignDonationPanel({
   campaignName,
   defaultToken = "XLM",
 }: CampaignDonationPanelProps) {
+  const { t } = useTranslation();
   const { address, isConnected, openModal } = useWallet();
 
   const [amount, setAmount] = useState("");
@@ -84,7 +86,7 @@ export function CampaignDonationPanel({
       active = false;
     };
   }, [campaignId, receipt]);
-  const [earnedBadges, setEarnedBadges] = useState<DonationResponse["badges"]>([]);
+  const [earnedBadges, setEarnedBadges] = useState<NonNullable<DonationResponse["badges"]>>([]);
 
   const reset = () => {
     setAmount("");
@@ -108,7 +110,7 @@ export function CampaignDonationPanel({
       return;
     }
     if (!isConnected || !address) {
-      setError("Connect your wallet to donate.");
+      setError(t("pledge.connectWallet"));
       openModal();
       return;
     }
@@ -138,7 +140,7 @@ export function CampaignDonationPanel({
 
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
-        const errorMessage = body.error ?? "We could not record your donation. Please try again.";
+        const errorMessage = body.error ?? t("pledge.recordError");
         setError(errorMessage);
         toast.error(errorMessage);
         return;
@@ -147,10 +149,10 @@ export function CampaignDonationPanel({
       const body = (await response.json()) as DonationResponse;
       setReceipt(body.receipt);
       setEarnedBadges(body.badges ?? []);
-      toast.success("Thank you for your donation!");
+      toast.success(t("pledge.successToast"));
     } catch {
-      setError("Network error — please check your connection and try again.");
-      toast.error("Network error — please try again.");
+      setError(t("pledge.networkError"));
+      toast.error(t("pledge.networkError"));
     } finally {
       setSubmitting(false);
     }
@@ -164,20 +166,20 @@ export function CampaignDonationPanel({
       >
         <div className="flex items-center gap-2 text-emerald-300">
           <Receipt className="h-5 w-5" aria-hidden="true" />
-          <h2 className="text-lg font-semibold">Donation confirmed</h2>
+          <h2 className="text-lg font-semibold">{t("pledge.confirmed")}</h2>
         </div>
         <p className="mt-2 text-sm text-zinc-300">
-          Thank you — your contribution goes straight to the campaign creator.
+          {t("pledge.confirmedDescription")}
         </p>
-        {loadingThankYou && <p className="mt-4 text-sm text-zinc-400">Loading the creator&apos;s message…</p>}
+        {loadingThankYou && <p className="mt-4 text-sm text-zinc-400">{t("pledge.loadingThankYou")}</p>}
         {thankYouError && <p role="alert" className="mt-4 text-sm text-rose-400">{thankYouError}</p>}
         {!loadingThankYou && !thankYouError && (
           <PledgeThankYouContent details={thankYouDetails ?? { greeting: "Thank you for backing this campaign." }} />
         )}
         {earnedBadges.length > 0 && (
           <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/5 p-4" aria-live="polite">
-            <h3 className="font-semibold text-amber-200">Badge progress unlocked</h3>
-            <ul className="mt-2 flex flex-wrap gap-2" aria-label="Newly earned backer badges">
+            <h3 className="font-semibold text-amber-200">{t("pledge.badgesUnlocked")}</h3>
+            <ul className="mt-2 flex flex-wrap gap-2" aria-label={t("pledge.badgesUnlocked")}>
               {earnedBadges.map((badge) => <li key={badge.key} className="rounded-full border border-amber-400/30 px-3 py-1 text-sm text-amber-100">{badge.icon} {badge.name}</li>)}
             </ul>
           </div>
@@ -185,25 +187,25 @@ export function CampaignDonationPanel({
 
         <dl className="mt-6 divide-y divide-white/10 rounded-xl border border-white/10">
           <div className="flex justify-between gap-4 p-3 text-sm">
-            <dt className="text-zinc-400">Receipt reference</dt>
+            <dt className="text-zinc-400">{t("pledge.receiptReference")}</dt>
             <dd data-testid="donation-reference" className="font-mono text-zinc-100">
               {receipt.reference}
             </dd>
           </div>
           <div className="flex justify-between gap-4 p-3 text-sm">
-            <dt className="text-zinc-400">Amount</dt>
+            <dt className="text-zinc-400">{t("pledge.amount")}</dt>
             <dd className="text-zinc-100">
               {receipt.amount} {receipt.token}
             </dd>
           </div>
           <div className="flex justify-between gap-4 p-3 text-sm">
-            <dt className="text-zinc-400">Allocated to</dt>
+            <dt className="text-zinc-400">{t("pledge.allocatedTo")}</dt>
             <dd className="text-zinc-100">{receipt.allocationLabel}</dd>
           </div>
           <div className="flex justify-between gap-4 p-3 text-sm">
-            <dt className="text-zinc-400">Donor</dt>
+            <dt className="text-zinc-400">{t("pledge.donor")}</dt>
             <dd className="text-zinc-100">
-              {anonymous ? "Anonymous" : maskDonorAddress(receipt.donorAddress)}
+              {anonymous ? t("pledge.anonymousDonor") : maskDonorAddress(receipt.donorAddress)}
             </dd>
           </div>
         </dl>
@@ -213,8 +215,7 @@ export function CampaignDonationPanel({
         <div className="mt-4 flex items-start gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-200">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span data-testid="donation-insurance-notice">
-            1% of your donation funds the campaign insurance pool. If trees die within
-            two years of planting, sponsors receive an automatic refund from the pool.
+            {t("pledge.insuranceNotice")}
           </span>
         </div>
 
@@ -223,7 +224,7 @@ export function CampaignDonationPanel({
         </div>
 
         <Button type="button" variant="outline" className="mt-6" onClick={reset}>
-          Make another donation
+          {t("pledge.makeAnother")}
         </Button>
       </section>
     );
@@ -234,7 +235,7 @@ export function CampaignDonationPanel({
       <div className="flex items-center gap-2">
         <Heart className="h-5 w-5 text-rose-400" aria-hidden="true" />
         <h2 className="text-lg font-semibold text-zinc-100">
-          Donate to {campaignName ?? "this campaign"}
+          {t("pledge.donateTo", { campaign: campaignName ?? t("pledge.thisCampaign") })}
         </h2>
       </div>
       <p className="mt-2 text-sm text-zinc-400">{DONATION_ALLOCATION_DESCRIPTION}</p>
@@ -242,13 +243,12 @@ export function CampaignDonationPanel({
       <div className="mt-4 flex items-start gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-emerald-200">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
         <span data-testid="donation-insurance-notice">
-          1% of every donation funds the campaign insurance pool. If trees die within
-          two years of planting, sponsors receive an automatic refund from the pool.
+          {t("pledge.insuranceNotice")}
         </span>
       </div>
 
       <div className="mt-6">
-        <span className="block text-sm text-zinc-300">Quick amounts</span>
+        <span className="block text-sm text-zinc-300">{t("pledge.quickAmounts")}</span>
         <div className="mt-2 flex flex-wrap gap-2">
           {DONATION_PRESET_AMOUNTS.map((preset) => (
             <button
@@ -272,7 +272,7 @@ export function CampaignDonationPanel({
       <div className="mt-5 grid gap-5 sm:grid-cols-[1fr_auto]">
         <div>
           <label htmlFor="donation-amount" className="block text-sm text-zinc-300">
-            Donation amount
+            {t("pledge.amountLabel")}
           </label>
           <Input
             id="donation-amount"
@@ -288,7 +288,7 @@ export function CampaignDonationPanel({
         </div>
         <div>
           <label htmlFor="donation-token" className="block text-sm text-zinc-300">
-            Token
+            {t("pledge.tokenLabel")}
           </label>
           <select
             id="donation-token"
@@ -309,7 +309,7 @@ export function CampaignDonationPanel({
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="donation-donor-name" className="block text-sm text-zinc-300">
-            Your name (optional)
+            {t("pledge.nameLabel")}
           </label>
           <Input
             id="donation-donor-name"
@@ -323,7 +323,7 @@ export function CampaignDonationPanel({
         </div>
         <div>
           <label htmlFor="donation-donor-email" className="block text-sm text-zinc-300">
-            Email for a thank-you note (optional)
+            {t("pledge.emailLabel")}
           </label>
           <Input
             id="donation-donor-email"
@@ -339,7 +339,7 @@ export function CampaignDonationPanel({
 
       <div className="mt-5">
         <label htmlFor="donation-message" className="block text-sm text-zinc-300">
-          Message to the creator (optional)
+          {t("pledge.messageLabel")}
         </label>
         <textarea
           id="donation-message"
@@ -348,11 +348,11 @@ export function CampaignDonationPanel({
           maxLength={MAX_DONATION_MESSAGE_LENGTH}
           value={message}
           onChange={(event) => setMessage(event.target.value)}
-          placeholder="Add a note of encouragement…"
+          placeholder={t("pledge.messagePlaceholder")}
           className="mt-2 w-full rounded-md border border-white/10 bg-black/30 p-3 text-sm text-zinc-100"
         />
-        <p className="mt-1 text-right text-xs text-zinc-500">
-          {message.length}/{MAX_DONATION_MESSAGE_LENGTH}
+        <p className="mt-1 text-end text-xs text-zinc-500">
+          {t("pledge.charCount", { count: message.length, max: MAX_DONATION_MESSAGE_LENGTH })}
         </p>
       </div>
 
@@ -363,7 +363,7 @@ export function CampaignDonationPanel({
           checked={anonymous}
           onChange={(event) => setAnonymous(event.target.checked)}
         />
-        Donate anonymously
+        {t("pledge.anonymous")}
       </label>
 
       {error && (
@@ -379,7 +379,11 @@ export function CampaignDonationPanel({
         onClick={submit}
         className="mt-6"
       >
-        {submitting ? "Recording donation…" : `Donate ${amount ? `${amount} ${token}` : "now"}`}
+        {submitting
+          ? t("pledge.submitting")
+          : amount
+          ? t("pledge.submit", { amount: `${amount} ${token}` })
+          : t("pledge.submitNow")}
       </Button>
     </section>
   );

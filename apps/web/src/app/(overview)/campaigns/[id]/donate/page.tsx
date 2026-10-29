@@ -7,6 +7,7 @@ import { ArrowLeft, Recycle } from "lucide-react";
 import { CarbonTradingPanel } from "@/components/modules/campaign/carbon/CarbonTradingPanel";
 import { CampaignDonationPanel } from "@/components/modules/campaign/donation/CampaignDonationPanel";
 import { CampaignWaitlistPanel } from "@/components/modules/campaign/waitlist/CampaignWaitlistPanel";
+import { useTranslation } from "@/i18n/I18nProvider";
 
 /**
  * One-time charitable donation page (issue #1001).
@@ -22,6 +23,7 @@ import { CampaignWaitlistPanel } from "@/components/modules/campaign/waitlist/Ca
  * teaser and a waitlist email capture form instead of the donation flow.
  */
 export default function CampaignDonatePage() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const campaignId = String(id);
 
@@ -31,14 +33,13 @@ export default function CampaignDonatePage() {
         href={`/campaigns/${campaignId}`}
         className="inline-flex items-center text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-200"
       >
-        <ArrowLeft className="mr-1 h-3.5 w-3.5" /> Back to campaign
+        <ArrowLeft className="me-1 h-3.5 w-3.5 rtl:rotate-180" /> {t("pledge.backToCampaign")}
       </Link>
 
       <header className="mt-6">
-        <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">Make a one-time donation</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-zinc-100">{t("pledge.pageTitle")}</h1>
         <p className="mt-3 max-w-2xl text-sm text-zinc-400">
-          Contribute to this campaign without buying specific trees. Your donation is placed at the
-          creator&#39;s discretion to cover project costs, and you&#39;ll receive a receipt to keep.
+          {t("pledge.pageDescription")}
         </p>
       </header>
 

@@ -59,7 +59,7 @@
       "title": "Langue et région",
       "nav": "Langue",
       "description": "Choisissez la langue utilisée dans l'interface Fundable. Votre choix est enregistré sur cet appareil.",
-      "rtlNotice": "L'arabe s'affiche de droite à gauche."
+      "rtlNotice": "L'arabe et l'hébreu s'affichent de droite à gauche."
     },
     "webhooks": {
       "title": "Webhooks",
@@ -162,5 +162,91 @@
       "saved": "Conditions d'investissement enregistrées.",
       "notInvestment": "Cette campagne n'offre pas de rendement financier."
     }
+  },
+  "campaign": {
+    "progress": {
+      "title": "Progression du financement de la campagne",
+      "ariaLabel": "Progression du financement de la campagne",
+      "valuetext": "{percentage} % financés, {raised} sur {goal} {currency}",
+      "goalProgress": "Progression de l'objectif",
+      "stretchUnlocked": "Objectif étendu débloqué ! Formidable !",
+      "goalReached": "Objectif atteint ! Entièrement financé !",
+      "minTargetReached": "Objectif minimum atteint ! La campagne réussira.",
+      "inProgress": "Collecte de fonds en cours…",
+      "totalRaised": "Total collecté",
+      "minimum": "Minimum",
+      "goal": "Objectif",
+      "stretch": "Étendu",
+      "minMilestone": "Min. ({percent} %)",
+      "goalMilestone": "Objectif ({percent} %)",
+      "stretchMilestone": "Étendu (100 %)",
+      "goalMilestoneFull": "Objectif (100 %)"
+    },
+    "stepper": {
+      "ariaLabel": "Étapes de création de la campagne",
+      "stepOf": "Étape {current} sur {total}",
+      "streamAriaLabel": "Progression de la création du flux",
+      "stepAriaLabel": "Étape {number} : {title}"
+    },
+    "milestones": {
+      "ariaLabel": "Progression des jalons de la campagne",
+      "title": "Jalons de financement",
+      "reached": "{achieved} / {total} atteints",
+      "marker": "Jalon {label} {status}",
+      "reachedStatus": "atteint",
+      "notReachedStatus": "non atteint",
+      "next": "Prochain jalon :",
+      "percentOfGoal": "({percent} % de l'objectif)",
+      "allReached": "Tous les jalons atteints — objectif réalisé !",
+      "raisedOfGoal": "{raised} / {goal} {token} collectés ({percent} %)"
+    }
+  },
+  "pledge": {
+    "pageTitle": "Faire un don unique",
+    "pageDescription": "Soutenez cette campagne sans acheter d'arbres précis. Votre don est laissé à la discrétion du créateur pour couvrir les frais du projet, et vous recevez un reçu à conserver.",
+    "backToCampaign": "Retour à la campagne",
+    "donateTo": "Faire un don à {campaign}",
+    "thisCampaign": "cette campagne",
+    "oneTimeTrigger": "Don unique",
+    "oneTimeTitle": "Don unique",
+    "closeDialog": "Fermer la fenêtre de don",
+    "openFullPage": "Vous préférez une page complète ?",
+    "openDonationPage": "Ouvrir la page de don",
+    "quickAmounts": "Montants rapides",
+    "amountLabel": "Montant du don",
+    "tokenLabel": "Jeton",
+    "nameLabel": "Votre nom (facultatif)",
+    "emailLabel": "E-mail pour un message de remerciement (facultatif)",
+    "messageLabel": "Message au créateur (facultatif)",
+    "messagePlaceholder": "Ajoutez un mot d'encouragement…",
+    "anonymous": "Donner anonymement",
+    "submit": "Donner {amount}",
+    "submitNow": "Donner maintenant",
+    "submitting": "Enregistrement du don…",
+    "connectWallet": "Connectez votre portefeuille pour faire un don.",
+    "recordError": "Nous n'avons pas pu enregistrer votre don. Veuillez réessayer.",
+    "networkError": "Erreur réseau — vérifiez votre connexion et réessayez.",
+    "successToast": "Merci pour votre don !",
+    "confirmed": "Don confirmé",
+    "confirmedDescription": "Merci — votre contribution revient directement au créateur de la campagne.",
+    "loadingThankYou": "Chargement du message du créateur…",
+    "receiptReference": "Référence du reçu",
+    "amount": "Montant",
+    "allocatedTo": "Affecté à",
+    "donor": "Donateur",
+    "anonymousDonor": "Anonyme",
+    "insuranceNotice": "1 % de chaque don alimente le fonds d'assurance de la campagne. Si des arbres meurent dans les deux ans suivant la plantation, les sponsors sont remboursés automatiquement par le fonds.",
+    "badgesUnlocked": "Progression du badge débloquée",
+    "makeAnother": "Faire un autre don",
+    "charCount": "{count}/{max}"
+  },
+  "errors": {
+    "genericTitle": "Une erreur est survenue",
+    "genericDescription": "Une erreur inattendue s'est produite lors du chargement de cette section.",
+    "rootTitle": "Erreur de l'application",
+    "rootDescription": "Un événement inattendu s'est produit dans l'interface de l'application.",
+    "tryAgain": "Réessayer",
+    "backToDashboard": "Retour au tableau de bord",
+    "configTitle": "Erreur de configuration"
   }
 }
