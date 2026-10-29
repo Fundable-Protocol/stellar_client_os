@@ -100,6 +100,9 @@ export function useCampaigns() {
             isStaffPick: Boolean(c.isStaffPick),
             staffPickReason: c.staffPickReason,
             charityBadge: c.charityBadge,
+            // Creator identity verification (email, phone, government ID) for the card badge.
+            creator: c.creator,
+            creatorVerification: c.creatorVerification ?? c.verification,
             // Provider-backed live status for the card indicator (#1225).
             liveStream: c.liveStream ?? undefined,
             streamStatus: c.streamStatus ?? undefined,

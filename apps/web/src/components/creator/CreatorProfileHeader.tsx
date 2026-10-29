@@ -2,6 +2,7 @@
 
 import { CreatorStats } from "@/services/creator-stats.service";
 import { CreatorLinkedInBadge } from "@/components/creator/LinkedInBadge";
+import { CampaignCreatorVerificationBadge } from "@/components/creator/CreatorVerificationBadge";
 
 interface CreatorProfileHeaderProps {
   address: string;
@@ -17,7 +18,10 @@ export function CreatorProfileHeader({ address, stats }: CreatorProfileHeaderPro
           {address.slice(0, 2).toUpperCase()}
         </div>
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Creator Profile</h1>
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2 flex-wrap">
+            Creator Profile
+            <CampaignCreatorVerificationBadge creator={address} size="md" />
+          </h1>
           <p className="text-gray-600 font-mono text-sm mt-1">
             {address.slice(0, 8)}...{address.slice(-8)}
           </p>

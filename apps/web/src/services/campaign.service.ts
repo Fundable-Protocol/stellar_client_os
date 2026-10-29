@@ -14,6 +14,11 @@ import { campaignNFTRewardService } from "./campaign-nft-reward.service";
 import type { CampaignWebhookEvent } from "@/types/webhook";
 import type { CampaignLocalizedContent } from "@/lib/translation";
 import type { CampaignLiveStream } from "@/lib/live-stream";
+import {
+  getVerificationSummaryFor,
+  type CampaignVerificationSummary,
+  type CreatorVerificationLevel,
+} from "@/lib/creator-verification";
 
 export type { CampaignLiveStream, LiveStreamPlatform, LiveStreamStatus } from "@/lib/live-stream";
 
@@ -125,24 +130,12 @@ export interface StatusHistoryEntry {
   reason?: string;
 }
 
-export type CampaignVerificationStatus = "verified" | "partial" | "unverified";
+export type CampaignVerificationStatus = CreatorVerificationLevel;
 export type CampaignRiskLevel = "low" | "moderate" | "high" | "critical";
 export type CampaignHealthLevel = "excellent" | "good" | "fair" | "poor";
 
-export interface CampaignVerificationSummary {
-  emailVerified: boolean;
-  phoneVerified: boolean;
-  addressVerified: boolean;
-  /** Backwards-compatible aliases used by older API consumers. */
-  verifiedEmail?: boolean;
-  verifiedPhone?: boolean;
-  verifiedAddress?: boolean;
-  badges: string[];
-  status: CampaignVerificationStatus;
-  isVerified: boolean;
-  verifiedCount: number;
-  totalCount: number;
-}
+/** Public creator identity verification summary (email, phone, government ID). */
+export type { CampaignVerificationSummary };
 
 export interface CampaignRiskAssessment {
   score: number;
@@ -400,6 +393,8 @@ export interface CampaignFilter {
   categories?: CampaignCategory[];
   /** Tag facet filter; a campaign matches when it carries any listed tag. */
   tags?: string[];
+  /** Only return campaigns whose creator earned the "Verified Creator" badge. */
+  verifiedOnly?: boolean;
 }
 
 export interface CampaignQueryInput {
@@ -486,32 +481,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/**
+ * Public creator identity verification summary for a campaign. Verification is
+ * optional: campaigns whose creator has not completed any step are reported as
+ * `unverified`; completing email, phone and government ID earns `verified`
+ * (the "Verified Creator" badge). See docs/creator-identity-verification.md.
+ */
 export function getCampaignVerificationSummary(campaign: Partial<CampaignRecord> = {}): CampaignVerificationSummary {
-  const explicit = campaign.creatorVerification ?? campaign.verification ?? {};
-  const emailVerified = Boolean((explicit as Partial<CampaignVerificationSummary>).emailVerified ?? false);
-  const phoneVerified = Boolean((explicit as Partial<CampaignVerificationSummary>).phoneVerified ?? false);
-  const addressVerified = Boolean((explicit as Partial<CampaignVerificationSummary>).addressVerified ?? false);
-  const badges = [
-    emailVerified ? "email" : null,
-    phoneVerified ? "phone" : null,
-    addressVerified ? "address" : null,
-  ].filter((badge): badge is string => Boolean(badge));
-  const verifiedCount = [emailVerified, phoneVerified, addressVerified].filter(Boolean).length;
-  const status: CampaignVerificationStatus = verifiedCount === 3 ? "verified" : verifiedCount > 0 ? "partial" : "unverified";
-
-  return {
-    emailVerified,
-    phoneVerified,
-    addressVerified,
-    verifiedEmail: emailVerified,
-    verifiedPhone: phoneVerified,
-    verifiedAddress: addressVerified,
-    badges,
-    status,
-    isVerified: verifiedCount === 3,
-    verifiedCount,
-    totalCount: 3,
-  };
+  return getVerificationSummaryFor(campaign);
 }
 
 export function getCampaignRiskAssessment(campaign: Partial<CampaignRecord> = {}): CampaignRiskAssessment {
@@ -1118,6 +1095,7 @@ export async function queryCampaigns(input: CampaignQueryInput = {}, dataSource 
     if (filter.minGoalAmount && BigInt(campaign.goalAmount) < BigInt(filter.minGoalAmount)) return false;
     if (filter.maxGoalAmount && BigInt(campaign.goalAmount) > BigInt(filter.maxGoalAmount)) return false;
     if (filter.isStaffPick !== undefined && Boolean(campaign.isStaffPick) !== filter.isStaffPick) return false;
+    if (filter.verifiedOnly && !getCampaignVerificationSummary(campaign).isVerified) return false;
     if (filter.categories?.length && !filter.categories.includes(campaign.category as CampaignCategory)) return false;
     if (filter.tags?.length) {
       const campaignTags = new Set((campaign.tags ?? []).map((tag) => tag.toLowerCase()));
