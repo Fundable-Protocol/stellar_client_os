@@ -15,5 +15,9 @@
     "isolatedModules": true,
     "skipLibCheck": true
   },
-  "include": ["src/offline/**/*.ts"]
+  "include": [
+    "src/offline/**/*.ts",
+    "src/realtime/**/*.ts",
+    "src/linking.ts"
+  ]
 }
