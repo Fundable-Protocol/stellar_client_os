@@ -1,5 +1,25 @@
 # Tax Document Generation — issue #792
 
+## Annual creator and backer compliance report — issue #1351
+
+Wallet owners can download an annual transaction summary from **Settings →
+Tax reports** in CSV or PDF format. Choose the calendar tax year and whether
+the report is for creator activity or backer pledges. The export includes
+recorded campaign, UTC date, transaction hash when available, token amount,
+counterparty, and annual gross totals grouped by token.
+
+The report uses the campaign sponsorship records and associated backer
+contributions currently held by the platform. The ledger does not currently
+record historical USD exchange rates, platform-fee amounts, milestone payouts,
+or reward fulfillment. Those values are identified as not recorded in the
+report; they are never estimated. Backer reward status is also unclassified
+when fulfillment data is unavailable. Reports are informational and do not
+constitute tax advice.
+
+`GET /api/tax/compliance-report?wallet=G...&year=2025&role=backer&format=csv`
+returns the CSV; use `format=pdf` for the formatted PDF. The `role` parameter
+accepts `creator` or `backer`.
+
 The Fundable Protocol auto-generates tax documents for campaign creators based
 on the funding they received in a given tax year. Creators receive documents
 matching their tax jurisdiction:

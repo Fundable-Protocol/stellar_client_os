@@ -59,7 +59,7 @@
       "title": "اللغة والمنطقة",
       "nav": "اللغة",
       "description": "اختر اللغة المستخدمة في واجهة Fundable. يُحفظ اختيارك على هذا الجهاز.",
-      "rtlNotice": "تُعرض العربية من اليمين إلى اليسار."
+      "rtlNotice": "تُعرض العربية والعبرية من اليمين إلى اليسار."
     },
     "webhooks": {
       "title": "الويب هوك",
@@ -162,5 +162,91 @@
       "saved": "تم حفظ شروط الاستثمار.",
       "notInvestment": "لا تقدّم هذه الحملة عائدًا ماليًا."
     }
+  },
+  "campaign": {
+    "progress": {
+      "title": "تقدم تمويل الحملة",
+      "ariaLabel": "تقدم تمويل الحملة",
+      "valuetext": "تم تمويل {percentage}%، {raised} من {goal} {currency}",
+      "goalProgress": "تقدم الهدف",
+      "stretchUnlocked": "تم فتح الهدف الموسّع! رائع!",
+      "goalReached": "تم بلوغ الهدف! التمويل مكتمل!",
+      "minTargetReached": "تم بلوغ الحد الأدنى! ستنجح الحملة.",
+      "inProgress": "جارٍ جمع التبرعات…",
+      "totalRaised": "إجمالي ما جُمع",
+      "minimum": "الحد الأدنى",
+      "goal": "الهدف",
+      "stretch": "موسّع",
+      "minMilestone": "الحد الأدنى ({percent}%)",
+      "goalMilestone": "الهدف ({percent}%)",
+      "stretchMilestone": "موسّع (100%)",
+      "goalMilestoneFull": "الهدف (100%)"
+    },
+    "stepper": {
+      "ariaLabel": "خطوات إنشاء الحملة",
+      "stepOf": "الخطوة {current} من {total}",
+      "streamAriaLabel": "تقدم إنشاء التدفق",
+      "stepAriaLabel": "الخطوة {number}: {title}"
+    },
+    "milestones": {
+      "ariaLabel": "تقدم مراحل الحملة",
+      "title": "مراحل التمويل",
+      "reached": "{achieved} / {total} تم بلوغها",
+      "marker": "المرحلة {label} {status}",
+      "reachedStatus": "مُنجزة",
+      "notReachedStatus": "غير مُنجزة",
+      "next": "المرحلة التالية:",
+      "percentOfGoal": "({percent}% من الهدف)",
+      "allReached": "تم بلوغ جميع المراحل — تحقق الهدف!",
+      "raisedOfGoal": "{raised} / {goal} {token} تم جمعها ({percent}%)"
+    }
+  },
+  "pledge": {
+    "pageTitle": "تقديم تبرع لمرة واحدة",
+    "pageDescription": "ساهم في هذه الحملة دون شراء أشجار محددة. يُترك تبرعك لتقدير صاحب الحملة لتغطية تكاليف المشروع، وستحصل على إيصال للاحتفاظ به.",
+    "backToCampaign": "العودة إلى الحملة",
+    "donateTo": "تبرع إلى {campaign}",
+    "thisCampaign": "هذه الحملة",
+    "oneTimeTrigger": "تبرع لمرة واحدة",
+    "oneTimeTitle": "تبرع لمرة واحدة",
+    "closeDialog": "إغلاق نافذة التبرع",
+    "openFullPage": "هل تفضّل صفحة كاملة؟",
+    "openDonationPage": "فتح صفحة التبرع",
+    "quickAmounts": "مبالغ سريعة",
+    "amountLabel": "مبلغ التبرع",
+    "tokenLabel": "الرمز",
+    "nameLabel": "اسمك (اختياري)",
+    "emailLabel": "البريد الإلكتروني لرسالة شكر (اختياري)",
+    "messageLabel": "رسالة إلى صاحب الحملة (اختياري)",
+    "messagePlaceholder": "أضف كلمة تشجيع…",
+    "anonymous": "التبرع بشكل مجهول",
+    "submit": "تبرع بمبلغ {amount}",
+    "submitNow": "تبرع الآن",
+    "submitting": "جارٍ تسجيل التبرع…",
+    "connectWallet": "اربط محفظتك للتبرع.",
+    "recordError": "تعذّر تسجيل تبرعك. يُرجى المحاولة مرة أخرى.",
+    "networkError": "خطأ في الشبكة — يُرجى التحقق من اتصالك والمحاولة مرة أخرى.",
+    "successToast": "شكرًا على تبرعك!",
+    "confirmed": "تم تأكيد التبرع",
+    "confirmedDescription": "شكرًا — تذهب مساهمتك مباشرة إلى صاحب الحملة.",
+    "loadingThankYou": "جارٍ تحميل رسالة صاحب الحملة…",
+    "receiptReference": "مرجع الإيصال",
+    "amount": "المبلغ",
+    "allocatedTo": "المخصص لـ",
+    "donor": "المتبرع",
+    "anonymousDonor": "مجهول",
+    "insuranceNotice": "1% من كل تبرع يموّل صندوق تأمين الحملة. إذا ماتت الأشجار خلال عامين من زراعتها، يحصل الداعمون على استرداد تلقائي من الصندوق.",
+    "badgesUnlocked": "تم فتح تقدم الشارة",
+    "makeAnother": "تقديم تبرع آخر",
+    "charCount": "{count}/{max}"
+  },
+  "errors": {
+    "genericTitle": "حدث خطأ ما",
+    "genericDescription": "حدث خطأ غير متوقع أثناء تحميل هذا القسم.",
+    "rootTitle": "خطأ في التطبيق",
+    "rootDescription": "حدث أمر غير متوقع في واجهة التطبيق.",
+    "tryAgain": "إعادة المحاولة",
+    "backToDashboard": "العودة إلى لوحة التحكم",
+    "configTitle": "خطأ في الإعدادات"
   }
 }

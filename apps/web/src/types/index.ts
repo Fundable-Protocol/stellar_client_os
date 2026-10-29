@@ -49,4 +49,4 @@ export * from './impact-nft';
 export * from './campaign-milestone-release';
 export * from './campaign-reward-nft';
 export * from './backer-notification-preferences';
-export * from './recurring-contributions';
+export * from './campaign-ab-testing';

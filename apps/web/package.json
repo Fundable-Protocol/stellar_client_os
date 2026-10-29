@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "test:a11y": "vitest run src/tests/accessibility-ci.test.tsx",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -15,7 +16,6 @@
     "build-storybook": "build-storybook -o storybook-static"
   },
   "dependencies": {
-    "@sentry/nextjs": "^10.71.0",
     "@creit.tech/stellar-wallets-kit": "^1.9.5",
     "@fundable/sdk": "workspace:*",
     "@graphql-tools/schema": "^10.0.7",
@@ -30,6 +30,7 @@
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@sentry/nextjs": "^10.71.0",
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^14.4.3",
     "@tanstack/react-query": "^5.90.20",
@@ -68,6 +69,7 @@
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "axe-core": "^4.14.0",
     "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "jsdom": "^27.4.0",

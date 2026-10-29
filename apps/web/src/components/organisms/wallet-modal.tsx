@@ -164,6 +164,7 @@ export function WalletModal() {
                   data-testid={`wallet-option-${wallet.id}`}
                   className={`group relative flex items-center gap-3 sm:gap-4 w-full p-3 sm:p-4 rounded-2xl transition-all duration-200 border outline-none
                     focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0F1621]
+                    high-contrast:focus-visible:ring-4 high-contrast:focus-visible:ring-yellow-300 high-contrast:focus-visible:ring-offset-black
                     disabled:opacity-50 disabled:cursor-not-allowed
                     ${isSelected
                       ? "bg-white/10 border-white/30 shadow-[0_0_20px_rgba(255,255,255,0.05)]"
@@ -216,6 +217,7 @@ export function WalletModal() {
             data-testid="connect-now-button"
             className={`relative w-full py-3.5 sm:py-4 rounded-2xl font-bold text-sm tracking-widest uppercase transition-all duration-200 flex items-center justify-center gap-3 overflow-hidden
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0F1621]
+              high-contrast:focus-visible:ring-4 high-contrast:focus-visible:ring-yellow-300 high-contrast:focus-visible:ring-offset-black
               ${activeSelection && !isConnecting
                 ? "bg-white text-[#0F1621] hover:scale-[1.02] active:scale-[0.98] shadow-lg cursor-pointer"
                 : "bg-white/5 text-white/20 cursor-not-allowed"

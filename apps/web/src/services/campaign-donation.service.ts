@@ -28,9 +28,11 @@ import {
   DEFAULT_MILESTONES,
   evaluateMilestones,
   type CampaignMilestone,
-} from "./campaign-milestones";
+} from "../lib/campaign-milestones";
 import { CampaignMilestoneEmailService } from "./campaign-milestone-email.service";
 import { buildCampaignNotificationDispatch } from "./campaign-notification.service";
+import { campaignReferralService } from "./campaign-referral.service";
+import { backerBadgeService } from "./backer-badge.service";
 
 /**
  * One-time charitable campaign donations (issue #1001).
@@ -139,6 +141,8 @@ export interface CreateDonationInput {
   originalCurrency?: string;
   /** Currency the pledge is converted to. Defaults to the original currency. */
   convertedCurrency?: string;
+  /** Short campaign referral code carried from the backer's referral link. */
+  referralCode?: string;
 }
 
 export type DonationResult =
@@ -395,6 +399,16 @@ export class CampaignDonationService {
     if (idempotencyKey) {
       this.idempotency.set(this.idempotencyKey(campaignId, idempotencyKey), donation.id);
     }
+    campaignReferralService.recordConversion({
+      code: input.referralCode,
+      campaignId,
+      pledgeId: donation.id,
+      donorAddress,
+      amount,
+      token,
+      createdAt: now,
+    });
+
     const badges = backerBadgeService.recordPledge({
       address: donorAddress,
       campaignId,
@@ -490,6 +504,15 @@ export class CampaignDonationService {
   /** Every donation recorded for a campaign, oldest first. */
   getDonations(campaignId: string): CampaignDonation[] {
     return [...this.campaignDonations(campaignId)];
+  }
+
+  /** Campaigns in which the given wallet has made a confirmed donation. */
+  getCampaignIdsForDonor(donorAddress: string): string[] {
+    const address = donorAddress?.trim().toLowerCase();
+    if (!address) return [];
+    return [...this.donations.entries()]
+      .filter(([, donations]) => donations.some((donation) => donation.donorAddress.trim().toLowerCase() === address))
+      .map(([campaignId]) => campaignId);
   }
 
   getReceipt(donationId: string): DonationReceipt | undefined {

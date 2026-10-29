@@ -36,4 +36,20 @@ describe("CampaignSearch", () => {
     expect(screen.getByText("Sub-Saharan Acacia Agroforestry Expansion")).toBeTruthy();
     expect(screen.queryByText("Amazon Rainforest Reforestation Initiative")).toBeNull();
   });
+
+  it("surfaces creator verification badges and filters to verified creators", () => {
+    render(<CampaignSearch />);
+
+    const badges = screen.getAllByTestId("creator-verification-badge");
+    expect(badges.map((badge) => badge.getAttribute("data-verification-status")).sort()).toEqual(["partial", "verified"]);
+
+    const toggle = screen.getByRole("button", { name: "Verified creators only" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
+
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByText("Amazon Rainforest Reforestation Initiative")).toBeTruthy();
+    expect(screen.getByTestId("creator-verification-badge").textContent).toContain("Verified Creator");
+  });
 });

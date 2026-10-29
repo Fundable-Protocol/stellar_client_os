@@ -11,6 +11,7 @@ import { CampaignSearchPanel } from "@/components/modules/campaign/CampaignSearc
 import { VirtualizedCampaignGrid } from "@/components/modules/campaign/VirtualizedCampaignGrid";
 import { useCampaigns } from "@/hooks/use-campaigns";
 import { CharityBadge } from "@/components/modules/campaign/CharityBadge";
+import { CreatorVerificationBadge } from "@/components/creator/CreatorVerificationBadge";
 import { StaffPickBadge } from "@/components/modules/campaign/StaffPickBadge";
 import { LiveStreamBadge } from "@/components/modules/campaign/live-stream/LiveStreamBadge";
 import { StaffPicksSection } from "@/components/modules/campaign/StaffPicksSection";
@@ -319,7 +320,10 @@ const { campaigns } = useCampaigns();
                             <h3 className="text-xl font-bold text-zinc-100 group-hover:text-purple-300 transition-colors">
                               {c.title}
                             </h3>
-                            <CharityBadge badge={c.charityBadge} />
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <CharityBadge badge={c.charityBadge} />
+                              <CreatorVerificationBadge verification={c.creatorVerification} />
+                            </div>
                             <p className="text-xs text-zinc-400 line-clamp-2 leading-relaxed">{c.description}</p>
                           </div>
 

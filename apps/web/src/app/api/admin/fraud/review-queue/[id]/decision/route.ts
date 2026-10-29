@@ -11,6 +11,10 @@ const NO_STORE_HEADERS = { 'Cache-Control': 'private, no-store, max-age=0' };
 /**
  * POST /api/admin/fraud/review-queue/:id/decision
  * Body: { decision: 'APPROVE' | 'REJECT', reviewedBy: string, notes?: string }
+ *
+ * APPROVE clears the campaign's withheld status so it re-enters leaderboards and
+ * matching pools. REJECT keeps it withheld and records the moderator decision.
+ * Both paths write an audit entry via the fraud detection service.
  */
 export async function POST(
   request: NextRequest,
@@ -38,6 +42,13 @@ export async function POST(
       );
     }
 
+    if (notes !== undefined && typeof notes !== 'string') {
+      return NextResponse.json(
+        { error: 'notes must be a string when provided' },
+        { status: 400, headers: NO_STORE_HEADERS }
+      );
+    }
+
     const updatedItem = await fraudDetectionService.processManualReview(campaignId, {
       decision,
       reviewedBy,
@@ -48,6 +59,7 @@ export async function POST(
       {
         success: true,
         reviewItem: updatedItem,
+        campaignWithheld: updatedItem?.withheldFromRanking !== false && decision === 'REJECT',
       },
       { headers: NO_STORE_HEADERS }
     );
