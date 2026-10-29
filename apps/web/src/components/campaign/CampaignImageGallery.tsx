@@ -51,11 +51,6 @@ export function CampaignImageGallery({ images }: CampaignImageGalleryProps) {
                 decoding="async"
                 referrerPolicy="no-referrer"
                 unoptimized
-                // crossOrigin="anonymous" prevents Safari on iOS 14 from
-                // caching the image as an opaque (no-CORS) response, which
-                // would cause subsequent cross-origin reads to fail silently.
-                crossOrigin="anonymous"
-                referrerPolicy="no-referrer-when-downgrade"
               />
             </figure>
           );

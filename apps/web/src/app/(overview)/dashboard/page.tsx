@@ -1,5 +1,6 @@
 import StatsOverview from "@/components/modules/dashboard/StatsOverview";
 import CreatorStatsDashboard from "@/components/modules/dashboard/CreatorStatsDashboard";
+import CampaignDataExport from "@/components/modules/dashboard/CampaignDataExport";
 import DashboardOverview from "@/components/modules/dashboard/DashboardOverview";
 import FeatureCards from "@/components/modules/dashboard/FeatureCards";
 import ImpactComparison from "@/components/modules/dashboard/ImpactComparison";
@@ -10,12 +11,25 @@ import { CampaignImpactCalculator } from "@/components/modules/impact/CampaignIm
 import CampaignCreatorBadge from "@/components/modules/dashboard/CampaignCreatorBadge";
 import MentorshipPanel from "@/components/modules/dashboard/MentorshipPanel";
 import { CO2SequestrationProjection } from "@/components/modules/dashboard/CO2SequestrationProjection";
+import { StaffPicksSection } from "@/components/modules/campaign/StaffPicksSection";
+import { SpotlightSection } from "@/components/modules/campaign/SpotlightSection";
+import { BackerNotificationPreferencePanel } from "@/components/modules/dashboard/BackerNotificationPreferencePanel";
+import { BackerTestimonialsDashboard } from "@/components/modules/dashboard/BackerTestimonialsDashboard";
+import { WebhookEventLog } from "@/components/modules/dashboard/WebhookEventLog";
+import CreatorAnalyticsEntryCard from "@/components/modules/dashboard/CreatorAnalyticsEntryCard";
 
 const DashboardPage = async () => {
     return (
         <main className="h-full overflow-y-auto space-y-4 md:space-y-12 py-10">
             <StatsOverview />
+            <BackerNotificationPreferencePanel />
+            <BackerTestimonialsDashboard />
+            <SpotlightSection />
+            <StaffPicksSection />
             <CreatorStatsDashboard />
+            <CampaignDataExport />
+            <CreatorAnalyticsEntryCard />
+            <WebhookEventLog />
             <CampaignCreatorBadge />
             <MentorshipPanel />
             <ForestReportExport />

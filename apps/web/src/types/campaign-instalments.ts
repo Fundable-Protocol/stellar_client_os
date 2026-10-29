@@ -47,6 +47,16 @@ export interface RewardTier {
   perks?: string[];
   limit?: number;
   claimed?: number;
+  /** Stellar-native NFT reward configuration (Asset & Airdrop on close) */
+  nftReward?: {
+    enabled: boolean;
+    assetUrl: string;
+    fileName?: string;
+    fileSize?: number;
+    mimeType?: string;
+    maxSupply?: number;
+    symbol?: string;
+  };
   createdAt: number;
   updatedAt: number;
 }
@@ -63,6 +73,15 @@ export interface ConfigureRewardTierInput {
   allowedPlanMonths?: InstalmentPlanMonths[];
   perks?: string[];
   limit?: number;
+  nftReward?: {
+    enabled: boolean;
+    assetUrl: string;
+    fileName?: string;
+    fileSize?: number;
+    mimeType?: string;
+    maxSupply?: number;
+    symbol?: string;
+  };
 }
 
 /**

@@ -18,22 +18,73 @@ export interface CampaignAnalytics {
   updatedAt: number;
 }
 
+export type TrafficSource = "direct" | "social" | "search" | "referral" | "email" | "other";
+
+export type ConversionStage = "view" | "pledge_started" | "pledge_completed";
+
+export interface DailyVelocity {
+  date: string;
+  totalPledged: string;
+  contributionCount: number;
+}
+
 interface CampaignAnalyticsState {
   totalViews: number;
   views: Set<string>;
-  contributions: Array<{ amount: bigint; sponsor: string }>;
+  contributions: Array<{ amount: bigint; sponsor: string; at: number }>;
   refunds: number;
+  trafficSources: Map<TrafficSource, number>;
+  conversions: Map<ConversionStage, Set<string>>;
 }
 
 const states = new Map<string, CampaignAnalyticsState>();
 
+const TRAFFIC_SOURCES: readonly TrafficSource[] = [
+  "direct",
+  "social",
+  "search",
+  "referral",
+  "email",
+  "other",
+];
+
+const CONVERSION_STAGES: readonly ConversionStage[] = [
+  "view",
+  "pledge_started",
+  "pledge_completed",
+];
+
+function normalizeSource(source?: string): TrafficSource {
+  const value = source?.trim().toLowerCase();
+  return TRAFFIC_SOURCES.includes(value as TrafficSource) ? (value as TrafficSource) : "other";
+}
+
+function normalizeStage(stage?: string): ConversionStage {
+  const value = stage?.trim().toLowerCase();
+  if (!CONVERSION_STAGES.includes(value as ConversionStage)) {
+    throw new Error("stage must be one of view, pledge_started, pledge_completed");
+  }
+  return value as ConversionStage;
+}
+
 function stateFor(campaignId: string): CampaignAnalyticsState {
   let state = states.get(campaignId);
   if (!state) {
-    state = { totalViews: 0, views: new Set(), contributions: [], refunds: 0 };
+    state = {
+      totalViews: 0,
+      views: new Set(),
+      contributions: [],
+      refunds: 0,
+      trafficSources: new Map(),
+      conversions: new Map(),
+    };
     states.set(campaignId, state);
   }
   return state;
+}
+
+function dayKey(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
 }
 
 function parseAmount(amount: string): bigint {
@@ -56,15 +107,52 @@ export async function recordCampaignView(
   state.views.add(viewerId?.trim() || `anonymous:${crypto.randomUUID()}`);
 }
 
+export async function recordPageView(
+  campaignId: string,
+  viewerId?: string,
+  source?: string,
+  dataSource = getCampaignDataSource(),
+): Promise<void> {
+  if (!(await getCampaign(campaignId, dataSource))) throw new Error("Campaign not found");
+  const state = stateFor(campaignId);
+  state.totalViews += 1;
+  state.views.add(viewerId?.trim() || `anonymous:${crypto.randomUUID()}`);
+  const trafficSource = normalizeSource(source);
+  state.trafficSources.set(trafficSource, (state.trafficSources.get(trafficSource) ?? 0) + 1);
+}
+
+export async function recordConversion(
+  campaignId: string,
+  viewerId: string,
+  stage: string,
+  dataSource = getCampaignDataSource(),
+): Promise<void> {
+  if (!(await getCampaign(campaignId, dataSource))) throw new Error("Campaign not found");
+  if (!viewerId?.trim()) throw new Error("viewerId is required");
+  const conversionStage = normalizeStage(stage);
+  const state = stateFor(campaignId);
+  let viewers = state.conversions.get(conversionStage);
+  if (!viewers) {
+    viewers = new Set();
+    state.conversions.set(conversionStage, viewers);
+  }
+  viewers.add(viewerId.trim());
+}
+
 export async function recordCampaignContribution(
   campaignId: string,
   amount: string,
   sponsor: string,
   dataSource = getCampaignDataSource(),
+  now = Date.now(),
 ): Promise<void> {
   if (!(await getCampaign(campaignId, dataSource))) throw new Error("Campaign not found");
   if (!sponsor?.trim()) throw new Error("sponsor is required");
-  stateFor(campaignId).contributions.push({ amount: parseAmount(amount), sponsor: sponsor.trim() });
+  stateFor(campaignId).contributions.push({
+    amount: parseAmount(amount),
+    sponsor: sponsor.trim(),
+    at: now,
+  });
 }
 
 export async function recordCampaignRefund(
@@ -77,6 +165,26 @@ export async function recordCampaignRefund(
 
 export function clearCampaignAnalytics(campaignId: string): void {
   states.delete(campaignId);
+}
+
+export function getDailyVelocity(campaignId: string): DailyVelocity[] {
+  const state = states.get(campaignId);
+  if (!state) return [];
+  const byDay = new Map<string, { total: bigint; count: number }>();
+  for (const contribution of state.contributions) {
+    const key = dayKey(contribution.at);
+    const entry = byDay.get(key) ?? { total: 0n, count: 0 };
+    entry.total += contribution.amount;
+    entry.count += 1;
+    byDay.set(key, entry);
+  }
+  return [...byDay.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([date, entry]) => ({
+      date,
+      totalPledged: entry.total.toString(),
+      contributionCount: entry.count,
+    }));
 }
 
 export async function getCampaignAnalytics(
@@ -119,6 +227,8 @@ export function seedCampaignAnalytics(campaignId: string, state: Partial<Campaig
     views: state.views ?? new Set(),
     contributions: state.contributions ?? [],
     refunds: state.refunds ?? 0,
+    trafficSources: state.trafficSources ?? new Map(),
+    conversions: state.conversions ?? new Map(),
   });
 }
 

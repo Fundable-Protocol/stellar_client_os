@@ -6,6 +6,31 @@ import { WalletNetwork } from "@creit.tech/stellar-wallets-kit";
 import type { TokenBalanceData } from "@/types/token-balance.types";
 
 /**
+ * Currencies a backer can pledge in. USD and EUR are fiat currencies that are
+ * converted to a settlement asset at pledge time; XLM and USDC settle on-chain
+ * directly.
+ */
+export type SupportedCurrency = "USD" | "EUR" | "XLM" | "USDC";
+
+/**
+ * Maps a supported currency to the Stellar asset code used for settlement.
+ * Fiat currencies settle in USDC; on-chain assets settle as themselves.
+ */
+export function getSettlementAssetCode(currency: SupportedCurrency): string {
+  switch (currency) {
+    case "USD":
+    case "EUR":
+      return "USDC";
+    case "XLM":
+      return "XLM";
+    case "USDC":
+      return "USDC";
+    default:
+      return "USDC";
+  }
+}
+
+/**
  * Hook that fetches and caches token balances for the connected wallet.
  * Shares the same react-query cache key as TokenBalanceList so data is
  * never fetched twice.
@@ -72,4 +97,16 @@ export function useTokenBalance(tokenCode: string | undefined) {
   });
 
   return { balance: balance ?? null, isLoading };
+}
+
+/**
+ * Returns the on-chain balance for the asset that settles the given currency.
+ * Use this to validate a converted pledge amount against the correct balance
+ * (e.g. USD/EUR pledges are checked against the USDC balance).
+ */
+export function useSettlementBalance(currency: SupportedCurrency | undefined) {
+  const assetCode = currency ? getSettlementAssetCode(currency) : undefined;
+  const { balance, isLoading } = useTokenBalance(assetCode);
+
+  return { balance, isLoading, assetCode };
 }

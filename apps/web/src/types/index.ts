@@ -29,6 +29,7 @@ export interface Campaign {
   id: number;
   creator: string; // Address
   species: string;
+  risksAndChallenges?: string;
   goal_amount: bigint;
   raised_amount: bigint;
   start_time: number;
@@ -46,3 +47,5 @@ export * from './creator-revenue-share';
 export * from './fraud-detection';
 export * from './impact-nft';
 export * from './campaign-milestone-release';
+export * from './campaign-reward-nft';
+export * from './backer-notification-preferences';

@@ -221,4 +221,181 @@ describe('FraudDetectionService - Campaign Anomaly & Fraud Detection (Issue #876
       expect(status.status).toBe('SUSPENDED');
     });
   });
+
+  describe('AI-assisted listing review on campaign publish', () => {
+    it('allows clean campaign listing without suspicious flags to go live', async () => {
+      const result = await service.reviewCampaignListing({
+        id: 'camp-clean-1',
+        title: 'Verifiable Reforestation Project',
+        creatorAddress: 'G_LEGIT_CREATOR',
+        description: 'Planting indigenous trees in managed community reserves with satellite proof.',
+        goalAmount: '5000',
+        treeCount: 500,
+        durationDays: 30,
+        location: 'Kenya',
+      });
+
+      expect(result.action).toBe('ALLOWED');
+      expect(result.report.flags).toHaveLength(0);
+      expect(result.reviewItem).toBeUndefined();
+    });
+
+    it('flags potentially fraudulent campaign for manual review queue when anomalies exist', async () => {
+      const result = await service.reviewCampaignListing({
+        id: 'camp-fraud-flagged-1',
+        title: 'High Yield Tree Investment',
+        creatorAddress: 'G_SUSPICIOUS',
+        description: 'Invest now with guaranteed 100% returns and no risk on fast growing timber.',
+        goalAmount: '10000',
+        treeCount: 100,
+        durationDays: 10,
+        location: 'Global',
+      });
+
+      expect(result.action).toBe('FLAGGED_FOR_MANUAL_REVIEW');
+      expect(result.report.overallRiskScore).toBeGreaterThanOrEqual(35);
+      expect(result.reviewItem).toBeDefined();
+      expect(result.reviewItem?.campaignId).toBe('camp-fraud-flagged-1');
+      expect(result.reviewItem?.status).toBe('PENDING');
+
+      // Check item appears in manual review queue
+      const queue = await service.getManualReviewQueue({ status: 'PENDING' });
+      expect(queue.some((item) => item.campaignId === 'camp-fraud-flagged-1')).toBe(true);
+
+      const securityStatus = await service.getSecurityStatus('camp-fraud-flagged-1');
+      expect(securityStatus.status).toBe('FLAGGED');
+    });
+
+    it('auto-suspends listing with critical risk patterns', async () => {
+      const result = await service.reviewCampaignListing({
+        id: 'camp-auto-suspend-1',
+        title: 'Money Flow Campaign',
+        creatorAddress: 'G_CREATOR_CIRCULAR',
+        description: 'guaranteed 100% returns',
+        transactions: [
+          { txHash: 'tx1', from: 'G_CREATOR_CIRCULAR', to: 'G_B1', amount: 1000, timestamp: Date.now() },
+          { txHash: 'tx2', from: 'G_B1', to: 'G_CREATOR_CIRCULAR', amount: 1000, timestamp: Date.now() },
+        ],
+        backers: [
+          { backerAddress: 'G_B1', ipAddress: '10.0.0.1', pledgeAmount: 10, pledgedAt: '2026-01-01T00:00:01Z' },
+          { backerAddress: 'G_B2', ipAddress: '10.0.0.1', pledgeAmount: 10, pledgedAt: '2026-01-01T00:00:02Z' },
+          { backerAddress: 'G_B3', ipAddress: '10.0.0.1', pledgeAmount: 10, pledgedAt: '2026-01-01T00:00:03Z' },
+        ],
+      });
+
+      expect(result.action).toBe('AUTO_SUSPENDED');
+      expect(result.report.isSuspended).toBe(true);
+      expect(result.reviewItem).toBeDefined();
+
+      const queue = await service.getManualReviewQueue();
+      expect(queue.some((i) => i.campaignId === 'camp-auto-suspend-1')).toBe(true);
+    });
+  });
+
+  describe('Manual Review Queue & Decision Processing', () => {
+    it('allows admin to approve flagged campaign, activating security status', async () => {
+      await service.reviewCampaignListing({
+        id: 'camp-review-approve',
+        title: 'Community Mangrove Restoration',
+        description: 'guaranteed 100% returns',
+      });
+
+      const queueBefore = await service.getManualReviewQueue({ status: 'PENDING' });
+      expect(queueBefore.some((i) => i.campaignId === 'camp-review-approve')).toBe(true);
+
+      const processed = await service.processManualReview('camp-review-approve', {
+        decision: 'APPROVE',
+        reviewedBy: 'admin@stellar.org',
+        notes: 'Verified legitimate non-profit initiative; keyword was benign metaphor.',
+      });
+
+      expect(processed.status).toBe('APPROVED');
+      expect(processed.reviewedBy).toBe('admin@stellar.org');
+
+      const status = await service.getSecurityStatus('camp-review-approve');
+      expect(status.status).toBe('ACTIVE');
+
+      const queuePending = await service.getManualReviewQueue({ status: 'PENDING' });
+      expect(queuePending.some((i) => i.campaignId === 'camp-review-approve')).toBe(false);
+    });
+
+    it('allows admin to reject flagged campaign, suspending it', async () => {
+      await service.reviewCampaignListing({
+        id: 'camp-review-reject',
+        title: 'Suspect Project',
+        description: 'free crypto bonus send eth to double',
+      });
+
+      const processed = await service.processManualReview('camp-review-reject', {
+        decision: 'REJECT',
+        reviewedBy: 'security-admin',
+        notes: 'Confirmed scam campaign.',
+      });
+
+      expect(processed.status).toBe('REJECTED');
+
+      const status = await service.getSecurityStatus('camp-review-reject');
+      expect(status.status).toBe('SUSPENDED');
+    });
+  });
+
+  describe('False Positive Rate Monitoring & Quarterly Model Retraining', () => {
+    it('calculates false positive rate accurately based on admin reviews', async () => {
+      // 1 approved (false positive) and 1 rejected (true positive)
+      await service.reviewCampaignListing({
+        id: 'camp-fp-1',
+        title: 'False Positive Campaign',
+        description: 'guaranteed 100% returns',
+      });
+      await service.processManualReview('camp-fp-1', {
+        decision: 'APPROVE',
+        reviewedBy: 'admin',
+      });
+
+      await service.reviewCampaignListing({
+        id: 'camp-tp-1',
+        title: 'True Positive Campaign',
+        description: 'send eth to double',
+      });
+      await service.processManualReview('camp-tp-1', {
+        decision: 'REJECT',
+        reviewedBy: 'admin',
+      });
+
+      const metrics = service.getModelMetrics();
+      expect(metrics.flaggedCount).toBe(2);
+      expect(metrics.approvedCount).toBe(1);
+      expect(metrics.rejectedCount).toBe(1);
+      // FPR = 1 / 2 = 0.5
+      expect(metrics.falsePositiveRate).toBe(0.5);
+      expect(metrics.version).toBe('v1.0.0');
+    });
+
+    it('identifies quarterly retraining schedule (90 days) and triggers retraining log', async () => {
+      expect(service.isQuarterlyRetrainingDue()).toBe(false);
+
+      // Advance time by 91 days
+      const ninetyOneDaysMs = 91 * 24 * 60 * 60 * 1000;
+      const futureTime = Date.now() + ninetyOneDaysMs;
+      expect(service.isQuarterlyRetrainingDue(futureTime)).toBe(true);
+
+      const retrainingLog = await service.retrainModel({
+        triggeredBy: 'QUARTERLY_SCHEDULE',
+        notes: 'Q4 scheduled model retraining incorporating validated review feedback.',
+        now: futureTime,
+      });
+
+      expect(retrainingLog.previousVersion).toBe('v1.0.0');
+      expect(retrainingLog.newVersion).toBe('v1.1.0');
+      expect(retrainingLog.triggeredBy).toBe('QUARTERLY_SCHEDULE');
+
+      const logs = service.getRetrainingLogs();
+      expect(logs).toHaveLength(1);
+      expect(logs[0].newVersion).toBe('v1.1.0');
+
+      const updatedMetrics = service.getModelMetrics();
+      expect(updatedMetrics.version).toBe('v1.1.0');
+      expect(service.isQuarterlyRetrainingDue(futureTime)).toBe(false);
+    });
+  });
 });

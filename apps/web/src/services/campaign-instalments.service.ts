@@ -76,6 +76,7 @@ export class CampaignInstalmentsService {
         : [],
       perks: input.perks || [],
       limit: input.limit,
+      nftReward: input.nftReward,
       claimed: existingIndex >= 0 ? tiers[existingIndex].claimed : 0,
       createdAt: existingIndex >= 0 ? tiers[existingIndex].createdAt : now,
       updatedAt: now,

@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import { CampaignSearch } from "@/components/modules/campaigns/CampaignSearch";
+import { StaffPicksSection } from "@/components/modules/campaign/StaffPicksSection";
 
 export const metadata: Metadata = {
   title: "Explore Campaigns | Fundable Protocol",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function CampaignsPage() {
   return (
-    <div className="container mx-auto py-8 px-4">
+    <div className="container mx-auto py-8 px-4 space-y-8">
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">
           Explore Impact Campaigns
@@ -17,6 +18,8 @@ export default function CampaignsPage() {
           Find and back environmental campaigns with full-text search by tree species, geographic location, and verified creator.
         </p>
       </div>
+
+      <StaffPicksSection />
 
       <CampaignSearch />
     </div>

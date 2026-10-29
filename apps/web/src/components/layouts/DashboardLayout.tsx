@@ -81,7 +81,7 @@ const InlineInfoMessage = ({
     const styles = getIconAndStyles();
 
     return (
-        <div className="flex items-center gap-2 ml-auto md:ml-auto">
+        <div className="flex items-center gap-2 ms-auto">
             <div className={styles.iconColor}>{styles.icon}</div>
             <span className={cn(highContrast ? "text-base font-medium" : "text-sm", styles.textColor)}>
                 {infoMessage.title && (

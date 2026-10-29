@@ -35,3 +35,33 @@ export function formatAmount(units: bigint): string {
 export function applyBps(units: bigint, bps: number): bigint {
   return (units * BigInt(bps)) / 10_000n;
 }
+
+/**
+ * Multiplies two decimal strings (an amount and a conversion rate) and rounds
+ * the product to 7 decimals using bigint minor units, so the quote, pledge and
+ * receipt all agree on the converted amount.
+ *
+ * Both inputs are parsed as minor units; their product is scaled back down by
+ * `SCALE` with round-half-up on the discarded remainder.
+ */
+export function convertAmount(amount: string, rate: string): string {
+  const amountUnits = parseAmount(amount);
+  const rateUnits = parseAmount(rate);
+  const product = amountUnits * rateUnits;
+  const quotient = product / SCALE;
+  const remainder = product % SCALE;
+  const rounded = remainder * 2n >= SCALE ? quotient + 1n : quotient;
+  return formatAmount(rounded);
+}
+
+/**
+ * Formats a conversion rate for display, trimming trailing zeros while
+ * keeping at least `minDecimals` (default 2) and at most 7 decimals.
+ */
+export function formatRate(rate: string, minDecimals = 2): string {
+  const units = parseAmount(rate);
+  const formatted = formatAmount(units);
+  const [whole, fraction = ""] = formatted.split(".");
+  const padded = fraction.padEnd(minDecimals, "0").slice(0, AMOUNT_DECIMALS);
+  return `${whole}${padded ? `.${padded}` : ""}`;
+}

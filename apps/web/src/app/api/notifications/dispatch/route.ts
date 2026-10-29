@@ -2,7 +2,6 @@ import { EmailService } from "@/services/email.service";
 import {
   getDueDigests,
   getPreferencesForCampaign,
-  getPreferencesForCampaign,
   markNotified,
 } from "@/services/notification-preferences.service";
 import { isMilestoneEvent, type ProgressEvent } from "@/lib/notification-schedule";
@@ -149,6 +148,8 @@ interface DispatchBody {
   };
   /** Impact metrics forwarded from the contribution service for milestone emails. */
   metrics?: DispatchMilestoneMetrics;
+  /** Waitlist launch notification payload (sent when a coming-soon campaign publishes). */
+  waitlist?: { emails?: string[]; campaignUrl?: string };
 }
 
 /**
@@ -177,11 +178,44 @@ export async function POST(request: Request) {
     sponsorId: string;
     channel: string;
     ok: boolean;
-    kind: "digest" | "milestone";
+    kind: "digest" | "milestone" | "waitlist";
     error?: string;
   }> = [];
 
   try {
+    if (body.waitlist && Array.isArray(body.waitlist.emails)) {
+      const campaignId = String(body.campaign?.id ?? "");
+      const campaignName = String(body.campaign?.name ?? "A campaign");
+      const campaignUrl =
+        body.waitlist.campaignUrl ??
+        `https://fundable.stellar/campaigns/${campaignId}`;
+      const subject = `${campaignName} is live! 🎉`;
+      const html = `<div style="font-family:sans-serif">
+  <h2>${campaignName} just launched</h2>
+  <p>You joined the waitlist — the campaign is now live and accepting pledges.</p>
+  <p><a href="${campaignUrl}">View campaign</a></p>
+</div>`;
+      for (const email of body.waitlist.emails) {
+        try {
+          await emailService.sendEmail({ to: email, subject, html });
+          deliveries.push({ sponsorId: email, channel: "email", ok: true, kind: "waitlist" });
+        } catch (err) {
+          deliveries.push({
+            sponsorId: email,
+            channel: "email",
+            ok: false,
+            kind: "waitlist",
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      return Response.json({
+        mode: "waitlist",
+        sent: deliveries.filter((d) => d.ok).length,
+        deliveries,
+      });
+    }
+
     if (isMilestoneEvent(event)) {
       const campaignId = String(body.campaign?.id ?? "");
       if (!campaignId) {

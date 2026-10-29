@@ -62,13 +62,16 @@ interface WalletContextType {
   network: WalletNetwork;
   setNetwork: (network: WalletNetwork) => Promise<void>;
   signTransaction: (xdr: string) => Promise<string>;
+  signMessage: (message: string) => Promise<{ signedMessage: string; signerAddress: string }>;
   openModal: () => void;
   closeModal: () => void;
   isModalOpen: boolean;
   supportedWallets: { id: WalletId; name: string; icon: string }[];
 }
 
-const WalletContext = createContext<WalletContextType | undefined>(undefined);
+/** Exported so optional-wallet UI can read the session without throwing when
+ * no provider is mounted (e.g. static previews and component tests). */
+export const WalletContext = createContext<WalletContextType | undefined>(undefined);
 
 export const useWallet = () => {
   const context = useContext(WalletContext);
@@ -465,6 +468,21 @@ export const StellarWalletProvider = ({
     [kit, address],
   );
 
+  const signMessage = useCallback(
+    async (message: string) => {
+      if (!kit || !address) throw new Error("Wallet not connected");
+      const { signedMessage, signerAddress } = await kit.signMessage(message, {
+        address,
+        networkPassphrase: network,
+      });
+      if (!signedMessage || !signerAddress) {
+        throw new Error("The connected wallet did not return a message signature.");
+      }
+      return { signedMessage, signerAddress };
+    },
+    [kit, address, network],
+  );
+
   const openModal = useCallback(() => setIsModalOpen(true), []);
   const closeModal = useCallback(() => setIsModalOpen(false), []);
 
@@ -482,6 +500,7 @@ export const StellarWalletProvider = ({
         network,
         setNetwork,
         signTransaction,
+        signMessage,
         openModal,
         closeModal,
         isModalOpen,

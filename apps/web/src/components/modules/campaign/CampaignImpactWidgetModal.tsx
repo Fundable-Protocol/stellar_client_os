@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { widgetIframeSrc, type WidgetColors } from "@/lib/widget-theme";
 
 export type WidgetTheme = "light" | "dark" | "forest";
 
@@ -106,6 +107,16 @@ const gradeStyles: Record<SustainabilityScoreResult["grade"], string> = {
   Stuttgart: "bg-slate-500/15 text-slate-300 border-slate-500/40",
 };
 
+const WIDGET_THEME_DEFAULTS: Record<WidgetTheme, Required<WidgetColors>> = {
+  forest: { accentColor: "#6ee7b7", backgroundColor: "#0b1f16" },
+  dark: { accentColor: "#34d399", backgroundColor: "#0f172a" },
+  light: { accentColor: "#059669", backgroundColor: "#ffffff" },
+};
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /**
  * CampaignImpactWidgetModal Component (Issue #883)
  *
@@ -127,6 +138,8 @@ export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps>
   co2OffsetTonnes,
 }) => {
   const [theme, setTheme] = useState<WidgetTheme>("forest");
+  const [accentColor, setAccentColor] = useState(WIDGET_THEME_DEFAULTS.forest.accentColor);
+  const [backgroundColor, setBackgroundColor] = useState(WIDGET_THEME_DEFAULTS.forest.backgroundColor);
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState("");
   const [speciesCount, setSpeciesCount] = useState(0);
@@ -161,8 +174,14 @@ export const CampaignImpactWidgetModal: React.FC<CampaignImpactWidgetModalProps>
 
   if (!isOpen) return null;
 
-  const embedUrl = `${origin || "https://fundable.stellar"}/api/campaigns/${campaignId}/widget?theme=${theme}`;
-  const embedCode = `<iframe src="${embedUrl}" width="100%" height="360" frameborder="0" style="border:0;border-radius:14px;max-width:440px;display:block;margin:0 auto;overflow:hidden;" title="${campaignTitle} Impact Widget"></iframe>`;
+  const embedColors = { accentColor, backgroundColor };
+  const embedUrl = widgetIframeSrc(
+    String(campaignId),
+    origin || "https://fundable.stellar",
+    theme,
+    embedColors,
+  );
+  const embedCode = `<iframe src="${embedUrl}" width="100%" height="390" frameborder="0" style="border:0;border-radius:14px;max-width:440px;display:block;margin:0 auto;overflow:hidden;" title="${escapeHtmlAttribute(campaignTitle)} Impact Widget"></iframe>`;
 
   const sustainability = calculateSustainabilityScore(sustainabilityInputs);
 
@@ -229,7 +248,11 @@ Embed real-time tree and CO₂ impact on your website or blog.
                 <button
                   key={t.id}
                   type="button"
-                  onClick={() => setTheme(t.id)}
+                  onClick={() => {
+                    setTheme(t.id);
+                    setAccentColor(WIDGET_THEME_DEFAULTS[t.id].accentColor);
+                    setBackgroundColor(WIDGET_THEME_DEFAULTS[t.id].backgroundColor);
+                  }}
                   className={`p-2.5 rounded-xl border text-left transition ${
                     theme === t.id
                       ? "border-emerald-500 bg-emerald-950/40 text-white"
@@ -241,6 +264,29 @@ Embed real-time tree and CO₂ impact on your website or blog.
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <label className="text-xs font-semibold text-slate-300">
+              Progress and button color
+              <input
+                aria-label="Widget accent color"
+                type="color"
+                value={accentColor}
+                onChange={(event) => setAccentColor(event.target.value)}
+                className="mt-2 block h-10 w-full cursor-pointer rounded border border-slate-700 bg-slate-800 p-1"
+              />
+            </label>
+            <label className="text-xs font-semibold text-slate-300">
+              Widget background
+              <input
+                aria-label="Widget background color"
+                type="color"
+                value={backgroundColor}
+                onChange={(event) => setBackgroundColor(event.target.value)}
+                className="mt-2 block h-10 w-full cursor-pointer rounded border border-slate-700 bg-slate-800 p-1"
+              />
+            </label>
           </div>
 
           {/* Species Diversity Score */}
@@ -353,9 +399,9 @@ Embed real-time tree and CO₂ impact on your website or blog.
             </label>
             <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800 flex justify-center">
               <iframe
-                src={`/api/campaigns/${campaignId}/widget?theme=${theme}&score=${sustainability.score}`}
+                src={embedUrl}
                 width="100%"
-                height="340"
+                height="390"
                 className="max-w-[420px] rounded-xl border-0 overflow-hidden"
                 title={`${campaignTitle} Preview`}
               />

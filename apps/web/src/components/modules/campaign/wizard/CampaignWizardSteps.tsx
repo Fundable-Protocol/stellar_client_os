@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Plus, Trash2, Calendar, Target, Sparkles, Layers, Image as ImageIcon, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, Calendar, Target, Sparkles, Layers, Image as ImageIcon, ShieldCheck, Bold, Italic, List } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,7 @@ import {
   TOKEN_OPTIONS,
   MilestoneItem,
 } from "./campaign-wizard-config";
+import type { AccessibilityAuditResult } from "@/services/campaign-accessibility.service";
 
 interface StepProps {
   data: CampaignWizardData;
@@ -37,6 +38,36 @@ function parseCountryList(raw: string): string[] {
 
 // Step 1: Details Component
 export function DetailsStep({ data, errors, updateField }: StepProps) {
+  const risksEditorRef = React.useRef<HTMLTextAreaElement>(null);
+
+  const formatRisks = (prefix: string, suffix = prefix) => {
+    const editor = risksEditorRef.current;
+    if (!editor) return;
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const selected = data.risksAndChallenges.slice(start, end) || "text";
+    const replacement = `${prefix}${selected}${suffix}`;
+    const next = `${data.risksAndChallenges.slice(0, start)}${replacement}${data.risksAndChallenges.slice(end)}`;
+    updateField("risksAndChallenges", next);
+    requestAnimationFrame(() => {
+      editor.focus();
+      editor.setSelectionRange(start + prefix.length, start + prefix.length + selected.length);
+    });
+  };
+
+  const addRisksListMarker = () => {
+    const editor = risksEditorRef.current;
+    if (!editor) return;
+    const start = editor.selectionStart;
+    const lineStart = data.risksAndChallenges.lastIndexOf("\n", start - 1) + 1;
+    const next = `${data.risksAndChallenges.slice(0, lineStart)}- ${data.risksAndChallenges.slice(lineStart)}`;
+    updateField("risksAndChallenges", next);
+    requestAnimationFrame(() => {
+      editor.focus();
+      editor.setSelectionRange(start + 2, start + 2);
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="border-b border-zinc-800 pb-4">
@@ -110,6 +141,38 @@ export function DetailsStep({ data, errors, updateField }: StepProps) {
           {errors.fullStory && <p className="mt-1 text-xs text-rose-400">{errors.fullStory}</p>}
         </div>
 
+        <div className="space-y-2 rounded-lg border border-amber-800/50 bg-amber-950/10 p-4">
+          <div>
+            <Label htmlFor="risksAndChallenges" className="text-zinc-200">
+              Risks and Challenges <span className="text-rose-400">*</span>
+            </Label>
+            <p className="mt-1 text-xs text-zinc-400">
+              Explain the main uncertainties and how you plan to address them. Use the formatting tools to structure your response.
+            </p>
+          </div>
+          <div className="flex gap-1" role="toolbar" aria-label="Risks and challenges formatting">
+            <Button type="button" variant="outline" size="icon-sm" aria-label="Bold selected text" onClick={() => formatRisks("**")}><Bold aria-hidden="true" /></Button>
+            <Button type="button" variant="outline" size="icon-sm" aria-label="Italicize selected text" onClick={() => formatRisks("*")}><Italic aria-hidden="true" /></Button>
+            <Button type="button" variant="outline" size="icon-sm" aria-label="Add bulleted list marker" onClick={addRisksListMarker}><List aria-hidden="true" /></Button>
+          </div>
+          <textarea
+            ref={risksEditorRef}
+            id="risksAndChallenges"
+            rows={6}
+            maxLength={10000}
+            value={data.risksAndChallenges}
+            onChange={(event) => updateField("risksAndChallenges", event.target.value)}
+            aria-invalid={Boolean(errors.risksAndChallenges)}
+            aria-describedby="risksAndChallenges-help"
+            className="w-full rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:border-amber-500 focus:outline-none"
+            placeholder={"**Potential risk:** Seasonal weather may delay planting.\n- We will maintain a flexible planting schedule.\n- Local partners will identify backup sites."}
+          />
+          <p id="risksAndChallenges-help" className="text-xs text-zinc-500">
+            {data.risksAndChallenges.length}/10,000 characters. Bold, italic, and bullet list Markdown are supported.
+          </p>
+          {errors.risksAndChallenges && <p role="alert" className="text-xs text-rose-400">{errors.risksAndChallenges}</p>}
+        </div>
+
         <div>
           <Label htmlFor="descriptionLanguage" className="text-zinc-200 flex items-center gap-1.5">
             <Sparkles className="h-4 w-4 text-purple-400" />
@@ -173,6 +236,22 @@ export function DetailsStep({ data, errors, updateField }: StepProps) {
             className="mt-1.5 border-zinc-700 bg-zinc-900 text-zinc-100 placeholder:text-zinc-500"
           />
           {errors.imageUrl && <p className="mt-1 text-xs text-rose-400">{errors.imageUrl}</p>}
+        </div>
+
+        <div>
+          <Label htmlFor="imageAlt" className="text-zinc-200">
+            Cover Image Alt Text (WCAG 2.1 AA)
+          </Label>
+          <Input
+            id="imageAlt"
+            placeholder="Descriptive text for screen readers (e.g., Rainforest canopy in sunrise)..."
+            value={data.imageAlt || ""}
+            onChange={(e) => updateField("imageAlt", e.target.value)}
+            className="mt-1.5 border-zinc-700 bg-zinc-900 text-zinc-100 placeholder:text-zinc-500"
+          />
+          <p className="mt-1 text-xs text-zinc-500">
+            Required if a cover image is provided to satisfy WCAG 2.1 AA Non-text Content criteria.
+          </p>
         </div>
       </div>
     </div>
@@ -308,6 +387,20 @@ export function TimelineStep({ data, errors, updateField, addMilestone, removeMi
           {errors.startDate && <p className="mt-1 text-xs text-rose-400">{errors.startDate}</p>}
         </div>
 
+        <div>
+          <Label htmlFor="scheduledPublishAt" className="text-zinc-200">
+            Future launch date (optional)
+          </Label>
+          <Input
+            id="scheduledPublishAt"
+            type="datetime-local"
+            value={data.scheduledPublishAt}
+            min={new Date().toISOString().slice(0, 16)}
+            onChange={(e) => updateField("scheduledPublishAt", e.target.value)}
+            className="mt-1.5 border-zinc-700 bg-zinc-900 text-zinc-100 focus:border-emerald-500"
+          />
+          <p className="mt-1 text-xs text-zinc-500">Scheduled campaigns remain private to you until this time.</p>
+        </div>
         <div>
           <Label htmlFor="endDate" className="text-zinc-200">
             Campaign End Date <span className="text-rose-400">*</span>
@@ -532,7 +625,17 @@ export function ImpactStep({ data, errors, updateField }: StepProps) {
 }
 
 // Step 5: Preview Component
-export function PreviewStep({ data, errors }: { data: CampaignWizardData; errors: WizardStepErrors }) {
+export function PreviewStep({
+  data,
+  errors,
+  onCheckAccessibility,
+  accessibilityAudit,
+}: {
+  data: CampaignWizardData;
+  errors: WizardStepErrors;
+  onCheckAccessibility?: () => void;
+  accessibilityAudit?: AccessibilityAuditResult | null;
+}) {
   const hasErrors = Object.keys(errors).length > 0;
   const previewCountries = parseCountryList(data.targetCountries || "");
   const previewMultiplier = computeGeographicMultiplier(previewCountries.length);
@@ -541,6 +644,7 @@ export function PreviewStep({ data, errors }: { data: CampaignWizardData; errors
 
   return (
     <div className="space-y-6">
+      <div className="rounded-lg border border-emerald-800/50 bg-emerald-950/20 p-3 text-sm text-emerald-200" role="status">{publicationLabel}</div>
       <div className="border-b border-zinc-800 pb-4 flex items-center justify-between">
         <div>
           <h3 className="text-lg font-medium text-zinc-100 flex items-center gap-2">
@@ -555,6 +659,67 @@ export function PreviewStep({ data, errors }: { data: CampaignWizardData; errors
         >
           {hasErrors ? "Validation Errors Present" : "Ready to Publish"}
         </Badge>
+      </div>
+
+      {/* Automated WCAG 2.1 AA Accessibility Check Banner */}
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900/90 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-lg">
+        <div className="flex items-center gap-3">
+          <div
+            className={`flex h-10 w-10 items-center justify-center rounded-lg border ${
+              accessibilityAudit && !accessibilityAudit.canPublish
+                ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                : accessibilityAudit && accessibilityAudit.warnings.length > 0
+                ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                : "bg-purple-500/10 text-purple-400 border-purple-500/20"
+            }`}
+          >
+            <ShieldCheck className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-semibold text-zinc-100">
+                Automated Accessibility Check (WCAG 2.1 AA)
+              </h4>
+              {accessibilityAudit && (
+                <Badge
+                  variant={!accessibilityAudit.canPublish ? "destructive" : "outline"}
+                  className={
+                    !accessibilityAudit.canPublish
+                      ? ""
+                      : accessibilityAudit.warnings.length > 0
+                      ? "border-amber-500 text-amber-400"
+                      : "border-emerald-500 text-emerald-400"
+                  }
+                >
+                  {!accessibilityAudit.canPublish
+                    ? `${accessibilityAudit.criticalIssues.length} Critical Issue(s)`
+                    : accessibilityAudit.warnings.length > 0
+                    ? `${accessibilityAudit.warnings.length} Advisory Warning(s)`
+                    : "Passed"}
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              {accessibilityAudit
+                ? !accessibilityAudit.canPublish
+                  ? "Critical issues block publishing. Review fix suggestions to proceed."
+                  : accessibilityAudit.warnings.length > 0
+                  ? "Meets WCAG 2.1 AA requirements. Warnings are advisory."
+                  : "All WCAG 2.1 AA checks passed. Ready for launch."
+                : "Check your campaign page for WCAG 2.1 AA compliance before publishing."}
+            </p>
+          </div>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onCheckAccessibility}
+          className="border-purple-600 bg-purple-600/10 text-purple-300 hover:bg-purple-600/20 shrink-0"
+        >
+          Check Accessibility
+        </Button>
       </div>
 
       {hasErrors && (
@@ -579,6 +744,9 @@ export function PreviewStep({ data, errors }: { data: CampaignWizardData; errors
           <Badge className="bg-purple-900/50 text-purple-300 border-purple-700">{data.category}</Badge>
           <p className="text-xs text-zinc-300">{data.shortDescription}</p>
           <p className="text-xs text-zinc-400 line-clamp-3">{data.fullStory}</p>
+          <div className={`rounded-md border px-3 py-2 text-xs ${data.risksAndChallenges.trim() ? "border-emerald-800/60 bg-emerald-950/20 text-emerald-300" : "border-amber-700/60 bg-amber-950/20 text-amber-300"}`}>
+            Risks and Challenges: {data.risksAndChallenges.trim() ? "Complete" : "Incomplete"}
+          </div>
         </div>
 
         {/* Financial Goals */}

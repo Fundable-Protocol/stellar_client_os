@@ -18,6 +18,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { offrampService } from "@/services/offramp.service";
+import { donationService } from "@/services/donation.service";
+import type { ConversionQuote } from "@/types/campaign";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -144,6 +146,137 @@ function parseQuote(
     bestProvider: best.name,
     expiresAt,
   };
+}
+
+// ── Currency conversion quote hook ────────────────────────────────────────────
+
+export interface CurrencyQuoteParams {
+  /** Amount as a string to avoid precision issues */
+  amount: string;
+  /** Source currency code (e.g. "USD", "EUR", "XLM", "USDC") */
+  fromCurrency: string;
+  /** Target currency code (e.g. "USD", "EUR", "XLM", "USDC") */
+  toCurrency: string;
+  /** Debounce delay in ms. Default: 500 */
+  debounceMs?: number;
+  /** Skip fetching when true (e.g. form is invalid) */
+  disabled?: boolean;
+}
+
+export interface UseCurrencyQuoteReturn {
+  /** Latest conversion quote (rate, converted amount, timestamp) */
+  quote: ConversionQuote | null;
+  isLoading: boolean;
+  error: string | null;
+  /** Manually trigger a fresh quote fetch */
+  refresh: () => void;
+}
+
+/**
+ * useCurrencyQuote — Debounced multi-currency conversion quote hook.
+ *
+ * Fetches a ConversionQuote from the donation service so the donate page can
+ * display the live conversion rate and converted amount before the backer
+ * confirms their pledge.
+ *
+ * @example
+ * ```tsx
+ * const { quote, isLoading, error } = useCurrencyQuote({
+ *   amount: "100", fromCurrency: "EUR", toCurrency: "USD",
+ * });
+ * ```
+ */
+export function useCurrencyQuote({
+  amount,
+  fromCurrency,
+  toCurrency,
+  debounceMs = 500,
+  disabled = false,
+}: CurrencyQuoteParams): UseCurrencyQuoteReturn {
+  const [quote, setQuote] = useState<ConversionQuote | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fetchQuote = useCallback(
+    async (signal: AbortSignal) => {
+      const numAmount = parseFloat(amount);
+      if (!numAmount || numAmount <= 0) {
+        setError("Enter a valid amount");
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const result = await donationService.getConversionQuote(
+          { amount: numAmount, fromCurrency, toCurrency },
+          signal
+        );
+
+        if (signal.aborted) return;
+
+        if (!result.success || !result.data) {
+          setError(result.error ?? "Failed to fetch conversion quote");
+          setQuote(null);
+        } else {
+          setQuote(result.data);
+          setError(null);
+        }
+      } catch (err) {
+        if (signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Failed to fetch conversion quote");
+        setQuote(null);
+      } finally {
+        if (!signal.aborted) setIsLoading(false);
+      }
+    },
+    [amount, fromCurrency, toCurrency]
+  );
+
+  // Debounced effect: re-run whenever inputs change
+  useEffect(() => {
+    if (disabled || !amount || !fromCurrency || !toCurrency) {
+      setIsLoading(false);
+      return;
+    }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    abortRef.current?.abort();
+
+    setIsLoading(true);
+
+    debounceRef.current = setTimeout(() => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      fetchQuote(controller.signal);
+    }, debounceMs);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [amount, fromCurrency, toCurrency, debounceMs, disabled, fetchQuote]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const refresh = useCallback(() => {
+    if (disabled) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setIsLoading(true);
+    setError(null);
+    fetchQuote(controller.signal);
+  }, [disabled, fetchQuote]);
+
+  return { quote, isLoading, error, refresh };
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
       'verification_complete',
       'campaign_finished',
       'impact_achieved',
+      'campaign_update',
     ];
 
     if (!campaignId || !milestone || !validMilestones.includes(milestone)) {

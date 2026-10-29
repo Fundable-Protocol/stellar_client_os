@@ -1,8 +1,8 @@
 import { getCampaign, transitionCampaignStatus } from "../../../../services/campaign.service";
+import { CampaignPushNotificationService } from "@/services/campaign-push-notification.service";
 import {
   detectLanguage,
   hasOnlySupportedTranslationLocales,
-  isSupportedTranslationLocale,
   isSupportedTranslationLocale,
   localizeCampaign,
   localeFromAcceptLanguage,
@@ -14,9 +14,10 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const regalidate = 0;
+export const revalidate = 0;
 
 const NO_STORE_HEADERS = { "Cache-Control": "private, no-store, max-age=0" };
+const mobilePushService = new CampaignPushNotificationService();
 function noStore<T>(body: T, init?: ResponseInit): Response {
   return Response.json(body, { ...init, headers: { ...NO_STORE_HEADERS, ...(init?.headers ?? {}) } });
 }
@@ -63,6 +64,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       reason?: string;
       name?: string;
       description?: string;
+      risksAndChallenges?: string;
       pledgeThankYouGreeting?: string;
       pledgeThankYouBody?: string;
       language?: string;
@@ -71,9 +73,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       autoTranslate?: boolean;
       treeCount?: number;
       co2Sequestration?: string;
-speciesCount?: number;
+      speciesCount?: number;
       countries?: string[];
       location?: string;
+      comingSoon?: boolean;
+      comingSoonTeaser?: string;
+      fundsRaised?: number;
+      deadTrees?: number;
     };
     if (body.language && !isSupportedTranslationLocale(body.language)) {
       return noStore({ error: "language is not supported" }, { status: 400 });
@@ -86,8 +92,6 @@ speciesCount?: number;
         { error: "Automatic translation is unavailable. Provide translations for the supported languages." },
         { status: 501 },
       );
-    if (body.autoTranslate) {
-      return noStore({ error: "Automatic translation is not configured; provide reviewed translations instead" }, { status: 501 });
     }
     if (body.language !== undefined && !isSupportedTranslationLocale(body.language)) {
       return noStore({ error: "language must be a supported ISO 639-1 code", supportedLanguages: SUPPORTED_TRANSLATION_LOCALES }, { status: 400 });
@@ -111,7 +115,7 @@ speciesCount?: number;
     )) {
       return noStore({ error: "co2Sequestration must be a non-negative decimal string in metric tonnes" }, { status: 400 });
     }
-if (body.fundsRaised !== undefined && (!Number.isFinite(body.fundsRaised) || body.fundsRaised < 0)) {
+    if (body.fundsRaised !== undefined && (!Number.isFinite(body.fundsRaised) || body.fundsRaised < 0)) {
       return noStore({ error: "fundsRaised must be a non-negative number" }, { status: 400 });
     }
     if (body.deadTrees !== undefined && (!Number.isSafeInteger(body.deadTrees) || body.deadTrees < 0)) {
@@ -123,18 +127,70 @@ if (body.fundsRaised !== undefined && (!Number.isFinite(body.fundsRaised) || bod
     if (body.location !== undefined && typeof body.location !== "string") {
       return noStore({ error: "location must be a string" }, { status: 400 });
     }
+    if (body.risksAndChallenges !== undefined && (
+      typeof body.risksAndChallenges !== "string" ||
+      body.risksAndChallenges.trim().length < 20 ||
+      body.risksAndChallenges.length > 10000
+    )) {
+      return noStore(
+        { error: "risksAndChallenges must contain at least 20 characters and no more than 10,000 characters" },
+        { status: 400 },
+      );
+    }
     if (body.pledgeThankYouGreeting !== undefined && (typeof body.pledgeThankYouGreeting !== "string" || body.pledgeThankYouGreeting.length > 240)) {
       return noStore({ error: "pledgeThankYouGreeting must be 240 characters or fewer" }, { status: 400 });
     }
     if (body.pledgeThankYouBody !== undefined && (typeof body.pledgeThankYouBody !== "string" || body.pledgeThankYouBody.length > 2000)) {
       return noStore({ error: "pledgeThankYouBody must be 2,000 characters or fewer" }, { status: 400 });
     }
+    if (body.comingSoon !== undefined && typeof body.comingSoon !== "boolean") {
+      return noStore({ error: "comingSoon must be a boolean" }, { status: 400 });
+    }
+    if (body.comingSoonTeaser !== undefined && (typeof body.comingSoonTeaser !== "string" || body.comingSoonTeaser.length > 1000)) {
+      return noStore({ error: "comingSoonTeaser must be 1,000 characters or fewer" }, { status: 400 });
+    }
     let updated = campaign;
     if (body.status) {
       if (!body.changedBy) return noStore({ error: "changedBy is required when changing status" }, { status: 400 });
+
+      // Before campaigns go live (ACTIVE), run automated fraud check
+      if (body.status === "ACTIVE") {
+        const { fraudDetectionService } = await import("@/services/fraud-detection.service");
+        const review = await fraudDetectionService.reviewCampaignListing({
+          id: campaign.id,
+          title: campaign.name,
+          creatorAddress: campaign.creator,
+          description: campaign.description,
+          goalAmount: campaign.goalAmount,
+          treeCount: campaign.treeCount,
+          durationDays: campaign.durationMs ? Math.round(campaign.durationMs / 86_400_000) : undefined,
+          location: campaign.location,
+        });
+
+        if (review.action === "FLAGGED_FOR_MANUAL_REVIEW") {
+          return noStore(
+            {
+              error: "Campaign listing flagged for potential fraud and held in manual review queue before going live.",
+              code: "FLAGGED_FOR_MANUAL_REVIEW",
+              reviewItem: review.reviewItem,
+            },
+            { status: 422 }
+          );
+        } else if (review.action === "AUTO_SUSPENDED") {
+          return noStore(
+            {
+              error: "Campaign listing suspended due to critical fraud risk.",
+              code: "AUTO_SUSPENDED",
+              reviewItem: review.reviewItem,
+            },
+            { status: 403 }
+          );
+        }
+      }
+
       updated = await transitionCampaignStatus(campaign, body.status, body.changedBy, body.reason);
     }
-if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined || body.speciesCount !== undefined || body.pledgeThankYouGreeting !== undefined || body.pledgeThankYouBody !== undefined) {
+    if (body.name !== undefined || body.description !== undefined || body.language !== undefined || body.translations !== undefined || body.localizedContent !== undefined || body.autoTranslate !== undefined || body.treeCount !== undefined || body.co2Sequestration !== undefined || body.speciesCount !== undefined || body.countries !== undefined || body.location !== undefined || body.pledgeThankYouGreeting !== undefined || body.pledgeThankYouBody !== undefined || body.comingSoon !== undefined || body.comingSoonTeaser !== undefined) {
       const language = body.language ? normalizeTranslationLocale(body.language)! : updated.language ?? detectLanguage(body.description ?? updated.description ?? "");
       const translations = { ...updated.translations, ...body.translations };
       const description = body.description ?? updated.description ?? "";
@@ -153,11 +209,69 @@ if (body.name !== undefined || body.description !== undefined || body.language !
         localizedContent,
         treeCount: body.treeCount ?? updated.treeCount,
         co2Sequestration: body.co2Sequestration ?? updated.co2Sequestration,
-speciesCount: body.speciesCount ?? updated.speciesCount,
+        speciesCount: body.speciesCount ?? updated.speciesCount,
         countries: body.countries ?? updated.countries,
         location: body.location ?? updated.location,
+        comingSoon: body.comingSoon ?? updated.comingSoon,
+        comingSoonTeaser: body.comingSoonTeaser ?? updated.comingSoonTeaser,
         updatedAt: Date.now(),
       });
+    }
+    if (body.risksAndChallenges !== undefined) {
+      updated = await (await import("@/services/campaign.service")).getCampaignDataSource().saveCampaign({
+        ...updated,
+        risksAndChallenges: body.risksAndChallenges.trim(),
+        updatedAt: Date.now(),
+      });
+    }
+    const updateFields = [
+      "name",
+      "description",
+      "language",
+      "translations",
+      "localizedContent",
+      "treeCount",
+      "co2Sequestration",
+      "speciesCount",
+      "pledgeThankYouGreeting",
+      "pledgeThankYouBody",
+      "comingSoon",
+      "comingSoonTeaser",
+      "countries",
+      "location",
+    ] as const;
+    if (updateFields.some((field) => body[field] !== undefined)) {
+      const pushResult = await mobilePushService.sendCampaignUpdateNotification({
+        campaignId: id,
+        campaignTitle: updated.name,
+        details: {
+          summary: `${updated.name} has posted a new campaign update.`,
+        },
+      });
+      if (pushResult.errors > 0) {
+        console.error("Some mobile campaign update notifications failed.", {
+          campaignId: id,
+          errors: pushResult.errors,
+        });
+      }
+    }
+    if (
+      campaign.status !== updated.status &&
+      (updated.status === "COMPLETED" || updated.status === "FAILED")
+    ) {
+      const pushResult = await mobilePushService.sendMilestonePushNotification({
+        campaignId: id,
+        campaignTitle: updated.name,
+        milestone: "campaign_finished",
+        details: {},
+        deepLinkUrl: `https://fundable.stellar/campaigns/${encodeURIComponent(id)}`,
+      });
+      if (pushResult.errors > 0) {
+        console.error("Some mobile campaign completion notifications failed.", {
+          campaignId: id,
+          errors: pushResult.errors,
+        });
+      }
     }
     return noStore(updated);
   } catch (error) {

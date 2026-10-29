@@ -7,10 +7,18 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { subscriberAddress, campaignId, endpoint, keys, deviceType, enabledMilestones } = body;
+    const nativePush = typeof endpoint === "string" &&
+      (endpoint.startsWith("ExponentPushToken[") || endpoint.startsWith("ExpoPushToken["));
 
-    if (!subscriberAddress || !endpoint || !keys) {
+    if (
+      typeof subscriberAddress !== "string" ||
+      !subscriberAddress ||
+      typeof endpoint !== "string" ||
+      !endpoint ||
+      (!nativePush && !keys)
+    ) {
       return NextResponse.json(
-        { error: 'subscriberAddress, endpoint, and keys are required' },
+        { error: 'subscriberAddress and a valid push endpoint are required' },
         { status: 400 }
       );
     }

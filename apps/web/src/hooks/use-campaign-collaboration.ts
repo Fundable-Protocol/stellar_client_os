@@ -45,17 +45,41 @@ export function useCampaignCollaboration({
   }, [currentUserRole]);
 
   const createInvite = useCallback(
-    (role: CoCreatorRole, expiresInDays = 7) => {
-      const invite = collaborationService.createInviteToken({
-        campaignId,
-        campaignTitle,
-        role,
-        invitedBy: currentUserAddress,
-        invitedByName: "Campaign Owner",
-        expiresInDays,
-      });
+    async (role: CoCreatorRole, expiresInDays = 7, inviteeEmail?: string) => {
+      // Create the invitation server-side so the backend can deliver it by
+      // email (#1197). Falls back to the local in-memory service if the API is
+      // unavailable (e.g. during static demo rendering).
+      let invite: CoCreatorInvite;
+      try {
+        const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/collaborators`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            role,
+            invitedBy: currentUserAddress,
+            invitedByName: "Campaign Owner",
+            inviteeEmail,
+            expiresInDays,
+            campaignTitle,
+            origin: typeof window !== "undefined" ? window.location.origin : undefined,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.invite) throw new Error(json.error || "invite failed");
+        invite = json.invite as CoCreatorInvite;
+      } catch {
+        invite = collaborationService.createInviteToken({
+          campaignId,
+          campaignTitle,
+          role,
+          invitedBy: currentUserAddress,
+          invitedByName: "Campaign Owner",
+          inviteeEmail,
+          expiresInDays,
+        });
+      }
 
-      setActiveInvites((prev) => [invite, ...prev]);
+      setActiveInvites((prev) => [invite, ...prev.filter((i) => i.token !== invite.token)]);
       return invite;
     },
     [campaignId, campaignTitle, currentUserAddress]
