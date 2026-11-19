@@ -18,6 +18,7 @@ import { getGrantProgramService } from "@/services/grant-program.service";
 import { getCampaignDisputeService } from "@/services/campaign-dispute.service";
 import { evaluateImpactMetric } from "@/services/campaign-impact-metric.service";
 import { getCampaignEscrowService } from "@/services/campaign-escrow.service";
+import { getCampaignBackersService } from "@/services/campaign-backers.service";
 import type {
   RegionFilter,
   CategoryFilter,
@@ -419,6 +420,41 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
       ) => {
         return getCampaignDisputeService().getDispute(args.id);
       },
+
+      /**
+       * List tax receipts available to a backer (issue #1233).
+       * Only campaigns flagged as charitable / non-profit generate receipts.
+       *
+       * @example
+       * query {
+       *   backerTaxReceipts(backerAddress: "GAAA") {
+       *     id campaignId amount asset issuedAt downloadUrl
+       *   }
+       * }
+       */
+      backerTaxReceipts: async (
+        _: unknown,
+        args: { backerAddress: string; campaignId?: string },
+        ctx: ResolverContext,
+      ) => {
+        return getCampaignBackersService(ctx.campaignDataSource).listBackerTaxReceipts(args.backerAddress, {
+          campaignId: args.campaignId,
+        });
+      },
+
+      /**
+       * Fetch a single tax receipt for a backer (issue #1233).
+       */
+      backerTaxReceipt: async (
+        _: unknown,
+        args: { backerAddress: string; receiptId: string },
+        ctx: ResolverContext,
+      ) => {
+        return getCampaignBackersService(ctx.campaignDataSource).getBackerTaxReceipt(
+          args.backerAddress,
+          args.receiptId,
+        );
+      },
     },
     Campaign: {
       impactMetric: async (
@@ -426,6 +462,22 @@ export function createResolvers(defaultDataSource?: StreamDataSource) {
       ) => {
         const raisedAmount = toBigInt(String(parent.totalAmount ?? "0"));
         return evaluateImpactMetric(parent.id, raisedAmount);
+      },
+
+      /**
+       * Whether the campaign is registered as charitable / non-profit
+       * and therefore eligible to issue tax receipts (issue #1233).
+       */
+      isNonProfit: (parent: { isNonProfit?: boolean }) => {
+        return parent.isNonProfit ?? false;
+      },
+
+      /**
+       * The verified non-profit partner record for the campaign, if any
+       * (issue #1233).
+       */
+      nonprofitPartner: (parent: { nonprofitPartner?: unknown }) => {
+        return parent.nonprofitPartner ?? null;
       },
     },
     Mutation: {

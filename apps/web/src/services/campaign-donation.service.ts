@@ -33,6 +33,11 @@ import { CampaignMilestoneEmailService } from "./campaign-milestone-email.servic
 import { buildCampaignNotificationDispatch } from "./campaign-notification.service";
 import { campaignReferralService } from "./campaign-referral.service";
 import { backerBadgeService } from "./backer-badge.service";
+import {
+  generateTaxReceipt,
+  isEligibleForTaxReceipt,
+  taxReceiptDownloadUrl,
+} from "./tax-receipt.service";
 
 /**
  * One-time charitable campaign donations (issue #1001).
@@ -432,6 +437,40 @@ export class CampaignDonationService {
         // A mail provider outage must not undo a confirmed on-chain donation.
       }
     }
+
+    // Charitable / non-profit campaigns issue a downloadable tax receipt
+    // (issue #1233). Failures here must never roll back the donation.
+    if (isEligibleForTaxReceipt(recorded.campaign)) {
+      try {
+        const taxYear = new Date(now).getUTCFullYear();
+        const taxReceipt = await generateTaxReceipt({
+          campaign: recorded.campaign,
+          donation,
+          receipt,
+          donorAddress,
+          donorName: input.donorName,
+          taxYear,
+        });
+        if (donorEmail) {
+          const siteUrl = process.env.NEXT_PUBLIC_URL ?? "https://fundable.network";
+          await this.emailService.sendEmail({
+            to: donorEmail,
+            subject: `Your ${taxYear} tax receipt for ${recorded.campaign.name}`,
+            text: `Thank you for your contribution to ${recorded.campaign.name}. Your ${taxYear} tax receipt is attached. You can also download it any time from your dashboard: ${taxReceiptDownloadUrl(taxReceipt.receiptId, siteUrl)}`,
+            attachments: [
+              {
+                filename: taxReceipt.fileName,
+                content: taxReceipt.pdf,
+                contentType: "application/pdf",
+              },
+            ],
+          });
+        }
+      } catch {
+        // A PDF or mail failure must not undo a confirmed on-chain donation.
+      }
+    }
+
     return {
       ok: true,
       donation,

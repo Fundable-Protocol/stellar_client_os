@@ -145,6 +145,31 @@ export interface ResolveDisputeInput {
   refundAmount: string;
 }
 
+export type NonprofitVerificationStatus = "pending" | "verified" | "rejected";
+
+/**
+ * Metadata captured during onboarding for campaigns registered as
+ * charitable or non-profit organizations.
+ */
+export interface NonprofitPartnerMetadata {
+  legalName: string;
+  registrationNumber: string;
+  country: string;
+  verificationStatus: NonprofitVerificationStatus;
+}
+
+/**
+ * Categories whose campaigns are eligible for tax receipts when the
+ * campaign is flagged as a verified non-profit.
+ */
+export const NONPROFIT_CAMPAIGN_CATEGORIES: readonly CampaignCategory[] = [
+  "Social Impact",
+  "Environment",
+  "Education",
+  "Health",
+  "Community",
+] as const;
+
 export interface CampaignData {
   id: string;
   title: string;
@@ -175,7 +200,42 @@ export interface CampaignData {
   tags?: string[];
   /** Optional creator identity verification (email, phone, government ID). */
   creatorVerification?: CreatorVerificationFlags;
+  /** True when the campaign is a verified charitable / non-profit campaign. */
+  isNonProfit?: boolean;
+  /** Non-profit registration metadata, present for non-profit campaigns. */
+  nonprofitPartner?: NonprofitPartnerMetadata;
 }
+
+/**
+ * A downloadable tax receipt for a confirmed contribution to an eligible
+ * non-profit campaign.
+ */
+export interface TaxReceipt {
+  id: string;
+  campaignId: string;
+  campaignName: string;
+  pledgeId: string;
+  backerAddress: string;
+  amount: string;
+  token: string;
+  taxYear: number;
+  receiptUrl: string;
+  issuedAt: number;
+  emailedAt?: number;
+}
+
+/** Lightweight receipt entry for listing receipts on the backer dashboard. */
+export type TaxReceiptSummary = Pick<
+  TaxReceipt,
+  | "id"
+  | "campaignId"
+  | "campaignName"
+  | "amount"
+  | "token"
+  | "taxYear"
+  | "receiptUrl"
+  | "issuedAt"
+>;
 
 export interface CampaignFilterOptions {
   searchQuery: string;

@@ -59,7 +59,9 @@ export async function awardCharityBadge(
     awardedBy: input.awardedBy.trim(),
     awardedAt: now,
   };
-  return dataSource.saveCampaign({ ...campaign, charityBadge, updatedAt: now });
+  // TAX_EXEMPT badges are the onboarding evidence that makes a campaign eligible for tax receipts.
+  const isNonProfit = input.type === "TAX_EXEMPT" ? true : campaign.isNonProfit;
+  return dataSource.saveCampaign({ ...campaign, charityBadge, isNonProfit, updatedAt: now });
 }
 
 /** Removes the charity badge from a campaign. */
@@ -71,5 +73,7 @@ export async function revokeCharityBadge(
   const campaign = await getCampaign(campaignId, dataSource);
   if (!campaign) throw new CharityBadgeError("CAMPAIGN_NOT_FOUND", "Campaign not found");
   const { charityBadge: _removed, ...rest } = campaign;
-  return dataSource.saveCampaign({ ...rest, updatedAt: now });
+  // The badge was the only non-profit evidence, so tax-receipt eligibility must be cleared with it.
+  const isNonProfit = campaign.charityBadge?.type === "TAX_EXEMPT" ? false : campaign.isNonProfit;
+  return dataSource.saveCampaign({ ...rest, isNonProfit, updatedAt: now });
 }

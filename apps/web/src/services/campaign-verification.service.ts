@@ -109,3 +109,79 @@ export function verifyVerificationAuditTrail(entries: readonly VerificationAudit
 export function isVerificationEventType(value: unknown): value is VerificationEventType {
   return typeof value === "string" && (VERIFICATION_EVENT_TYPES as readonly string[]).includes(value);
 }
+
+export interface NonProfitPartnerInput {
+  legalName: string;
+  registrationNumber: string;
+  country: string;
+}
+
+function validatePartner(partner: NonProfitPartnerInput): NonProfitPartnerInput {
+  if (!partner?.legalName?.trim()) throw new Error("partner legalName is required");
+  if (!partner?.registrationNumber?.trim()) throw new Error("partner registrationNumber is required");
+  if (!partner?.country?.trim()) throw new Error("partner country is required");
+  return {
+    legalName: partner.legalName.trim(),
+    registrationNumber: partner.registrationNumber.trim(),
+    country: partner.country.trim(),
+  };
+}
+
+/**
+ * Flags a campaign as belonging to a verified non-profit partner. The partner
+ * details are validated and stored with a VERIFIED status, and the decision is
+ * recorded on the tamper-evident verification audit trail.
+ */
+export async function markCampaignNonProfit(
+  campaignId: string,
+  partner: NonProfitPartnerInput,
+  dataSource: CampaignDataSource = getCampaignDataSource(),
+): Promise<VerificationAuditEntry> {
+  const validated = validatePartner(partner);
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) throw new Error("Campaign not found");
+  await dataSource.saveCampaign({
+    ...campaign,
+    isNonProfit: true,
+    nonprofitPartner: { ...validated, verificationStatus: "VERIFIED" },
+    updatedAt: Date.now(),
+  });
+  return appendVerificationEvent(
+    campaignId,
+    {
+      eventType: "nonprofit_verified",
+      actorId: validated.registrationNumber,
+      comment: `Non-profit verified: ${validated.legalName} (${validated.country})`,
+    },
+    dataSource,
+  );
+}
+
+/**
+ * Revokes a campaign's non-profit status, clearing the partner record and
+ * appending a rejection event to the verification audit trail.
+ */
+export async function revokeNonProfitStatus(
+  campaignId: string,
+  actorId: string,
+  reason?: string,
+  dataSource: CampaignDataSource = getCampaignDataSource(),
+): Promise<VerificationAuditEntry> {
+  const campaign = await getCampaign(campaignId, dataSource);
+  if (!campaign) throw new Error("Campaign not found");
+  await dataSource.saveCampaign({
+    ...campaign,
+    isNonProfit: false,
+    nonprofitPartner: undefined,
+    updatedAt: Date.now(),
+  });
+  return appendVerificationEvent(
+    campaignId,
+    {
+      eventType: "nonprofit_rejected",
+      actorId,
+      ...(reason?.trim() ? { comment: reason.trim() } : {}),
+    },
+    dataSource,
+  );
+}

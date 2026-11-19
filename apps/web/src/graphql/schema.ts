@@ -316,6 +316,35 @@ export const typeDefs = /* GraphQL */`
     reachedAt: Int
   }
 
+  """A verified non-profit partner organisation backing a campaign."""
+  type NonprofitPartner {
+    id: ID!
+    name: String!
+    """Registered charity / non-profit registration number."""
+    registrationNumber: String
+    """Unix timestamp (seconds) when the partner was verified."""
+    verifiedAt: Int
+  }
+
+  """A downloadable tax receipt for an eligible campaign contribution."""
+  type TaxReceipt {
+    id: ID!
+    campaignId: ID!
+    campaignName: String!
+    """Contribution amount (as string)."""
+    amount: String!
+    """Token contract address of the contribution."""
+    token: String!
+    """Tax year the contribution is attributed to."""
+    taxYear: Int!
+    """URL from which the receipt PDF can be downloaded."""
+    receiptUrl: String!
+    """Unix timestamp (seconds) when the receipt was generated."""
+    issuedAt: Int!
+    """Unix timestamp (seconds) when the receipt was emailed, if ever."""
+    emailedAt: Int
+  }
+
   type Campaign {
     id: ID!
     creator: String!
@@ -347,6 +376,10 @@ export const typeDefs = /* GraphQL */`
     statusHistory: [CampaignStatusHistory!]!
     """Creator-defined impact metric for socially-focused campaigns."""
     impactMetric: ImpactMetric
+    """True when the campaign is registered as a charitable / non-profit campaign."""
+    isNonProfit: Boolean!
+    """Verified non-profit partner backing the campaign, if any."""
+    nonprofitPartner: NonprofitPartner
   }
 
   input TreeFilter {
@@ -772,6 +805,17 @@ export const typeDefs = /* GraphQL */`
     A single dispute by its identifier.
     """
     dispute(id: ID!): CampaignDispute
+
+    """
+    All tax receipts issued to a backer for eligible non-profit campaign
+    contributions, downloadable at any time.
+    """
+    backerTaxReceipts(backerAddress: String!): [TaxReceipt!]!
+
+    """
+    A single tax receipt for a backer by its identifier.
+    """
+    backerTaxReceipt(backerAddress: String!, receiptId: ID!): TaxReceipt
   }
 
   """

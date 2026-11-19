@@ -129,3 +129,115 @@ export class TaxReportingSDK {
     };
   }
 }
+
+/**
+ * A downloadable tax receipt issued to a backer for a contribution to a
+ * campaign registered as charitable / non-profit (issue #1233).
+ */
+export interface TaxReceipt {
+  /** Unique receipt identifier. */
+  receiptId: string;
+  /** Campaign the contribution was made to. */
+  campaignId: string;
+  /** Stellar-wallet public key of the backer (G…/C…). */
+  backerAddress: string;
+  /** Contribution amount in integer USDC units (e.g. "1000" = 1,000 USDC). */
+  amount: string;
+  /** Token the contribution was made in, e.g. "USDC". */
+  token: string;
+  /** Calendar tax year the receipt applies to, e.g. 2025. */
+  taxYear: number;
+  /** URL the backer can use to download the receipt PDF. */
+  receiptUrl: string;
+  /** ISO 8601 timestamp of when the receipt was issued. */
+  issuedAt: string;
+}
+
+/** GraphQL endpoint used to fetch backer tax receipts. */
+const TAX_RECEIPTS_GRAPHQL_URL =
+  process.env.TAX_RECEIPTS_GRAPHQL_URL ?? "http://localhost:4000/graphql";
+
+const LIST_TAX_RECEIPTS_QUERY = `
+  query ListTaxReceipts($backerAddress: String!) {
+    taxReceipts(backerAddress: $backerAddress) {
+      receiptId
+      campaignId
+      backerAddress
+      amount
+      token
+      taxYear
+      receiptUrl
+      issuedAt
+    }
+  }
+`;
+
+const GET_TAX_RECEIPT_QUERY = `
+  query GetTaxReceipt($backerAddress: String!, $receiptId: String!) {
+    taxReceipt(backerAddress: $backerAddress, receiptId: $receiptId) {
+      receiptId
+      campaignId
+      backerAddress
+      amount
+      token
+      taxYear
+      receiptUrl
+      issuedAt
+    }
+  }
+`;
+
+async function queryTaxReceipts<T>(
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<T> {
+  const response = await fetch(TAX_RECEIPTS_GRAPHQL_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Tax receipt request failed with status ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    data?: T;
+    errors?: Array<{ message?: string }>;
+  };
+
+  if (payload.errors && payload.errors.length > 0) {
+    const message = payload.errors.map((error) => error.message ?? "unknown error").join("; ");
+    throw new Error(`Tax receipt request failed: ${message}`);
+  }
+
+  if (!payload.data) {
+    throw new Error("Tax receipt request returned no data");
+  }
+
+  return payload.data;
+}
+
+/**
+ * Client for fetching the tax receipts issued to a backer for contributions to
+ * charitable / non-profit campaigns.
+ */
+export class TaxReceiptSDK {
+  /** List all tax receipts issued to the given backer. */
+  async listReceipts(backerAddress: string): Promise<TaxReceipt[]> {
+    const data = await queryTaxReceipts<{ taxReceipts: TaxReceipt[] }>(
+      LIST_TAX_RECEIPTS_QUERY,
+      { backerAddress },
+    );
+    return data.taxReceipts ?? [];
+  }
+
+  /** Fetch a single tax receipt for the given backer, or `null` if not found. */
+  async getReceipt(backerAddress: string, receiptId: string): Promise<TaxReceipt | null> {
+    const data = await queryTaxReceipts<{ taxReceipt: TaxReceipt | null }>(
+      GET_TAX_RECEIPT_QUERY,
+      { backerAddress, receiptId },
+    );
+    return data.taxReceipt ?? null;
+  }
+}

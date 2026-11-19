@@ -31,6 +31,40 @@ function renderTemplate(template: string, values: Record<string, string>): strin
   );
 }
 
+export interface TaxReceiptDetails {
+  backerName?: string;
+  amount: string;
+  token: string;
+  receiptNumber: string;
+  issuedAt: string;
+}
+
+export function buildTaxReceiptEmail(
+  campaign: Pick<CampaignRecord, "id" | "name">,
+  receipt: TaxReceiptDetails,
+  downloadUrl: string,
+) {
+  const backerName = escapeHtml(receipt.backerName?.trim() || "there");
+  const amount = escapeHtml(receipt.amount);
+  const token = escapeHtml(receipt.token);
+  const receiptNumber = escapeHtml(receipt.receiptNumber);
+  const issuedAt = escapeHtml(receipt.issuedAt);
+  const campaignName = escapeHtml(campaign.name);
+  const receiptUrl = escapeHtml(downloadUrl);
+
+  return {
+    subject: `Your tax receipt for supporting ${campaign.name}`,
+    html: [
+      '<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;line-height:1.6">',
+      `<p>Hi ${backerName},</p>`,
+      `<p>Thank you for pledging ${amount} ${token} to ${campaignName}. Your contribution may be tax-deductible.</p>`,
+      `<p>Receipt number: ${receiptNumber}<br>Issued on: ${issuedAt}</p>`,
+      `<p><a href="${receiptUrl}">Download your tax receipt (PDF)</a></p>`,
+      "</div>",
+    ].join("\n"),
+  };
+}
+
 export function buildPledgeThankYouEmail(
   campaign: Pick<CampaignRecord, "id" | "name" | "pledgeThankYouGreeting" | "pledgeThankYouBody">,
   details: PledgeThankYouDetails,

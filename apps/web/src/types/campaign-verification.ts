@@ -4,6 +4,8 @@ export const VERIFICATION_EVENT_TYPES = [
   "photo_uploaded",
   "approved",
   "rejected",
+  "nonprofit_verified",
+  "nonprofit_rejected",
 ] as const;
 
 export type VerificationEventType = (typeof VERIFICATION_EVENT_TYPES)[number];
@@ -37,6 +39,12 @@ export interface VerificationAuditEntry {
   ledgerSequence?: number;
 }
 
+export interface NonprofitPartnerPayload {
+  legalName: string;
+  registrationNumber: string;
+  country: string;
+}
+
 export interface AppendVerificationEventInput {
   eventType: VerificationEventType;
   actorId: string;
@@ -46,4 +54,5 @@ export interface AppendVerificationEventInput {
   evidenceUrl?: string;
   blockchainTxHash?: string;
   ledgerSequence?: number;
+  nonprofitPartner?: NonprofitPartnerPayload;
 }
