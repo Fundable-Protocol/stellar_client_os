@@ -21,6 +21,7 @@ import {
   formatTokenAmount,
 } from "@/types/campaign-backers";
 import { calculateSponsorshipPricing } from "./campaign-sponsorship.service";
+import { taxReceiptService, type TaxReceipt } from "./tax-receipt.service";
 
 /**
  * Top backers per campaign.

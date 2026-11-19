@@ -131,6 +131,38 @@ export interface DonationSummary {
   latestDonationAt?: number;
 }
 
+/**
+ * Downloadable tax receipt for a contribution to a charitable / non-profit
+ * campaign (issue #1233). Only generated for campaigns flagged as non-profit
+ * during onboarding and only once the pledge is confirmed.
+ */
+export interface TaxReceipt {
+  receiptId: string;
+  donationId: string;
+  campaignId: string;
+  /** Stellar address of the backer the receipt was issued to. */
+  backerAddress: string;
+  /** Normalised decimal amount, e.g. "25.5". */
+  amount: string;
+  token: DonationToken;
+  /** Calendar year the contribution counts towards, e.g. 2024. */
+  taxYear: number;
+  /** Downloadable PDF location for the receipt. */
+  receiptUrl: string;
+  /** Unix epoch milliseconds when the receipt was generated. */
+  issuedAt: number;
+  /** Unix epoch milliseconds when the receipt was emailed, if it was. */
+  emailedAt?: number;
+}
+
+/** Paginated collection of a backer's tax receipts. */
+export interface TaxReceiptList {
+  receipts: TaxReceipt[];
+  total: number;
+  /** Opaque cursor for the next page, or `null` when exhausted. */
+  nextCursor?: string | null;
+}
+
 export function isDonationToken(value: unknown): value is DonationToken {
   return value === "XLM" || value === "USDC";
 }

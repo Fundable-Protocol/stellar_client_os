@@ -2,6 +2,7 @@ export interface SendEmailOptions {
   to: string;
   subject: string;
   html: string;
+  attachments?: Array<{ filename: string; content: Uint8Array; contentType: string }>;
 }
 
 export class EmailService {
@@ -13,10 +14,15 @@ export class EmailService {
     console.log(`[EmailService] Sending email to: ${options.to}`);
     console.log(`[EmailService] Subject: ${options.subject}`);
     console.log(`[EmailService] Body: ${options.html.substring(0, 100)}...`);
-    
+
+    if (options.attachments && options.attachments.length > 0) {
+      const filenames = options.attachments.map((attachment) => attachment.filename).join(', ');
+      console.log(`[EmailService] Attachments: ${filenames}`);
+    }
+
     // Simulate network delay
     await new Promise((resolve) => setTimeout(resolve, 500));
-    
+
     console.log(`[EmailService] Email sent successfully to ${options.to}`);
     return true;
   }
